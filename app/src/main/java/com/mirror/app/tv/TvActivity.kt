@@ -76,7 +76,7 @@ class TvActivity : ComponentActivity() {
         statusSpace.addView(status, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         root.addView(statusSpace, FrameLayout.LayoutParams(-1, -1))
         message = label("", 17f).apply { gravity = Gravity.CENTER; setBackgroundColor(Color.argb(190, 0, 0, 0)); isFocusable = false }
-        root.addView(message, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(24) })
+        statusSpace.addView(message, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(24) })
         fps = label("", 14f).apply { setBackgroundColor(Color.argb(140, 0, 0, 0)); isFocusable = false }
         root.addView(fps, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START))
         if (packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)) {
@@ -152,8 +152,6 @@ class TvActivity : ComponentActivity() {
     }
     fun menuVisibilityChanged(open: Boolean) {
         statusSpace.setPadding(0, 0, if (open) dp(380) else 0, 0)
-        (message.layoutParams as FrameLayout.LayoutParams).apply { rightMargin = if (open) dp(380) else 0 }
-        message.requestLayout()
         gear?.visibility = if (open) View.GONE else View.VISIBLE
     }
     fun refreshSettings() {
