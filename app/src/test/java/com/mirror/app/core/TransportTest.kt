@@ -37,4 +37,25 @@ class TransportTest {
     @Test(expected = EOFException::class) fun handlesTruncatedFrame() {
         MultipartReader(ByteArrayInputStream("--x\r\nContent-Length: 10\r\n\r\n".toByteArray() + byteArrayOf(-1, -40)), "multipart/x-mixed-replace; boundary=x").nextFrame()
     }
+    @Test fun bulkReadHandlesFragmentedInputAndRotationUpdates() {
+        val jpeg = byteArrayOf(-1, -40, 1, 2, -1, -39)
+        val bytes = ("--x\r\nContent-Length: 6\r\nX-Rotation: 90\r\n\r\n".toByteArray() + jpeg +
+            "\r\n--x\r\nContent-Length: 6\r\nX-Rotation: 270\r\n\r\n".toByteArray() + jpeg)
+        val input = object : ByteArrayInputStream(bytes) {
+            override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len.coerceAtMost(2))
+        }
+        val reader = MultipartReader(input, "multipart/x-mixed-replace; boundary=x")
+        assertArrayEquals(jpeg, reader.nextFrame()); assertEquals(90, reader.rotationDegrees)
+        assertArrayEquals(jpeg, reader.nextFrame()); assertEquals(270, reader.rotationDegrees)
+    }
+    @Test fun scansBoundariesWithoutTruncatingEmbeddedJpegEndMarkers() {
+        val a = byteArrayOf(-1, -40, 1, -1, -39, 2, -1, -39)
+        val b = byteArrayOf(-1, -40, 3, -1, -39)
+        val bytes = "--x\r\nContent-Type: image/jpeg\r\n\r\n".toByteArray() + a +
+            "\r\n--x\r\nContent-Type: image/jpeg\r\n\r\n".toByteArray() + b + "\r\n--x--\r\n".toByteArray()
+        val reader = MultipartReader(ByteArrayInputStream(bytes), "multipart/x-mixed-replace; boundary=x")
+        assertArrayEquals(a, reader.nextFrame()); assertArrayEquals(b, reader.nextFrame())
+        try { reader.nextFrame(); throw AssertionError("Expected stream end") } catch (_: EOFException) {}
+    }
+
 }

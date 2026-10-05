@@ -91,7 +91,14 @@ class PhoneActivity : Activity() {
     private fun update() {
         start.text = if (CameraService.active) "Stop" else "Start"
         for (group in listOf(cameras, resolutions)) for (i in 0 until group.childCount) group.getChildAt(i).isEnabled = !CameraService.active
-        status.text = "${if (CameraService.active) "Streaming at" else "Stream address:"} http://${LocalNetwork.address(this)}:8080/video" +
+        val address = LocalNetwork.address(this)
+        val metrics = CameraService.stats
+        status.text = (if (address == null) "Not on Wi-Fi - connect this phone to the same Wi-Fi as your TV"
+            else "${if (CameraService.active) "Streaming at" else "Stream address:"} http://$address:8080/video") +
+            (if (CameraService.active) String.format(java.util.Locale.US,
+                "\nCamera %.0f fps - Encode %.0f ms - Sending %.0f fps - %d %s",
+                metrics.cameraFps, metrics.encodeMs, metrics.sendFps, metrics.clients.get(),
+                if (metrics.clients.get() == 1) "viewer" else "viewers") else "") +
             (CameraService.error?.let { "\n$it" } ?: "")
     }
     override fun onResume() { super.onResume(); handler.post(refresh) }

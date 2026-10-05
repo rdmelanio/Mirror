@@ -21,6 +21,7 @@ class TvSettings(private val prefs: SharedPreferences) {
     var flip = prefs.getBoolean("flip", true)
     var fill = prefs.getBoolean("fill", false)
     var rotation = prefs.getInt("rotation", 0).let { if (it in listOf(0, 90, 180, 270)) it else 0 }
+    var showFps = prefs.getBoolean("showFps", false)
     var url = prefs.getString("url", "").orEmpty()
     fun save() {
         prefs.edit().putInt("mode", mode).putFloat("zoom", zoom).putFloat("pan", pan)
@@ -28,7 +29,7 @@ class TvSettings(private val prefs: SharedPreferences) {
             .putInt("light", light).putInt("brightness", brightness).putInt("contrast", contrast)
             .putInt("saturation", saturation).putInt("warmth", warmth).putInt("softFocus", softFocus)
             .putBoolean("flip", flip).putBoolean("fill", fill).putInt("rotation", rotation)
-            .putString("url", url).apply()
+            .putBoolean("showFps", showFps).putString("url", url).apply()
     }
     fun resetFilters() { brightness = 0; contrast = 0; saturation = 0; warmth = 0; softFocus = 0 }
 }

@@ -61,7 +61,7 @@ class QuickMenu(private val activity: TvActivity) {
         heading("Connection")
         address = EditText(activity).apply {
             textSize = 16f; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY)
-            hint = "192.168.1.50:8080"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
+            hint = "e.g. 192.168.1.23:8080"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
             contentDescription = "Camera stream address"
         }
         content.addView(address, LinearLayout.LayoutParams(-1, activity.dp(56)))
@@ -74,6 +74,7 @@ class QuickMenu(private val activity: TvActivity) {
         heading("Change role")
         content.addView(activity.action("Change role") { stopDiscovery(); LauncherActivity.changeRole(activity) })
         heading("About")
+        option("Show FPS", listOf("Off", "On"), { if (settings.showFps) 1 else 0 }) { settings.showFps = it == 1 }
         content.addView(activity.label("Mirror ${BuildConfig.VERSION_NAME}"))
     }
     private fun heading(title: String) { content.addView(activity.label(title, 23f)) }
@@ -111,21 +112,22 @@ class QuickMenu(private val activity: TvActivity) {
     fun open() {
         if (isOpen) return
         refreshControls(); address.setText(settings.url)
-        panel.animate().cancel(); panel.visibility = View.VISIBLE; panel.translationX = activity.dp(380).toFloat()
+        panel.animate().cancel(); panel.visibility = View.VISIBLE; activity.menuVisibilityChanged(true); panel.translationX = activity.dp(380).toFloat()
         panel.animate().translationX(0f).setDuration(180).start()
         panel.post { panel.scrollTo(0, 0); first.requestFocus() }
     }
     fun openConnection() {
-        open(); activity.stopAutoDiscovery()
+        open()
         panel.post { find.requestFocus(); panel.smoothScrollTo(0, address.top) }
     }
     fun close() {
         activity.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(address.windowToken, 0)
         stopDiscovery(); panel.animate().cancel()
-        panel.animate().translationX(activity.dp(380).toFloat()).setDuration(150).withEndAction { panel.visibility = View.GONE }.start()
+        panel.visibility = View.GONE; panel.translationX = 0f
+        activity.menuVisibilityChanged(false)
     }
     private fun findCameras() {
-        activity.stopAutoDiscovery(); stopDiscovery(); seen.clear(); results.removeAllViews()
+        stopDiscovery(); seen.clear(); results.removeAllViews()
         results.addView(activity.label("Looking for cameras..."))
         discovery = CameraDiscovery(activity) { name, url ->
             if (isOpen && seen.add(url)) {

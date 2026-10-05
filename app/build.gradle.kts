@@ -33,13 +33,15 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     // CameraX's optional native conversion is disabled in CameraService. We use
-    // our stride-aware YUV converter and framework JPEG/rotation APIs instead.
+    // our stride-aware YUV converter and framework JPEG APIs instead.
     packaging { jniLibs.excludes += "**/*.so" }
 }
 kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
 dependencies {
+    implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("androidx.camera:camera-camera2:1.4.2")
     implementation("androidx.camera:camera-lifecycle:1.4.2")
     implementation("androidx.lifecycle:lifecycle-service:2.8.7")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

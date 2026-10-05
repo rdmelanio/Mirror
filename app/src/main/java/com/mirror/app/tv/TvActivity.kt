@@ -1,6 +1,8 @@
 package com.mirror.app.tv
 
-import android.app.Activity
+import android.content.pm.PackageManager
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
@@ -12,6 +14,7 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.TextView
 import com.mirror.app.core.CameraDiscovery
@@ -21,13 +24,16 @@ import com.mirror.app.core.label
 import com.mirror.app.core.mirrorPreferences
 import java.util.Locale
 
-class TvActivity : Activity() {
+class TvActivity : ComponentActivity() {
     lateinit var settings: TvSettings
         private set
     private lateinit var feed: MirrorView
     private lateinit var light: RingLightView
     private lateinit var status: TextView
     private lateinit var message: TextView
+    private lateinit var statusSpace: FrameLayout
+    private lateinit var fps: TextView
+    private var gear: Button? = null
     private lateinit var menu: QuickMenu
     private val handler = Handler(Looper.getMainLooper())
     private var client: MjpegClient? = null
@@ -35,6 +41,23 @@ class TvActivity : Activity() {
     @Volatile private var started = false
     @Volatile private var generation = 0
     private var lastBack = 0L
+    private var failedSince = 0L
+    private var discoveringSince = 0L
+    private var lastSample = 0L
+    private val health = object : Runnable {
+        override fun run() {
+            if (!started) return
+            val now = SystemClock.elapsedRealtime()
+            val seconds = ((now - lastSample) / 1000.0).coerceAtLeast(.001)
+            lastSample = now
+            val received = (client?.receivedFrames?.getAndSet(0) ?: 0) / seconds
+            val drawn = feed.drawnFrames.getAndSet(0) / seconds
+            fps.text = String.format(Locale.US, "Received %.0f fps · Drawn %.0f fps", received, drawn)
+            if (failedSince != 0L && now - failedSince >= 10_000 &&
+                (discovery == null || now - discoveringSince >= 10_000)) startAutoDiscovery()
+            handler.postDelayed(this, 1000)
+        }
+    }
     private val hideMessage = Runnable { message.visibility = View.GONE }
     private val discoveryTimeout = Runnable {
         if (started && settings.url.isBlank()) { status.text = "Can't reach camera - open Mirror on your phone and press Start"; menu.openConnection() }
@@ -43,31 +66,44 @@ class TvActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         settings = TvSettings(mirrorPreferences())
-        val root = FrameLayout(this)
+        val root = FrameLayout(this).apply { setOnClickListener { if (!menu.isOpen) menu.open() } }
         feed = MirrorView(this, settings); light = RingLightView(this, settings)
         root.addView(feed, FrameLayout.LayoutParams(-1, -1)); root.addView(light, FrameLayout.LayoutParams(-1, -1))
         status = label("Connecting...", 20f).apply {
             gravity = Gravity.CENTER; setBackgroundColor(Color.argb(160, 0, 0, 0)); isFocusable = false
         }
-        root.addView(status, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+        statusSpace = FrameLayout(this)
+        statusSpace.addView(status, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+        root.addView(statusSpace, FrameLayout.LayoutParams(-1, -1))
         message = label("", 17f).apply { gravity = Gravity.CENTER; setBackgroundColor(Color.argb(190, 0, 0, 0)); isFocusable = false }
         root.addView(message, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(24) })
+        fps = label("", 14f).apply { setBackgroundColor(Color.argb(140, 0, 0, 0)); isFocusable = false }
+        root.addView(fps, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START))
+        if (packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)) {
+            gear = Button(this).apply {
+                text = "⚙"; textSize = 22f; contentDescription = "Open Quick Menu"
+                setTextColor(Color.WHITE); setBackgroundColor(Color.argb(100, 0, 0, 0))
+                setOnClickListener { menu.open() }
+            }.also { root.addView(it, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP or Gravity.END)) }
+        }
         menu = QuickMenu(this)
         root.addView(menu.panel, FrameLayout.LayoutParams(dp(380), -1, Gravity.END))
         setContentView(root); refreshSettings(); immersive()
-        if (android.os.Build.VERSION.SDK_INT >= 33) {
-            onBackInvokedDispatcher.registerOnBackInvokedCallback(
-                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT) { handleBack() }
-        }
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() { handleBack() }
+        })
         toast("Left/Right: Mode   Up/Down: Zoom or Brightness   OK: Menu", 4000)
     }
     override fun onStart() {
         super.onStart(); started = true; feed.startFrames()
+        failedSince = SystemClock.elapsedRealtime(); lastSample = failedSince
+        feed.drawnFrames.set(0); handler.postDelayed(health, 1000)
         if (settings.url.isNotBlank()) connect() else discoverFirst()
     }
     override fun onStop() {
         started = false; generation++; client?.stop(); client = null; feed.stopFrames()
         discovery?.stop(); discovery = null; menu.stopDiscovery()
+        handler.removeCallbacks(health); failedSince = 0L
         handler.removeCallbacks(discoveryTimeout); handler.removeCallbacks(hideMessage)
         super.onStop()
     }
@@ -80,10 +116,15 @@ class TvActivity : Activity() {
     private fun discoverFirst() {
         status.text = "Connecting..."; status.visibility = View.VISIBLE
         handler.postDelayed(discoveryTimeout, 5000)
+        startAutoDiscovery()
+    }
+    private fun startAutoDiscovery() {
+        discovery?.stop()
+        discoveringSince = SystemClock.elapsedRealtime()
         discovery = CameraDiscovery(this) { _, url ->
-            if (started && settings.url.isBlank()) {
+            if (started && failedSince != 0L && (client == null || settings.url != url)) {
                 settings.url = url; settings.save(); handler.removeCallbacks(discoveryTimeout)
-                discovery?.stop(); discovery = null; connect()
+                connect()
             }
         }.also { it.start() }
     }
@@ -99,21 +140,36 @@ class TvActivity : Activity() {
         client?.stop(); generation++
         val session = generation
         status.text = "Connecting..."; status.visibility = View.VISIBLE
-        client = MjpegClient(settings.url, { bitmap ->
-            if (started && generation == session) {
-                feed.submit(bitmap)
-                handler.post { if (started && generation == session) status.visibility = View.GONE }
-            } else bitmap.recycle()
+        client = MjpegClient(settings.url, { frame ->
+            if (started && generation == session) feed.submit(frame) else frame.release()
         }, { value -> handler.post {
-            if (started && generation == session) { status.text = value; status.visibility = View.VISIBLE }
-        } }).also { it.start() }
+            if (started && generation == session) {
+                status.text = value; status.visibility = if (value.isEmpty()) View.GONE else View.VISIBLE
+                if (value.isEmpty()) { failedSince = 0L; stopAutoDiscovery() }
+                else if (failedSince == 0L) failedSince = SystemClock.elapsedRealtime()
+            }
+        } }, { started && generation == session && feed.ready() }).also { it.start() }
     }
-    fun refreshSettings() { settings.save(); feed.refresh(); light.invalidate() }
+    fun menuVisibilityChanged(open: Boolean) {
+        statusSpace.setPadding(0, 0, if (open) dp(380) else 0, 0)
+        (message.layoutParams as FrameLayout.LayoutParams).apply { rightMargin = if (open) dp(380) else 0 }
+        message.requestLayout()
+        gear?.visibility = if (open) View.GONE else View.VISIBLE
+    }
+    fun refreshSettings() {
+        settings.save(); feed.refresh(); light.invalidate()
+        fps.visibility = if (settings.showFps) View.VISIBLE else View.GONE
+    }
     fun toast(value: String, duration: Long = 1500) {
         handler.removeCallbacks(hideMessage); message.text = value; message.visibility = View.VISIBLE
         handler.postDelayed(hideMessage, duration)
     }
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Consume remote Back before focused controls can fall through to Activity.finish().
+        if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+            if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) onBackPressedDispatcher.onBackPressed()
+            return true
+        }
         // Leave system volume keys and all menu navigation to their normal handlers.
         if (event.keyCode in listOf(KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN, KeyEvent.KEYCODE_VOLUME_MUTE)) return super.dispatchKeyEvent(event)
         if (menu.isOpen) return super.dispatchKeyEvent(event)
@@ -150,9 +206,4 @@ class TvActivity : Activity() {
         if (lastBack != 0L && now - lastBack <= 2000) finish()
         else { lastBack = now; toast("Press Back again to exit", 2000) }
     }
-    @Deprecated("Legacy remote back handler")
-    // Only Android 8-12 calls this fallback. Android 13+ uses the callback
-    // registered above; retaining the fallback keeps minSdk 26 devices working.
-    @android.annotation.SuppressLint("GestureBackNavigation")
-    override fun onBackPressed() { handleBack() }
 }

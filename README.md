@@ -1,4 +1,4 @@
-# Mirror 1.2.0
+# Mirror 1.2.1
 
 One Android APK for a phone camera and a Google TV mirror. Kotlin, Android Views,
 one `:app` module, Android 8.0+ (API 26). The APK contains no native `.so` libraries
@@ -42,7 +42,9 @@ Voice recognition and app selection are handled by Google TV.
 
 The TV also accepts an IP Webcam stream such as `http://192.168.1.50:8080/video`.
 Two viewers can watch the phone stream simultaneously. `GET /status` returns the
-device name, app version, and streaming state. Keep streams on your local network;
+device name, app version, streaming state, rotationDegrees, cameraFps, encodeMs,
+sendFps (completed frame writes across viewers), and clients. Phone mode shows
+live camera/encode/send statistics; About → Show FPS shows received/drawn rates. Keep streams on your local network;
 the plain HTTP endpoint has no authentication.
 
 ## TV remote controls
@@ -70,7 +72,8 @@ The camera fits inside the ring-light area.
 Brightness, contrast, saturation, and warmth filters range from -50 to +50 and
 apply in both modes. Soft focus is Off/Low/Medium on Android 12+; older devices
 hide it. **Reset filters** restores defaults. Returning to the TV app resumes its
-saved connection; unreachable streams retry every three seconds.
+saved connection; unreachable streams retry every three seconds and rediscover cameras after ten
+seconds. Tap the video or the touchscreen gear to open the scrollable Quick Menu.
 
 ## Builds and signing
 
@@ -81,7 +84,7 @@ native libraries, uploads the `mirror-apk` artifact, and publishes `mirror.apk`
 in a latest GitHub Release tagged `build-<run_number>`.
 
 The project uses stable AGP 9.3.2, Kotlin 2.4.20 (AGP built-in Kotlin), and Gradle
-9.8.0. Compile and target SDK are 36. Version name `1.2.0` and code `120` are
+9.8.0. Compile and target SDK are 36. Version name `1.2.1` and code `121` are
 defined once in `gradle.properties`. Bump both for future changes.
 
 Both debug and release builds use `keystore/mirror.jks`. Its alias and passwords
@@ -90,13 +93,27 @@ Never regenerate or replace this key if existing installations should update.
 
 CameraX uses YUV `ImageAnalysis` with `STRATEGY_KEEP_ONLY_LATEST`. Optional CameraX
 native rotation, color conversion, and one-pixel shifting are disabled; a Kotlin
-stride-aware YUV converter and Android framework image APIs produce upright JPEG
-frames at quality 70. Device camera capabilities may select the nearest supported
-resolution. The TV uses a bounded native MJPEG reader, BitmapFactory, and a custom
+stride-aware YUV converter and Android framework JPEG APIs encode once at quality 70 (adaptive down to 60). Rotation is
+sent as metadata for the viewer. ResolutionSelector requests 720p/1080p without
+exceeding the selected dimensions, and Camera2 requests a supported 30 fps range. The TV uses a bounded native MJPEG reader, BitmapFactory, and a custom
 View rather than a WebView. Shared code is under `core/`, with `phone/` and `tv/`
 separated for future maintenance.
 
 ## CHANGELOG
+
+### 1.2.1
+
+- Fix slow Phone-mode capture: bulk stride-aware YUV copies, reusable buffers, a
+  single JPEG encode, supported camera FPS request, and bounded 720p/1080p selection.
+- Send the newest frame independently to each viewer with buffered, paced writes;
+  adapt JPEG quality toward 60 and expose live capture, encode, send, and client stats.
+- Optimize viewer parsing and background decoding with frame dropping, safe bitmap
+  reuse, cached drawing transforms/filters, automatic camera rotation, and Show FPS.
+- Fix touch Quick Menu access and scrolling, predictive/remote Back handling, and
+  status placement beside the menu. Preserve all existing mirror/ring-light controls.
+- Retry NSD discovery after connection failure, use an empty initial address with
+  a hint, and show only a Wi-Fi IP or a clear Wi-Fi warning on the phone.
+- Retain saved Front/Rear and Resolution choices and the existing APK signing key.
 
 ### 1.2.0
 
