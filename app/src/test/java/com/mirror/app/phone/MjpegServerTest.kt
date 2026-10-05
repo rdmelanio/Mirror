@@ -18,6 +18,48 @@ class MjpegServerTest {
             bytes.write(b)
         }
     }
+    @Test fun controlQueryAndStatusSupportTwoConcurrentViewers() {
+        val server = MjpegServer("Control camera", StreamStats())
+        var received = emptyMap<String, String>()
+        server.controls = object : ControlEndpoint {
+            override fun status() = JSONObject().put("controls", true).put("zoom", 2.0)
+                .put("minZoom", .5).put("maxZoom", 8.0).put("hasFlash", true).put("torch", false)
+            override fun control(parameters: Map<String, String>): JSONObject {
+                received = parameters
+                return status().put("ok", parameters["focus"] != "invalid")
+            }
+        }
+        fun get(path: String, code: String = "200 OK"): JSONObject {
+            Socket("127.0.0.1", 8080).use { socket ->
+                socket.soTimeout = 3000
+                socket.getOutputStream().write("GET $path HTTP/1.1\r\nHost: localhost\r\n\r\n".toByteArray())
+                val input = BufferedInputStream(socket.getInputStream())
+                assertEquals("HTTP/1.1 $code", line(input))
+                while (line(input).isNotEmpty()) {}
+                return JSONObject(input.readBytes().toString(Charsets.UTF_8))
+            }
+        }
+        server.start()
+        val viewers = List(2) { Socket("127.0.0.1", 8080).apply { soTimeout = 3000 } }
+        try {
+            server.publish(byteArrayOf(1, 2), 0)
+            viewers.forEach { socket ->
+                socket.getOutputStream().write("GET /video HTTP/1.1\r\nHost: localhost\r\n\r\n".toByteArray())
+                val input = BufferedInputStream(socket.getInputStream())
+                assertEquals("HTTP/1.1 200 OK", line(input))
+                while (line(input).isNotEmpty()) {}
+            }
+            assertTrue(get("/control?zoom=2.25&torch=on&focus=%63enter").getBoolean("ok"))
+            assertEquals(mapOf("zoom" to "2.25", "torch" to "on", "focus" to "center"), received)
+            val status = get("/status")
+            assertEquals(2, status.getInt("clients"))
+            assertEquals(.5, status.getDouble("minZoom"), .001)
+            assertTrue(status.getBoolean("hasFlash"))
+            assertTrue(get("/control?action=snapshot").getBoolean("ok"))
+            assertEquals("snapshot", received["action"])
+            get("/control?focus=invalid", "400 Bad Request")
+        } finally { viewers.forEach { it.close() }; server.close() }
+    }
     @Test fun streamsToTwoIndependentClientsAndReportsMetrics() {
         val stats = StreamStats()
         val server = MjpegServer("Test camera", stats)
@@ -61,3 +103,4 @@ class MjpegServerTest {
         } finally { first.close(); second.close(); server.close() }
     }
 }
+

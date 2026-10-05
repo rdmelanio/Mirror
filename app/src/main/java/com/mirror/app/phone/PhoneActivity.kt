@@ -28,6 +28,8 @@ class PhoneActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var cameras: RadioGroup
     private lateinit var resolutions: RadioGroup
+    private lateinit var orientations: RadioGroup
+    private var orientation = "landscape"
     private var front = false
     private var fullHd = false
     private val handler = Handler(Looper.getMainLooper())
@@ -36,6 +38,7 @@ class PhoneActivity : Activity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        orientation = mirrorPreferences().getString("streamOrientation", "landscape") ?: "landscape"
         front = mirrorPreferences().getBoolean("phoneFront", false)
         fullHd = mirrorPreferences().getBoolean("phoneFullHd", false)
         val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -48,6 +51,12 @@ class PhoneActivity : Activity() {
         content.addView(label("Resolution"))
         resolutions = choices(listOf("720p", "1080p"), if (fullHd) 1 else 0) { fullHd = it == 1; save() }
         content.addView(resolutions)
+        content.addView(label("Stream orientation"))
+        val modes = listOf("landscape", "portrait", "auto")
+        orientations = choices(listOf("Landscape", "Portrait", "Auto"), modes.indexOf(orientation).coerceAtLeast(0)) {
+            orientation = modes[it]; mirrorPreferences().edit().putString("streamOrientation", orientation).apply()
+        }
+        content.addView(orientations)
         status = label("").apply { setTextIsSelectable(true) }; content.addView(status)
         content.addView(action("Battery optimization settings") {
             runCatching { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
@@ -72,6 +81,7 @@ class PhoneActivity : Activity() {
         val missing = mutableListOf<String>()
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) missing.add(Manifest.permission.CAMERA)
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) missing.add(Manifest.permission.POST_NOTIFICATIONS)
+        if (Build.VERSION.SDK_INT <= 28 && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) missing.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), 10) else begin()
     }
     override fun onRequestPermissionsResult(code: Int, permissions: Array<out String>, results: IntArray) {
@@ -99,8 +109,10 @@ class PhoneActivity : Activity() {
                 "\nCamera %.0f fps - Encode %.0f ms - Sending %.0f fps - %d %s",
                 metrics.cameraFps, metrics.encodeMs, metrics.sendFps, metrics.clients.get(),
                 if (metrics.clients.get() == 1) "viewer" else "viewers") else "") +
+            (if (CameraService.active && orientation == "landscape" && CameraService.physicalPortrait) "\nTip: mount the phone sideways for a wider view" else "") +
             (CameraService.error?.let { "\n$it" } ?: "")
     }
     override fun onResume() { super.onResume(); handler.post(refresh) }
     override fun onPause() { handler.removeCallbacks(refresh); super.onPause() }
 }
+

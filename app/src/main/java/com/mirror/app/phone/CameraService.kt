@@ -17,6 +17,9 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CaptureRequest
 import android.util.Size
 import android.view.Surface
+import android.view.OrientationEventListener
+import androidx.camera.core.ImageCapture
+import com.mirror.app.core.mirrorPreferences
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
@@ -39,6 +42,14 @@ class CameraService : LifecycleService() {
     private var wifi: WifiManager.WifiLock? = null
     @Volatile private var destroyed = false
     private var starting = false
+    private var analysis: ImageAnalysis? = null
+    private var capture: ImageCapture? = null
+    private var orientationListener: OrientationEventListener? = null
+    private var physicalRotation = Surface.ROTATION_0
+    @Volatile private var streamOrientation = "landscape"
+    private val preferencesChanged = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+        if (key == "streamOrientation") streamOrientation = prefs.getString(key, "landscape") ?: "landscape"
+    }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
         if (intent?.action == STOP) { stopSelf(); return START_NOT_STICKY }
@@ -64,7 +75,24 @@ class CameraService : LifecycleService() {
             server = MjpegServer(Build.MODEL, stats).also { it.start() }
             val front = intent?.getBooleanExtra("front", false) ?: false
             val fullHd = intent?.getBooleanExtra("fullHd", false) ?: false
-            val rotation = intent?.getIntExtra("rotation", Surface.ROTATION_0) ?: Surface.ROTATION_0
+            physicalRotation = intent?.getIntExtra("rotation", Surface.ROTATION_0) ?: Surface.ROTATION_0
+            physicalPortrait = physicalRotation == Surface.ROTATION_0 || physicalRotation == Surface.ROTATION_180
+            streamOrientation = mirrorPreferences().getString("streamOrientation", "landscape") ?: "landscape"
+            mirrorPreferences().registerOnSharedPreferenceChangeListener(preferencesChanged)
+            orientationListener = object : OrientationEventListener(this) {
+                override fun onOrientationChanged(degrees: Int) {
+                    if (degrees == ORIENTATION_UNKNOWN) return
+                    // Ignore positions near quadrant boundaries to avoid flicker when tilted.
+                    val quadrant = ((degrees + 45) / 90) % 4
+                    val distance = kotlin.math.abs(((degrees - quadrant * 90 + 540) % 360) - 180)
+                    if (distance > 35) return
+                    val rotation = intArrayOf(Surface.ROTATION_0, Surface.ROTATION_270, Surface.ROTATION_180, Surface.ROTATION_90)[quadrant]
+                    physicalPortrait = rotation == Surface.ROTATION_0 || rotation == Surface.ROTATION_180
+                    if (rotation != physicalRotation) {
+                        physicalRotation = rotation; analysis?.targetRotation = rotation; capture?.targetRotation = rotation
+                    }
+                }
+            }.also { if (it.canDetectOrientation()) it.enable() }
             val future = ProcessCameraProvider.getInstance(this)
             future.addListener({
                 if (destroyed) return@addListener
@@ -87,12 +115,16 @@ class CameraService : LifecycleService() {
                             .setResolutionFilter { sizes, _ ->
                                 sizes.filter { it.width <= selectedSize.width && it.height <= selectedSize.height }
                             }.build())
-                        .setTargetRotation(rotation)
+                        .setTargetRotation(physicalRotation)
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                         .setOutputImageRotationEnabled(false).setOnePixelShiftEnabled(false)
                     fps?.let { Camera2Interop.Extender(builder).setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it) }
                     val analysis = builder.build()
+                    this.analysis = analysis
+                    val capture = ImageCapture.Builder().setTargetRotation(physicalRotation)
+                        .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build()
+                    this.capture = capture
                     val encoder = JpegEncoder()
                     var quality = 70
                     var encodedFrames = 0
@@ -100,17 +132,17 @@ class CameraService : LifecycleService() {
                         try {
                             if (!destroyed) {
                                 val start = System.nanoTime()
-                                val jpeg = encoder.encode(image, quality)
-                                val degrees = image.imageInfo.rotationDegrees
-                                stats.rotationDegrees = degrees
+                                val jpeg = encoder.encode(image, quality, streamOrientation)
+                                stats.rotationDegrees = 0
                                 stats.encoded((System.nanoTime() - start) / 1_000_000.0)
-                                server?.publish(jpeg, degrees)
+                                server?.publish(jpeg, 0)
                                 if (++encodedFrames % 30 == 0 && stats.encodeMs > 25.0 && quality > 60) quality -= 2
                             }
                         } catch (failure: Exception) { error = "Camera frame failed: ${failure.message}" }
                         finally { image.close() }
                     }
-                    provider!!.bindToLifecycle(this, selector, analysis)
+                    val camera = provider!!.bindToLifecycle(this, selector, analysis, capture)
+                    server?.controls = CameraControls(this, camera, capture)
                     advertise()
                 } catch (failure: Exception) { fail(failure) }
             }, java.util.concurrent.Executor { task -> android.os.Handler(mainLooper).post(task) })
@@ -133,6 +165,9 @@ class CameraService : LifecycleService() {
     }
     override fun onDestroy() {
         destroyed = true; active = false
+        orientationListener?.disable(); orientationListener = null
+        mirrorPreferences().unregisterOnSharedPreferenceChangeListener(preferencesChanged)
+        analysis = null; capture = null
         provider?.unbindAll(); server?.close(); server = null
         registration?.let { runCatching { getSystemService(NsdManager::class.java).unregisterService(it) } }
         analyzer.shutdownNow()
@@ -144,6 +179,8 @@ class CameraService : LifecycleService() {
         @Volatile var stats = StreamStats()
         const val STOP = "com.mirror.app.STOP"
         @Volatile var active = false
+        @Volatile var physicalPortrait = true
         @Volatile var error: String? = null
     }
 }
+

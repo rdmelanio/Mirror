@@ -34,6 +34,7 @@ class BitmapPool {
     }
 }
 
-class VideoFrame(val bitmap: Bitmap, val rotation: Int, private val pool: BitmapPool) {
-    fun release() { pool.release(bitmap) }
+class VideoFrame(val bitmap: Bitmap, val rotation: Int, private val pool: BitmapPool? = null) {
+    fun release() { pool?.release(bitmap) }
 }
+

@@ -30,23 +30,37 @@ class MirrorView(context: Context, private val settings: TvSettings) : View(cont
     private var pending: VideoFrame? = null
     private var scheduled = false
     private var accepting = false
+    private var frozen = false
+    var opticalZoom = false
+    fun setFrozen(value: Boolean): Boolean {
+        synchronized(lock) {
+            if (value && frame == null) return false
+            frozen = value; pending?.release(); pending = null; scheduled = false
+        }
+        return true
+    }
+    fun snapshot(): VideoFrame? {
+        val value = frame ?: return null
+        val copy = value.bitmap.copy(android.graphics.Bitmap.Config.RGB_565, false) ?: return null
+        return VideoFrame(copy, (value.rotation + settings.rotation) % 360)
+    }
     private val matrix = Matrix()
     private var area = RectF()
     private val oval = Path()
     private var transformDirty = true
     val drawnFrames = AtomicInteger()
     fun startFrames() { synchronized(lock) { accepting = true } }
-    fun ready(): Boolean = synchronized(lock) { accepting && !scheduled }
+    fun ready(): Boolean = synchronized(lock) { accepting && !frozen && !scheduled }
     fun submit(value: VideoFrame) {
         synchronized(lock) {
-            if (!accepting) { value.release(); return }
+            if (!accepting || frozen) { value.release(); return }
             pending?.release(); pending = value
             scheduled = true
         }
         postInvalidateOnAnimation()
     }
     fun stopFrames() {
-        synchronized(lock) { accepting = false; pending?.release(); pending = null; scheduled = false }
+        synchronized(lock) { accepting = false; frozen = false; pending?.release(); pending = null; scheduled = false }
         // An outstanding hardware frame may still reference this bitmap; leave it to GC.
         frame = null; transformDirty = true; invalidate()
     }
@@ -79,8 +93,10 @@ class MirrorView(context: Context, private val settings: TvSettings) : View(cont
         val rotatedWidth = if (sideways) bitmap.height else bitmap.width
         val rotatedHeight = if (sideways) bitmap.width else bitmap.height
         val x = area.width() / rotatedWidth; val y = area.height() / rotatedHeight
-        val base = if (settings.mode == 1 || !settings.fill) min(x, y) else max(x, y)
-        val scale = base * if (settings.mode == 0) settings.zoom else 1f
+        val base = if (settings.mode == 1 || settings.fill) max(x, y) else min(x, y)
+        // Real zoom is already in the phone pixels. A small extra crop supplies pan travel.
+        val scale = base * if (settings.mode != 0) 1f else if (!opticalZoom) settings.zoom
+            else if (settings.zoom > 1f && settings.pan != 0f) 1.15f else 1f
         val travel = max(0f, (rotatedWidth * scale - area.width()) / 2f)
         matrix.reset(); matrix.postTranslate(-bitmap.width / 2f, -bitmap.height / 2f)
         matrix.postRotate(rotation.toFloat()); matrix.postScale(scale, scale)
@@ -119,3 +135,4 @@ class MirrorView(context: Context, private val settings: TvSettings) : View(cont
         }
     }
 }
+

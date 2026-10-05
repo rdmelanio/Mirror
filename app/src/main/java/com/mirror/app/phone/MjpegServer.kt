@@ -13,6 +13,7 @@ import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 
 class MjpegServer(private val name: String, private val stats: StreamStats) {
+    @Volatile var controls: ControlEndpoint? = null
     private val monitor = Object()
     private data class Frame(val jpeg: ByteArray, val rotation: Int)
     private val latest = AtomicReference<Frame?>()
@@ -70,11 +71,28 @@ class MjpegServer(private val name: String, private val stats: StreamStats) {
                 when (request[1].substringBefore('?')) {
                     "/status" -> {
                         val streaming = running && latest.get() != null
-                        response("200 OK", "application/json", JSONObject().put("name", name)
+                        val json = controls?.status() ?: JSONObject().put("controls", false).put("zoom", 1)
+                            .put("minZoom", 1).put("maxZoom", 1).put("hasFlash", false).put("torch", false)
+                        response("200 OK", "application/json", json.put("name", name)
                             .put("version", BuildConfig.VERSION_NAME).put("streaming", streaming)
                             .put("rotationDegrees", stats.rotationDegrees).put("cameraFps", stats.cameraFps)
                             .put("encodeMs", stats.encodeMs).put("sendFps", stats.sendFps)
                             .put("clients", stats.clients.get()).toString())
+                    }
+                    "/control" -> {
+                        val endpoint = controls
+                        if (endpoint == null) { response("503 Service Unavailable", "application/json", JSONObject().put("ok", false).put("error", "Camera is not ready").toString()); return }
+                        try {
+                            val query = request[1].substringAfter('?', "")
+                            val parameters = query.split('&').filter { it.isNotEmpty() }.associate { part ->
+                                java.net.URLDecoder.decode(part.substringBefore('='), "UTF-8") to
+                                    java.net.URLDecoder.decode(part.substringAfter('=', ""), "UTF-8")
+                            }
+                            // Combined controls may include a full-resolution capture.
+                            sockets[client] = System.nanoTime() + TimeUnit.SECONDS.toNanos(35)
+                            val result = endpoint.control(parameters)
+                            response(if (result.optBoolean("ok")) "200 OK" else "400 Bad Request", "application/json", result.toString())
+                        } catch (_: Exception) { response("400 Bad Request", "application/json", JSONObject().put("ok", false).put("error", "Invalid control request").toString()) }
                     }
                     "/video" -> {
                         slot = streams.tryAcquire()
@@ -103,7 +121,7 @@ class MjpegServer(private val name: String, private val stats: StreamStats) {
                             sockets[client] = System.nanoTime()
                         }
                     }
-                    else -> response("404 Not Found", "text/plain", "Use /video or /status")
+                    else -> response("404 Not Found", "text/plain", "Use /video, /status or /control")
                 }
             }
         } catch (_: Exception) { /* Disconnects are normal, including sleeping viewers. */ }
@@ -126,3 +144,4 @@ class MjpegServer(private val name: String, private val stats: StreamStats) {
         workers.shutdownNow(); watchdog.shutdownNow()
     }
 }
+

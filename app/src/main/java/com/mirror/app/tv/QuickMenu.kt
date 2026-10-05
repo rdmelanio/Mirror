@@ -42,6 +42,27 @@ class QuickMenu(private val activity: TvActivity) {
         first = activity.action("Close menu") { close() }; content.addView(first)
         heading("Mode")
         option("Mode", listOf("MIRROR", "RING LIGHT"), { settings.mode }) { settings.mode = it }
+        heading("Camera")
+        val torchButton = activity.action("") { activity.toggleTorch() }
+        val focusButton = activity.action("Focus center") { activity.focusCenter() }
+        val snapshotButton = activity.action("Take snapshot") { activity.takeSnapshot() }
+        val freezeButton = activity.action("") { activity.toggleFreeze() }
+        val cameraRefresh = {
+            torchButton.text = "Flashlight: ${if (activity.torch) "On" else "Off"}"
+            torchButton.visibility = if (activity.cameraSupported == true && activity.hasFlash) View.VISIBLE else View.GONE
+            focusButton.isEnabled = activity.cameraSupported == true
+            snapshotButton.isEnabled = activity.cameraSupported == true
+            freezeButton.text = if (activity.frozen) "Unfreeze" else "Freeze"
+            Unit
+        }
+        refreshers.add(cameraRefresh); cameraRefresh()
+        content.addView(torchButton); content.addView(focusButton)
+        content.addView(activity.action("Zoom +") { activity.zoomBy(1) })
+        content.addView(activity.action("Zoom -") { activity.zoomBy(-1) })
+        content.addView(activity.action("Zoom reset") { activity.resetZoom() })
+        content.addView(snapshotButton); content.addView(freezeButton)
+        content.addView(activity.action("Compare") { activity.showCompare() })
+        content.addView(activity.action("Clear snapshots") { activity.clearSnapshots() })
         heading("Ring Light")
         option("Shape", listOf("Frame", "Ring", "Soft gradient"), { settings.shape }) { settings.shape = it }
         option("Size", listOf("Small (15%)", "Medium (25%)", "Large (35%)"), { settings.size }) { settings.size = it }
@@ -108,6 +129,7 @@ class QuickMenu(private val activity: TvActivity) {
         }
         content.addView(label); content.addView(bar, LinearLayout.LayoutParams(-1, activity.dp(48)))
     }
+    fun refreshCameraControls() { refreshControls() }
     private fun refreshControls() { refreshers.forEach { it() } }
     fun open() {
         if (isOpen) return
@@ -139,3 +161,4 @@ class QuickMenu(private val activity: TvActivity) {
     }
     fun stopDiscovery() { discovery?.stop(); discovery = null; handler.removeCallbacks(notFound) }
 }
+
