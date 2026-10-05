@@ -56,6 +56,7 @@ class TvActivity : ComponentActivity() {
     private var probing = false
     private var lastProbe = 0L
     private var snapshotPending = false
+    private var snapshotEpoch = 0
     private var longOk = false
     private val snapshots = mutableListOf<VideoFrame>()
     private var comparePanel: FrameLayout? = null
@@ -274,18 +275,21 @@ class TvActivity : ComponentActivity() {
         val copy = try { feed.snapshot() } catch (_: OutOfMemoryError) { null }
         if (copy == null) { toast("Waiting for a camera frame"); return }
         snapshotPending = true
+        val epoch = snapshotEpoch
         cameraAction("action=snapshot") { success ->
             snapshotPending = false
             if (success) {
-                if (snapshots.size == 3) snapshots.removeAt(0)
-                snapshots.add(copy)
+                if (epoch == snapshotEpoch) {
+                    if (snapshots.size == 3) snapshots.removeAt(0)
+                    snapshots.add(copy)
+                }
                 flash.animate().cancel(); flash.alpha = 1f; flash.visibility = View.VISIBLE
                 flash.animate().alpha(0f).setDuration(180).withEndAction { flash.visibility = View.GONE }.start()
                 toast("Saved to phone gallery", 2500)
             }
         }
     }
-    fun clearSnapshots() { closeCompare(); snapshots.clear(); toast("Snapshots cleared") }
+    fun clearSnapshots() { snapshotEpoch++; closeCompare(); snapshots.clear(); toast("Snapshots cleared") }
     fun showCompare() {
         if (snapshots.isEmpty()) { toast("Take a snapshot first"); return }
         menu.close(); closeCompare(); comparing = true
@@ -298,6 +302,19 @@ class TvActivity : ComponentActivity() {
     }
     private fun closeCompare() { comparePanel?.let { root.removeView(it) }; comparePanel = null; comparing = false }
     override fun onDestroy() { snapshots.clear(); remote?.close(); super.onDestroy() }
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Route live controls before a touch gear/root can consume remote OK.
+        // Menu and Compare retain normal focus navigation; volume passes to Android.
+        if (!menu.isOpen && !comparing && event.keyCode in listOf(
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+                KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
+                KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_MENU,
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE)) {
+            return event.dispatch(this, window.decorView.keyDispatcherState, this)
+        }
+        return super.dispatchKeyEvent(event)
+    }
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         // Focused menu controls handle touch/D-pad normally; AndroidX owns Back on every API.
         if (menu.isOpen || comparing) return super.onKeyDown(keyCode, event)
