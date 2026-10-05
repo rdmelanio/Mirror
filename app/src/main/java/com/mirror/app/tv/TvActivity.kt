@@ -164,19 +164,12 @@ class TvActivity : ComponentActivity() {
         handler.removeCallbacks(hideMessage); message.text = value; message.visibility = View.VISIBLE
         handler.postDelayed(hideMessage, duration)
     }
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        // Consume remote Back before focused controls can fall through to Activity.finish().
-        if (event.keyCode == KeyEvent.KEYCODE_BACK) {
-            if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) onBackPressedDispatcher.onBackPressed()
-            return true
-        }
-        // Leave system volume keys and all menu navigation to their normal handlers.
-        if (event.keyCode in listOf(KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN, KeyEvent.KEYCODE_VOLUME_MUTE)) return super.dispatchKeyEvent(event)
-        if (menu.isOpen) return super.dispatchKeyEvent(event)
-        val handled = event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_UP,
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        // Focused menu controls handle touch/D-pad normally; AndroidX owns Back on every API.
+        if (menu.isOpen) return super.onKeyDown(keyCode, event)
+        val handled = keyCode in listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_UP,
             KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_MENU)
-        if (!handled) return super.dispatchKeyEvent(event)
-        if (event.action != KeyEvent.ACTION_DOWN) return true
+        if (!handled) return super.onKeyDown(keyCode, event)
         when (event.keyCode) {
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_MENU -> menu.open()
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {

@@ -73,7 +73,7 @@ class CameraService : LifecycleService() {
                     val selector = if (front) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
                     require(provider!!.hasCamera(selector)) { "This device does not have the selected camera" }
                     val selectedSize = if (fullHd) Size(1920, 1080) else Size(1280, 720)
-                    val cameraInfo = provider!!.availableCameraInfos.first { selector.filter(listOf(it)).isNotEmpty() }
+                    val cameraInfo = selector.filter(provider!!.availableCameraInfos).first()
                     val ranges = Camera2CameraInfo.from(cameraInfo)
                         .getCameraCharacteristic(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES).orEmpty()
                     val fps = ranges.filter { it.upper == 30 }.maxByOrNull { it.lower }
