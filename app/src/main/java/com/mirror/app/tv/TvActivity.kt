@@ -151,5 +151,8 @@ class TvActivity : Activity() {
         else { lastBack = now; toast("Press Back again to exit", 2000) }
     }
     @Deprecated("Legacy remote back handler")
+    // Only Android 8-12 calls this fallback. Android 13+ uses the callback
+    // registered above; retaining the fallback keeps minSdk 26 devices working.
+    @android.annotation.SuppressLint("GestureBackNavigation")
     override fun onBackPressed() { handleBack() }
 }
