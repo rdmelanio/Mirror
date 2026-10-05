@@ -55,6 +55,10 @@ class TvActivity : Activity() {
         menu = QuickMenu(this)
         root.addView(menu.panel, FrameLayout.LayoutParams(dp(380), -1, Gravity.END))
         setContentView(root); refreshSettings(); immersive()
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT) { handleBack() }
+        }
         toast("Left/Right: Mode   Up/Down: Zoom or Brightness   OK: Menu", 4000)
     }
     override fun onStart() {
@@ -112,22 +116,12 @@ class TvActivity : Activity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // Leave system volume keys and all menu navigation to their normal handlers.
         if (event.keyCode in listOf(KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN, KeyEvent.KEYCODE_VOLUME_MUTE)) return super.dispatchKeyEvent(event)
-        if (menu.isOpen) {
-            if (event.keyCode == KeyEvent.KEYCODE_BACK) { if (event.action == KeyEvent.ACTION_UP) menu.close(); return true }
-            return super.dispatchKeyEvent(event)
-        }
+        if (menu.isOpen) return super.dispatchKeyEvent(event)
         val handled = event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_UP,
-            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_BACK)
+            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_MENU)
         if (!handled) return super.dispatchKeyEvent(event)
         if (event.action != KeyEvent.ACTION_DOWN) return true
         when (event.keyCode) {
-            KeyEvent.KEYCODE_BACK -> {
-                if (event.repeatCount == 0) {
-                    val now = SystemClock.elapsedRealtime()
-                    if (lastBack != 0L && now - lastBack <= 2000) finish()
-                    else { lastBack = now; toast("Press Back again to exit", 2000) }
-                }
-            }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_MENU -> menu.open()
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
                 val direction = if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP) 1 else -1
@@ -150,6 +144,12 @@ class TvActivity : Activity() {
     }
     private fun zoomHint(): String = "Zoom ${String.format(Locale.US, "%.2f", settings.zoom).trimEnd('0').trimEnd('.')}x" +
         if (settings.zoom > 1f) " - Left/Right to pan, zoom to 1x to change mode" else ""
+    private fun handleBack() {
+        if (menu.isOpen) { menu.close(); lastBack = 0L; return }
+        val now = SystemClock.elapsedRealtime()
+        if (lastBack != 0L && now - lastBack <= 2000) finish()
+        else { lastBack = now; toast("Press Back again to exit", 2000) }
+    }
     @Deprecated("Legacy remote back handler")
-    override fun onBackPressed() { if (menu.isOpen) menu.close() else super.onBackPressed() }
+    override fun onBackPressed() { handleBack() }
 }

@@ -26,6 +26,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build and check
         run: ./gradlew :app:assembleRelease :app:testDebugUnitTest :app:lintRelease
+      - name: Show lint details on failure
+        if: failure()
+        run: |
+          report=app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt
+          if [ -f "$report" ]; then cat "$report"; fi
       - name: Prepare and verify universal APK
         run: |
           cp app/build/outputs/apk/release/app-release.apk mirror.apk

@@ -25,7 +25,7 @@
         <activity android:name=".phone.PhoneActivity" android:exported="false" />
         <activity android:name=".tv.TvActivity" android:exported="false"
             android:screenOrientation="landscape" android:configChanges="orientation|screenSize"
-            android:enableOnBackInvokedCallback="false" />
+            android:enableOnBackInvokedCallback="true" />
         <service android:name=".phone.CameraService" android:exported="false"
             android:foregroundServiceType="camera" />
     </application>
