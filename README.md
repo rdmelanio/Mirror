@@ -81,7 +81,7 @@ native libraries, uploads the `mirror-apk` artifact, and publishes `mirror.apk`
 in a latest GitHub Release tagged `build-<run_number>`.
 
 The project uses stable AGP 9.3.2, Kotlin 2.4.20 (AGP built-in Kotlin), and Gradle
-9.8.0. Compile and target SDK are 37. Version name `1.2.0` and code `120` are
+9.8.0. Compile and target SDK are 36. Version name `1.2.0` and code `120` are
 defined once in `gradle.properties`. Bump both for future changes.
 
 Both debug and release builds use `keystore/mirror.jks`. Its alias and passwords

@@ -22,7 +22,7 @@ jobs:
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
       - name: Install Android SDK
-        run: sdkmanager 'platforms;android-37' 'build-tools;37.0.0'
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - uses: gradle/actions/setup-gradle@v4
       - name: Build and check
         run: ./gradlew :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease
@@ -33,7 +33,7 @@ jobs:
             echo 'Native libraries must not be packaged'
             exit 1
           fi
-          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose mirror.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose mirror.apk
       - uses: actions/upload-artifact@v4
         with:
           name: mirror-apk

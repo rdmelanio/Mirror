@@ -4,11 +4,11 @@ plugins { id("com.android.application") }
 
 android {
     namespace = "com.mirror.app"
-    compileSdk = 37
+    compileSdk = 36
     defaultConfig {
         applicationId = "com.mirror.app"
         minSdk = 26
-        targetSdk = 37
+        targetSdk = 36
         versionCode = providers.gradleProperty("mirrorVersionCode").get().toInt()
         versionName = providers.gradleProperty("mirrorVersionName").get()
     }
