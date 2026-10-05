@@ -302,6 +302,9 @@ class TvActivity : ComponentActivity() {
     }
     private fun closeCompare() { comparePanel?.let { root.removeView(it) }; comparePanel = null; comparing = false }
     override fun onDestroy() { snapshots.clear(); remote?.close(); super.onDestroy() }
+    // AndroidX core marks its bridge RestrictedApi, but this is Activity's public
+    // platform callback; intercepting before focused Views is required for remote OK.
+    @android.annotation.SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // Route live controls before a touch gear/root can consume remote OK.
         // Menu and Compare retain normal focus navigation; volume passes to Android.
