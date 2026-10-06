@@ -9,6 +9,8 @@ class ClockTest {
         assertTrue(defaults.date && defaults.alarm && defaults.status && defaults.pixelShift && defaults.reposition)
         assertFalse(defaults.weather || defaults.seconds || defaults.drift)
         val custom = defaults.copy(style = "Stacked", primaryUtc = true, showUtc = false, sizePercent = 75, hourFormat = "12-hour", minimalFont = "B612",
+            schedule = true, calendarId = 12, calendarName = "Roster", scheduleColor = 0xFFFF00FF.toInt(),
+            dateColor = 0xFF00FFFF.toInt(), alarmColor = 0xFFFFFFFF.toInt(), weatherColor = 0xFFFF0000.toInt(),
             color = 0xFFFFB000.toInt(), secondColor = 0xFFFF40FF.toInt(), gradient = true,
             weather = true, city = "Manila", latitude = 14.6, longitude = 120.98, date = false,
             alarm = false, status = false, seconds = true, pixelShift = false, drift = true, reposition = false,

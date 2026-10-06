@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.6.0
+
+- Add an optional read-only calendar roster to the phone clock and screen saver.
+  Select a Google calendar synced on the phone; Mirror never edits calendar events.
+- Condense flight descriptions into complete routes (including repeated turns),
+  with reporting–debriefing times. Preserve HS, HSA, AS and unfamiliar training/duty
+  codes with their event duty times; show ALL DAY for all-day entries.
+- Keep all roster dates/times in Asia/Manila. Keep overnight duties through debriefing,
+  retain multiple duties until the last ends, then promote the following day.
+  Always show a second day and explicitly report Tomorrow: no calendar entry.
+- Recheck on opening, every 15 minutes, on provider changes, at duty ends and
+  Philippine midnight. Request Android calendar-account sync at scheduled checks;
+  Google sync completion remains OS-controlled. Retain a private offline cache and
+  show when the local calendar was checked, with offline/cached indications.
+- Add independent custom HSV colors for schedule, date, alarm and weather.
+  Night mode still temporarily overrides all text to Night Red.
+- Replace camera-status words with a moving white waiting circle, slow red blinking
+  viewing circle, or dim gray off circle, avoiding confusion with roster standby codes.
+- Keep large clock digits independent of long roster-line widths; preserve pinch
+  size, touch guard, pixel shifting, camera/standby service and all TV features.
+- Add roster regression tests for routes, repeated turns, unknown codes, overnight
+  and all-day duties, multiple daily duties, empty tomorrow, malformed times and
+  device timezone changes. Version name 1.6.0, version code 160.
+
 ## 1.5.1
 
 - Add a saved Show UTC time toggle. Disable it for local time only; re-enable it

@@ -50,6 +50,25 @@ class ClockSettingsPanel(private val activity: Activity, private val content: Li
         content.addView(activity.action("Custom color · HSV") { colorPicker(settings.color) { save(settings.copy(color = it)) } })
         toggle("Gradient digits", { settings.gradient }) { save(settings.copy(gradient = it)) }
         content.addView(activity.action("Gradient second color · HSV") { colorPicker(settings.secondColor) { save(settings.copy(secondColor = it)) } })
+        content.addView(activity.label("Info colors", 22f))
+        content.addView(activity.action("Schedule color · HSV") { colorPicker(settings.scheduleColor) { save(settings.copy(scheduleColor = it)) } })
+        content.addView(activity.action("Date color · HSV") { colorPicker(settings.dateColor) { save(settings.copy(dateColor = it)) } })
+        content.addView(activity.action("Alarm color · HSV") { colorPicker(settings.alarmColor) { save(settings.copy(alarmColor = it)) } })
+        content.addView(activity.action("Weather color · HSV") { colorPicker(settings.weatherColor) { save(settings.copy(weatherColor = it)) } })
+        content.addView(activity.label("Night mode temporarily makes all text red. Your custom colors return in daylight."))
+        content.addView(activity.label("Calendar schedule · Philippine time", 22f))
+        toggle("Show calendar schedule", { settings.schedule }) {
+            save(settings.copy(schedule = it))
+            if (it && (!ClockCalendar.hasPermission(activity) || settings.calendarId < 0))
+                activity.startActivity(Intent(activity, ClockCalendarSettingsActivity::class.java))
+        }
+        val calendarButton = activity.action("Choose roster calendar") {
+            activity.startActivity(Intent(activity, ClockCalendarSettingsActivity::class.java))
+        }
+        content.addView(calendarButton)
+        refreshControls += { calendarButton.text = "Roster calendar: ${settings.calendarName.ifBlank { "Choose calendar" }}" }
+        content.addView(activity.action("Refresh calendar now") { controller.refreshCalendar() })
+        content.addView(activity.label("Read-only. Today/overnight and tomorrow are shown with reporting–debriefing or duty times. Empty tomorrow says no calendar entry, never OFF. Refreshes every 15 minutes, at duty end, on opening and on synced changes. Google sync completion depends on Android."))
         content.addView(activity.label("Info lines", 22f))
         toggle("Date", { settings.date }) { save(settings.copy(date = it)) }
         toggle("Next alarm (hidden when none)", { settings.alarm }) { save(settings.copy(alarm = it)) }
@@ -78,7 +97,8 @@ class ClockSettingsPanel(private val activity: Activity, private val content: Li
             }
         }
         content.addView(search)
-        toggle("Mirror status", { settings.status }) { save(settings.copy(status = it)) }
+        toggle("Camera indicator", { settings.status }) { save(settings.copy(status = it)) }
+        content.addView(activity.label("White hollow circle: camera waiting/ready. Red blinking circle: being viewed. Dim gray hollow circle: camera service off. The indicator moves with the clock; it never uses roster standby codes."))
         toggle("Seconds", { settings.seconds }) { save(settings.copy(seconds = it)) }
         content.addView(activity.label("Burn-in protection", 22f))
         toggle("Pixel shift · every minute", { settings.pixelShift }) { save(settings.copy(pixelShift = it)) }

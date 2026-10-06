@@ -12,12 +12,15 @@ import com.mirror.app.core.insetContent
 /** Updated only by service state changes, never by the encoder. Main-thread listeners. */
 object ClockMirrorState {
     var state = "CAMERA OFF"; private set
+    var ready = false; private set
     var lastViewed = Long.MIN_VALUE; private set
     val listeners = mutableSetOf<() -> Unit>()
     fun update(active: Boolean, waiting: Boolean, live: Boolean) {
         if (live) lastViewed = SystemClock.elapsedRealtime()
         val next = if (active && live) "LIVE" else if (active && waiting) "STANDBY" else "CAMERA OFF"
-        if (next != state) { state = next; listeners.toList().forEach { it() } }
+        val changed = next != state || ready != active
+        state = next; ready = active
+        if (changed) listeners.toList().forEach { it() }
     }
 }
 
@@ -27,14 +30,20 @@ class ClockController(private val context: Context, private val view: ClockView,
     private val sensors = context.getSystemService(SensorManager::class.java)
     private var policy = ClockLightPolicy()
     private var running = false
+    private val calendar: ClockCalendar = ClockCalendar(context.applicationContext) {
+        view.roster = calendarSnapshot()
+        if (running) render()
+    }
+    private fun calendarSnapshot(): ClockCalendar.Snapshot = calendar.snapshot
+    fun refreshCalendar() { calendar.refresh(true) }
     private val tick = Runnable { render() }
-    private val deadline = Runnable { applyLight(); scheduleDeadline() }
+    private val deadline = Runnable { render() }
     private val stateChanged: () -> Unit = { if (running) { applyLight(); render() } }
     private val preferencesChanged = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == "settings" && running) { view.settings = ClockSettings.load(context); render() }
+        if (key == "settings" && running) { view.settings = ClockSettings.load(context); calendar.start(view.settings); render() }
     }
     private val receiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) { if (running) render() }
+        override fun onReceive(context: Context?, intent: Intent?) { if (running) { calendar.timeChanged(); render() } }
     }
     fun start() {
         if (running) return
@@ -48,11 +57,12 @@ class ClockController(private val context: Context, private val view: ClockView,
         if (Build.VERSION.SDK_INT >= 33) context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
         else { @Suppress("UnspecifiedRegisterReceiverFlag") context.registerReceiver(receiver, filter) }
         if (!preview) sensors.getDefaultSensor(Sensor.TYPE_LIGHT)?.let { sensors.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL) }
+        calendar.start(view.settings); view.roster = calendar.snapshot
         render()
     }
     fun stop() {
         if (!running) return
-        running = false; view.saveSize(); sensors.unregisterListener(this); handler.removeCallbacksAndMessages(null)
+        running = false; view.saveSize(); calendar.stop(); sensors.unregisterListener(this); handler.removeCallbacksAndMessages(null)
         ClockSettings.prefs(context).unregisterOnSharedPreferenceChangeListener(preferencesChanged)
         ClockMirrorState.listeners.remove(stateChanged); context.unregisterReceiver(receiver)
     }
@@ -62,7 +72,8 @@ class ClockController(private val context: Context, private val view: ClockView,
         view.mirrorState = ClockMirrorState.state
         applyLight(); view.invalidate()
         ClockWeather.refresh(context, view.settings) { if (running) view.invalidate() }
-        val interval = if (view.settings.seconds || view.settings.drift) 1000L else 60_000L
+        val interval = if (!view.blank && (view.settings.seconds || view.settings.drift ||
+            (view.settings.status && view.mirrorState == "LIVE"))) 1000L else 60_000L
         handler.postDelayed(tick, interval - System.currentTimeMillis() % interval)
         scheduleDeadline()
     }
@@ -86,7 +97,9 @@ class ClockController(private val context: Context, private val view: ClockView,
         }
     }
     override fun onSensorChanged(event: SensorEvent) {
+        val wasBlank = view.blank
         policy.sample(event.values[0], SystemClock.elapsedRealtime()); applyLight(); scheduleDeadline()
+        if (wasBlank != view.blank) render()
     }
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 }

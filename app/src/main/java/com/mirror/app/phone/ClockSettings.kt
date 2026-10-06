@@ -10,6 +10,9 @@ data class ClockSettings(
     val hourFormat: String = "System", val minimalFont: String = "System thin",
     val color: Int = 0xFF00E040.toInt(), val gradient: Boolean = false,
     val secondColor: Int = 0xFF00E5FF.toInt(),
+    val scheduleColor: Int = 0xFFF2F2F2.toInt(), val dateColor: Int = 0xFFF2F2F2.toInt(),
+    val alarmColor: Int = 0xFFFFB000.toInt(), val weatherColor: Int = 0xFF00E5FF.toInt(),
+    val schedule: Boolean = false, val calendarId: Long = -1, val calendarName: String = "",
     val date: Boolean = true, val alarm: Boolean = true, val weather: Boolean = false,
     val city: String = "", val latitude: Double? = null, val longitude: Double? = null,
     val status: Boolean = true, val seconds: Boolean = false,
@@ -20,7 +23,9 @@ data class ClockSettings(
 ) {
     val usesUtc: Boolean get() = showUtc && primaryUtc
     fun json(): String = JSONObject().apply {
-        put("schema", 2); put("showUtc", showUtc); put("sizePercent", sizePercent)
+        put("schema", 3); put("showUtc", showUtc); put("sizePercent", sizePercent)
+        put("scheduleColor", scheduleColor); put("dateColor", dateColor); put("alarmColor", alarmColor); put("weatherColor", weatherColor)
+        put("schedule", schedule); put("calendarId", calendarId); put("calendarName", calendarName)
         put("style", style); put("primaryUtc", primaryUtc); put("hourFormat", hourFormat); put("minimalFont", minimalFont)
         put("color", color); put("gradient", gradient); put("secondColor", secondColor)
         put("date", date); put("alarm", alarm); put("weather", weather); put("city", city)
@@ -45,6 +50,12 @@ data class ClockSettings(
                 minimalFont = choice("minimalFont", d.minimalFont, listOf("System thin", "B612")),
                 color = j.optInt("color", d.color) or 0xFF000000.toInt(), gradient = j.optBoolean("gradient", d.gradient),
                 secondColor = j.optInt("secondColor", d.secondColor) or 0xFF000000.toInt(),
+                scheduleColor = j.optInt("scheduleColor", d.scheduleColor) or 0xFF000000.toInt(),
+                dateColor = j.optInt("dateColor", j.optInt("color", d.dateColor)) or 0xFF000000.toInt(),
+                alarmColor = j.optInt("alarmColor", j.optInt("color", d.alarmColor)) or 0xFF000000.toInt(),
+                weatherColor = j.optInt("weatherColor", j.optInt("color", d.weatherColor)) or 0xFF000000.toInt(),
+                schedule = j.optBoolean("schedule", false), calendarId = j.optLong("calendarId", -1).coerceAtLeast(-1),
+                calendarName = j.optString("calendarName", "").take(200),
                 date = j.optBoolean("date", d.date), alarm = j.optBoolean("alarm", d.alarm), weather = j.optBoolean("weather", d.weather),
                 city = j.optString("city", "").take(200),
                 latitude = j.optDouble("latitude").takeIf { it.isFinite() && it in -90.0..90.0 },

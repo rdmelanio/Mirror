@@ -1,4 +1,4 @@
-# Mirror 1.5.1
+# Mirror 1.6.0
 
 One Android APK for a phone camera and a Google TV mirror. Kotlin, Android Views,
 one `:app` module, Android 8.0+ (API 26). The APK contains no native `.so` libraries
@@ -256,6 +256,57 @@ SharedPreferences. Fonts are bundled into `res/font` before Gradle by
 command before local builds too. Missing or changed fonts fail the build; there
 is no font fallback. No new wake locks are acquired by the clock.
 
+### Calendar roster and info colors
+
+In Phone mode → Clock, enable **Show calendar schedule**, grant **Calendar read
+access**, and choose the calendar that eCrew exports to. The Google account must
+already be added to the phone with Calendar sync enabled. Mirror reads Android's
+synced calendar provider; it does not sign into Google separately and never
+creates, edits or deletes events. The account-sync permission only lets Mirror
+request a refresh from Android's existing sync adapter. It is not event-write access.
+Use **Roster calendar** to change calendars and **Refresh calendar now** to recheck.
+Disable the schedule toggle to stop calendar monitoring while using the clock.
+
+The compact roster uses **Philippine time (Asia/Manila)** regardless of the phone
+or clock timezone. Standard eCrew descriptions supply reporting/debriefing times
+and flight legs; `MNL–CEB`, `CEB–MNL`, `MNL–CEB`, `CEB–MNL` becomes
+`MNL–CEB–MNL–CEB–MNL · 3:25 AM–9:25 AM`. Repeated sectors stay intact.
+Disconnected legs are separated with `/` instead of inventing a connection.
+HS, HSA, AS and new training/duty codes are displayed exactly as calendar codes,
+with the calendar start/end times. All-day duties show **ALL DAY**. Missing or
+invalid flight report/debrief fields use event times with an explicit fallback note.
+
+The main block shows today, including any unfinished overnight duty; tomorrow
+appears below. Multiple duties remain grouped until the final debriefing/duty end,
+then the next day is promoted and the following day appears beneath it, with dates.
+An overnight duty does not disappear at midnight; its end is marked **(+1 day)**.
+An empty tomorrow says **Tomorrow: no calendar entry**, not OFF, so you know to
+check eCrew's calendar export. Future gaps are not silently skipped.
+
+Mirror queries the selected local calendar on opening, every **15 minutes**, on
+provider changes, at **each duty end (including final debriefing)** and at Philippine
+midnight while the clock/preview is visible. Scheduled checks also ask Android to
+sync the selected account. Google delivery depends on network/account sync and ROM
+restrictions; Mirror cannot guarantee a cloud update has arrived. **Calendar checked**
+means the last successful local-provider read, not the last Google server sync.
+The query covers the previous week and next 35 days (including recurring instances).
+A private cache allows offline display and normal duty advancement; offline/failed
+reads are marked, and dates outside cache coverage say they need refreshing.
+Denied permission, missing calendars and provider failures are not presented as
+empty days. Roster details are intentionally visible over the lock screen.
+
+Choose **Schedule color**, **Date color**, **Alarm color**, and **Weather color**
+independently using their HSV pickers. The clock retains its own theme/gradient.
+Night mode temporarily turns text red, restoring the chosen colors in daylight.
+Long schedule lines are fitted independently so they do not squeeze the main digits.
+
+**Camera indicator** replaces the former STANDBY/LIVE/OFF words: a white hollow
+circle means the camera service is waiting/ready, a red circle blinking once per
+second means a viewer is connected, and a dim gray hollow circle means the service
+is off. It moves with the rest of the clock. When the live indicator is enabled,
+it uses the existing one-second redraw schedule; no continuous animation or new
+wake lock is used. No TV controls, overlays or TV-side roster display are added.
+
 ## Builds and signing
 
 Push to `main` or run **Actions → Build Mirror → Run workflow**. GitHub Actions
@@ -265,7 +316,7 @@ native libraries, uploads the `mirror-apk` artifact, and publishes `mirror.apk`
 in a latest GitHub Release tagged `build-<run_number>`.
 
 The project uses stable AGP 9.3.2, Kotlin 2.4.20 (AGP built-in Kotlin), and Gradle
-9.8.0. Compile and target SDK are 36. Version name `1.5.1` and code `151` are
+9.8.0. Compile and target SDK are 36. Version name `1.6.0` and code `160` are
 defined once in `gradle.properties`. Bump both for future changes.
 
 Both debug and release builds use `keystore/mirror.jks`. Its alias and passwords
