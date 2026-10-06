@@ -177,6 +177,7 @@ class PhoneActivity : Activity() {
     }
     override fun onResume() {
         super.onResume(); handler.post(refresh); clockPanel?.start()
+        if (ClockSettings.load(this).departureEnabled) DepartureAlerts.configure(this)
         if (CameraService.active && CameraService.standbyFallback) startService(Intent(this, CameraService::class.java).setAction(CameraService.RETRY))
     }
     override fun onStop() { pairingDialog?.dismiss(); super.onStop() }
