@@ -6,4 +6,11 @@
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
+    <style name="ClockTheme" parent="AppTheme">
+        <item name="android:windowBackground">#000000</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:colorAccent">#00E040</item>
+    </style>
 </resources>
+

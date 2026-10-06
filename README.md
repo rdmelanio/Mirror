@@ -1,4 +1,4 @@
-# Mirror 1.4.0
+# Mirror 1.5.0
 
 One Android APK for a phone camera and a Google TV mirror. Kotlin, Android Views,
 one `:app` module, Android 8.0+ (API 26). The APK contains no native `.so` libraries
@@ -188,6 +188,63 @@ hide it. **Reset filters** restores defaults. Returning to the TV app resumes it
 saved connection; unreachable streams retry every three seconds and rediscover cameras after ten
 seconds. Tap the video or the touchscreen gear to open the scrollable Quick Menu.
 
+## Clock Face
+
+Phone mode now has a **Clock** section with a live preview. Start the camera
+service first, then tap **Clock mode**. The clock is independent of the existing
+streaming/standby service; opening it, closing it, or entering Away never stops
+capture or disconnects a TV. No TV controls or TV clock overlay are added.
+
+Choose **Cockpit** (B612 Mono, large LOC and secondary UTC, or swap them),
+**Minimal** (system thin or B612), **Stacked** (bold B612), or **Word clock**
+(English, five-minute steps). Local time follows the system 12/24-hour preference
+unless overridden; aviation UTC always uses 24-hour Z notation. Choose a preset,
+touch the HSV sliders for a custom color, or enable a vertical two-color gradient.
+Date, next alarm, weather, mirror status and seconds have individual saved toggles.
+
+For automatic use while charging, tap **Set as screen saver**, choose **Mirror
+Clock**, and set **When to start: While charging**. The screen saver's settings
+button opens the same Clock settings. Screen saver activation and secure-keyguard
+behavior depend on your Android ROM; test both on the OnePlus before leaving it
+mounted. Configure a secure PIN/password in Android. The clock never dismisses
+or unlocks the keyguard. Clock mode can remain visible over the locked screen.
+**Hold anywhere for two seconds to exit**; ordinary taps only show a brief hint.
+When the phone is already locked, exiting reveals its normal secure lock screen.
+Mirror notifications redact connection details on the lock screen, and the clock
+never reads or displays notification contents.
+
+Keep **pixel shift**, **hourly reposition**, and **auto brightness** enabled and
+use a low maximum brightness to reduce AMOLED wear. Optional **slow drift** moves
+all content together, including info lines. Black is always pure black. These
+measures reduce burn-in risk; no always-on OLED display is guaranteed burn-in-free.
+Leave seconds and drift off for minute-only scheduled redraws; enabling either
+uses one redraw per second, with no continuous animation. Preview does not change
+screen brightness or simulate darkness. With no light sensor, use manual brightness;
+automatic night/away cannot run without ambient readings.
+
+Night behavior uses **light, never time of day**: after 60 seconds below 5 lux,
+the clock becomes Night Red at minimum brightness. After 60 seconds above 15 lux,
+it returns to the chosen theme. **Away** draws nothing after 4 / **8** / 12 / 24
+hours of continuous darkness without an authenticated viewer; viewing restarts
+that inactivity interval. Light above 5 lux resumes the clock immediately.
+The sensor remains active while black, and streaming/standby keeps working.
+**Dim while LIVE** halves normal clock brightness. Monitoring begins when the
+clock opens; reopening conservatively starts a new darkness interval.
+
+Weather is off until a city is selected. Type a city, tap **Find weather city**,
+and select the correct match. Open-Meteo geocoding needs no location permission.
+Current temperature and condition refresh every 30 minutes while a clock/preview
+is visible. The last success is cached; offline or failed refreshes show `--`.
+Weather data by Open-Meteo.com. Phone **About Mirror** contains the complete B612
+SIL Open Font License; the repository copy is `licenses/B612-OFL.txt`.
+
+All clock preferences live in one versioned `ClockSettings` JSON value in private
+SharedPreferences. Fonts are bundled into `res/font` before Gradle by
+`python3 scripts/fetch-clock-fonts.py`, using official `polarsys/b612` commit
+`48ac6ba67ecab8123e8e36d6aa05367db0c7b638` and verified Git blob hashes. Run that
+command before local builds too. Missing or changed fonts fail the build; there
+is no font fallback. No new wake locks are acquired by the clock.
+
 ## Builds and signing
 
 Push to `main` or run **Actions → Build Mirror → Run workflow**. GitHub Actions
@@ -197,7 +254,7 @@ native libraries, uploads the `mirror-apk` artifact, and publishes `mirror.apk`
 in a latest GitHub Release tagged `build-<run_number>`.
 
 The project uses stable AGP 9.3.2, Kotlin 2.4.20 (AGP built-in Kotlin), and Gradle
-9.8.0. Compile and target SDK are 36. Version name `1.4.0` and code `140` are
+9.8.0. Compile and target SDK are 36. Version name `1.5.0` and code `150` are
 defined once in `gradle.properties`. Bump both for future changes.
 
 Both debug and release builds use `keystore/mirror.jks`. Its alias and passwords
@@ -234,5 +291,6 @@ separated for future maintenance.
 - Phone camera foreground streaming, two-client MJPEG server, and LAN discovery.
 - Native TV mirror with retry, zoom/pan, ring light, beauty filters, and remote menu.
 - Shared signing key and automatic GitHub Actions APK artifacts and latest release.
+
 
 

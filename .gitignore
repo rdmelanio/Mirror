@@ -3,3 +3,7 @@
 local.properties
 .idea/
 *.iml
+
+
+# Pinned fonts are verified/downloaded by scripts/fetch-clock-fonts.py.
+app/src/main/res/font/*.ttf

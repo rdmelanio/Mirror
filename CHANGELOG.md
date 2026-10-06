@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.5.0
+
+- Add phone-only Clock mode and interactive Mirror Clock screen saver using one
+  custom view, guarded two-second exit, secure-keyguard display and private notifications.
+- Add Cockpit, Minimal, Stacked and Word clock styles, official pinned B612/B612 Mono
+  fonts and bundled OFL license, local/UTC priority, time format, HSV colors and gradients.
+- Save all clock preferences in one JSON data class; add live preview, optional date,
+  alarm, city-based Open-Meteo weather, mirror status and seconds.
+- Add pixel shift, slow drift, hourly reposition, smoothed sensor brightness,
+  light-based night/away hysteresis and live-stream dimming without camera lifecycle changes.
+- Keep existing TV modes, camera controls, pairing, standby, auto-sleep, delayed mirror,
+  Show FPS and statistics; no TV-side changes. Version name 1.5.0, version code 150.
+
 ## 1.4.0 (140) — 2026-10-05
 
 - Add cameraId-based pairing, a remote/touch number pad, 2-minute secure codes,
@@ -47,4 +60,5 @@ Fit on a 16:9 display, no black inner ring window, camera controls, full-resolut
 unmirrored gallery images, freeze/compare, remote/touch, and normal volume keys.
 Confirm at least 24 fps on the camera and weak 32-bit viewer. This device benchmark
 requires physical hardware and is not established by the automated build checks.
+
 

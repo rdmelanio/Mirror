@@ -24,6 +24,15 @@
             </intent-filter>
         </activity>
         <activity android:name=".phone.PhoneActivity" android:exported="false" />
+        <activity android:name=".phone.ClockActivity" android:exported="false"
+            android:theme="@style/ClockTheme" android:excludeFromRecents="true"
+            android:enableOnBackInvokedCallback="true" />
+        <activity android:name=".phone.ClockSettingsActivity" android:exported="true" />
+        <service android:name=".phone.MirrorClockDream" android:label="Mirror Clock"
+            android:exported="true" android:permission="android.permission.BIND_DREAM_SERVICE">
+            <intent-filter><action android:name="android.service.dreams.DreamService" /></intent-filter>
+            <meta-data android:name="android.service.dream" android:resource="@xml/mirror_clock_dream" />
+        </service>
         <activity android:name=".tv.TvActivity" android:exported="false"
             android:screenOrientation="landscape" android:configChanges="orientation|screenSize"
             android:enableOnBackInvokedCallback="true" />
@@ -31,4 +40,5 @@
             android:foregroundServiceType="camera" />
     </application>
 </manifest>
+
 

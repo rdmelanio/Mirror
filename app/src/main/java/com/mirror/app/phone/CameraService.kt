@@ -92,7 +92,7 @@ class CameraService : LifecycleService() {
         starting = true; active = true; error = null; standbyFallback = mirrorPreferences().getBoolean("standbyFallback", false); stats = StreamStats()
         try {
             val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(NotificationChannel("camera", "Camera streaming", NotificationManager.IMPORTANCE_LOW))
+            manager.createNotificationChannel(NotificationChannel("camera", "Camera streaming", NotificationManager.IMPORTANCE_LOW).apply { lockscreenVisibility = Notification.VISIBILITY_PRIVATE })
             val notification = notification("Standby - waiting for TV")
             if (Build.VERSION.SDK_INT >= 29) startForeground(8080, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
             else startForeground(8080, notification)
@@ -227,11 +227,14 @@ class CameraService : LifecycleService() {
         val open = PendingIntent.getActivity(this, 0, Intent(this, PhoneActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val stop = PendingIntent.getService(this, 1, Intent(this, CameraService::class.java).setAction(STOP), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         return Notification.Builder(this, "camera").setSmallIcon(R.drawable.ic_mirror).setContentTitle("Mirror camera")
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .setPublicVersion(Notification.Builder(this, "camera").setSmallIcon(R.drawable.ic_mirror).setContentTitle("Mirror").setContentText("Camera service active").build())
             .setContentText(text).setContentIntent(open).setOngoing(true).setCategory(Notification.CATEGORY_SERVICE)
             .addAction(Notification.Action.Builder(null, "Stop", stop).build()).build()
     }
     private var notificationText = ""
     private fun updateNotification(names: List<String>) {
+        ClockMirrorState.update(active, boundAddress != null && standby, names.isNotEmpty())
         val text = if (boundAddress == null) "Not on Wi-Fi - connect to the same Wi-Fi as your TV"
             else if (names.isEmpty()) if (standby) "Standby - waiting for TV" else "Camera ready - 0 viewer(s)"
             else "Streaming to ${names.distinct().joinToString(", ")} - ${names.size} viewer(s)"
@@ -244,8 +247,10 @@ class CameraService : LifecycleService() {
     private fun blockedNotification(ip: String) {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel("blocked", "Blocked connections", NotificationManager.IMPORTANCE_DEFAULT))
+        manager.createNotificationChannel(NotificationChannel("blocked", "Blocked connections", NotificationManager.IMPORTANCE_DEFAULT).apply { lockscreenVisibility = Notification.VISIBILITY_PRIVATE })
         manager.notify(ip.hashCode(), Notification.Builder(this, "blocked").setSmallIcon(R.drawable.ic_mirror)
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .setPublicVersion(Notification.Builder(this, "blocked").setSmallIcon(R.drawable.ic_mirror).setContentTitle("Mirror").build())
             .setContentTitle("Blocked connection from $ip").setAutoCancel(true).build())
     }
     private fun fail(failure: Exception) { error = failure.message ?: "Could not start camera"; stopSelf() }
@@ -264,6 +269,7 @@ class CameraService : LifecycleService() {
     }
     override fun onDestroy() {
         destroyed = true; active = false; cameraRunning = false
+        ClockMirrorState.update(false, false, false)
         main.removeCallbacksAndMessages(null)
         networkCallback?.let { runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } }; networkCallback = null
         orientationListener?.disable(); orientationListener = null
@@ -288,5 +294,6 @@ class CameraService : LifecycleService() {
         @Volatile var error: String? = null
     }
 }
+
 
 

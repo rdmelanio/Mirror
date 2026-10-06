@@ -27,6 +27,7 @@ import com.mirror.app.core.label
 import com.mirror.app.core.mirrorPreferences
 
 class PhoneActivity : Activity() {
+    private var clockPanel: ClockSettingsPanel? = null
     private lateinit var start: Button
     private lateinit var status: TextView
     private lateinit var cameras: RadioGroup
@@ -91,6 +92,7 @@ class PhoneActivity : Activity() {
         content.addView(action("Change role") {
             stopService(Intent(this, CameraService::class.java)); LauncherActivity.changeRole(this)
         })
+        clockPanel = ClockSettingsPanel(this, content)
         val scroll = ScrollView(this).apply { addView(content) }
         setContentView(scroll); insetContent(content); start.requestFocus(); update()
     }
@@ -174,11 +176,12 @@ class PhoneActivity : Activity() {
         render(); AlertDialog.Builder(this).setTitle("Paired devices").setView(scroll).setNegativeButton("Close", null).show()
     }
     override fun onResume() {
-        super.onResume(); handler.post(refresh)
+        super.onResume(); handler.post(refresh); clockPanel?.start()
         if (CameraService.active && CameraService.standbyFallback) startService(Intent(this, CameraService::class.java).setAction(CameraService.RETRY))
     }
     override fun onStop() { pairingDialog?.dismiss(); super.onStop() }
-    override fun onPause() { handler.removeCallbacks(refresh); super.onPause() }
+    override fun onPause() { clockPanel?.stop(); handler.removeCallbacks(refresh); super.onPause() }
 }
+
 
 

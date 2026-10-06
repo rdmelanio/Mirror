@@ -26,6 +26,8 @@ jobs:
           sdkmanager --list | awk '/platforms;android-[0-9]+[[:space:]]/ {print $1}' | sort -Vu
           sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - uses: gradle/actions/setup-gradle@v4
+      - name: Bundle verified official B612 fonts
+        run: python3 scripts/fetch-clock-fonts.py
       - name: Build and check
         run: ./gradlew :app:assembleRelease :app:testDebugUnitTest :app:lintRelease
       - name: Show lint details on failure
@@ -64,4 +66,5 @@ jobs:
           target_commitish: ${{ github.sha }}
           make_latest: true
           files: mirror.apk
+
 
