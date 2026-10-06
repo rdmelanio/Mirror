@@ -102,7 +102,7 @@ private fun immersive(window: Window) {
     }
 }
 
-class ClockActivity : Activity() {
+class ClockActivity : androidx.activity.ComponentActivity() {
     private lateinit var controller: ClockController
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -111,12 +111,13 @@ class ClockActivity : Activity() {
         immersive(window)
         val clock = ClockView(this) { moveTaskToBack(true); finish() }
         setContentView(clock); controller = ClockController(this, clock, window)
-        if (Build.VERSION.SDK_INT >= 33) onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT) { /* Hold to exit. */ }
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() { /* Hold to exit on buttons and gestures alike. */ }
+        })
     }
     override fun onResume() { super.onResume(); immersive(window); controller.start() }
     override fun onPause() { controller.stop(); super.onPause() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) immersive(window) }
-    @Deprecated("Clock uses a guarded hold to exit") override fun onBackPressed() {}
 }
 
 class MirrorClockDream : DreamService() {
@@ -127,6 +128,8 @@ class MirrorClockDream : DreamService() {
         val clock = ClockView(this) { finish() }
         setContentView(clock); controller = ClockController(this, clock, window)
     }
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        if (event.keyCode == KeyEvent.KEYCODE_BACK) true else super.dispatchKeyEvent(event)
     override fun onDreamingStarted() { super.onDreamingStarted(); controller?.start() }
     override fun onDreamingStopped() { controller?.stop(); super.onDreamingStopped() }
     override fun onDetachedFromWindow() { controller?.stop(); controller = null; super.onDetachedFromWindow() }
