@@ -145,16 +145,20 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         }
         // Long roster lines shrink independently instead of making the clock digits tiny.
         val clockWidth = rows.filter { it.digits }.maxOfOrNull { rowWidth(it) } ?: 400f
-        for (index in rows.indices) {
-            val row = rows[index]
-            if (!row.digits && !row.indicator && rowWidth(row) > clockWidth)
-                rows[index] = row.copy(size = row.size * clockWidth / rowWidth(row))
-        }
-        val blockWidth = rows.maxOf { rowWidth(it) }
-        val blockHeight = rows.sumOf { (it.size * 1.4f).toDouble() }.toFloat()
         val density = resources.displayMetrics.density
         val margin = min(16f * density, min(width, height) * 0.06f)
         val shiftRoom = min(12f * density, min(width, height) * 0.04f)
+        val initialHeight = rows.sumOf { (it.size * 1.4f).toDouble() }.toFloat()
+        // A tall style can leave ample horizontal room: use it for routes instead of
+        // squeezing them into the narrow width of two stacked digits.
+        val infoWidth = ClockLayout.infoWidth(width.toFloat(), height.toFloat(), margin + shiftRoom, clockWidth, initialHeight)
+        for (index in rows.indices) {
+            val row = rows[index]
+            if (!row.digits && !row.indicator && rowWidth(row) > infoWidth)
+                rows[index] = row.copy(size = row.size * infoWidth / rowWidth(row))
+        }
+        val blockWidth = rows.maxOf { rowWidth(it) }
+        val blockHeight = rows.sumOf { (it.size * 1.4f).toDouble() }.toFloat()
         val scale = ClockLayout.scale(width.toFloat(), height.toFloat(), margin + shiftRoom,
             blockWidth, blockHeight, s.sizePercent)
         val actualHeight = blockHeight * scale

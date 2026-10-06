@@ -44,6 +44,14 @@ class ClockTest {
         }
         assertEquals(0f, ClockLayout.scale(0f, 0f, 28f, 300f, 300f, 90), 0f)
     }
+    @Test fun landscapeStackedClockUsesSpareWidthForSchedule() {
+        val width = ClockLayout.infoWidth(780f, 360f, 28f, 190f, 700f)
+        assertTrue(width > 1000f)
+        val base = ClockLayout.scale(780f, 360f, 28f, 190f, 700f, 90)
+        val withRoute = ClockLayout.scale(780f, 360f, 28f, 650f, 700f, 90)
+        assertEquals(base, withRoute, 0.0001f)
+        assertEquals(304f, ClockLayout.infoWidth(360f, 780f, 28f, 304f, 350f), 0.001f)
+    }
     @Test fun nightRequiresContinuousLowAndHighWithHysteresis() {
         val p = ClockLightPolicy()
         p.sample(2f, 0); p.advance(59_999, false, Long.MIN_VALUE); assertFalse(p.night)
