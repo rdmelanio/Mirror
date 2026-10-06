@@ -25,7 +25,7 @@ class MjpegClient(private val address: String, private val frame: (VideoFrame) -
     fun configureDelay(seconds: Int) {
         synchronized(monitor) {
             if (delaySeconds == seconds) return
-            delaySeconds = seconds; buffer.clear(); latest = null; playing = false; delayMessage = ""
+            delaySeconds = seconds; buffer.clear(); latest = null; playing = false; delayMessage = "unset"
             monitor.notifyAll()
         }
     }

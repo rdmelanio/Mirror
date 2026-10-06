@@ -178,13 +178,14 @@ class MjpegServer(private val name: String, private val stats: StreamStats,
                             if (device != null && !security.isPaired(device.hash) || browser && !security.browserEnabled()) break
                             val frame = synchronized(monitor) {
                                 while (running && !client.isClosed) {
-                            if (device != null && !security.isPaired(device.hash) || browser && !security.browserEnabled()) break
+                                    if (device != null && !security.isPaired(device.hash) || browser && !security.browserEnabled()) break
                                     val remaining = nextSend - System.nanoTime()
                                     if (latest.get() != null && latest.get() !== sent && remaining <= 0) break
                                     if (remaining > 0) TimeUnit.NANOSECONDS.timedWait(monitor, remaining)
                                     else monitor.wait(1000)
                                 }
-                                if (!running || client.isClosed) null else latest.get()
+                                if (!running || client.isClosed || device != null && !security.isPaired(device.hash) ||
+                                    browser && !security.browserEnabled()) null else latest.get()
                             } ?: break
                             val sentAt = System.nanoTime()
                             output.write("--mirrorframe\r\nContent-Type: image/jpeg\r\nContent-Length: ${frame.jpeg.size}\r\nX-Rotation: ${frame.rotation}\r\n\r\n".toByteArray(Charsets.US_ASCII))
