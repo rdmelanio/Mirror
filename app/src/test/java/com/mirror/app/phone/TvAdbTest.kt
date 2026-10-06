@@ -60,6 +60,10 @@ class TvAdbTest {
             try {
                 val answer = Socket("127.0.0.1", server.localPort).use { it.soTimeout = 5000; clientWork(it) }
                 result.get(10, TimeUnit.SECONDS); return answer
+            } catch (error: Throwable) {
+                val serverError = runCatching { result.get(6, TimeUnit.SECONDS) }.exceptionOrNull()
+                if (serverError is java.util.concurrent.ExecutionException) throw AssertionError("Simulated TV failed", serverError.cause)
+                throw error
             } finally { worker.shutdownNow() }
         }
     }

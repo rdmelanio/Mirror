@@ -26,7 +26,7 @@ internal object TvAdbWire {
         val bytes = ByteArray(24); DataInputStream(input).readFully(bytes)
         val h = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
         val c = h.int; val a = h.int; val b = h.int; val length = h.int; val sum = h.int; val magic = h.int
-        if (magic != c.inv() || length !in 0..1_048_576 || c !in listOf("CNXN", "STLS", "AUTH", "OKAY", "WRTE", "CLSE").map(::command))
+        if (magic != c.inv() || length !in 0..1_048_576 || c !in listOf("CNXN", "STLS", "AUTH", "OPEN", "OKAY", "WRTE", "CLSE").map(::command))
             throw IOException("Invalid ADB packet")
         val data = ByteArray(length); DataInputStream(input).readFully(data)
         if (sum != 0 && sum != data.sumOf { it.toInt() and 255 }) throw IOException("Invalid ADB checksum")

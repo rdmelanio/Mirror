@@ -30,8 +30,8 @@ internal object TvDiscovery {
                     override fun onResolveFailed(info: NsdServiceInfo, error: Int) { resolving.set(false) }
                     override fun onServiceResolved(info: NsdServiceInfo) {
                         if (closed.get()) return
-                        val address = info.host?.hostAddress
-                        val host = address?.let { runCatching { TvTarget.host(it) }.getOrNull() }
+                        val addresses = if (android.os.Build.VERSION.SDK_INT >= 34) info.hostAddresses else listOfNotNull(info.host)
+                        val host = addresses.mapNotNull { it.hostAddress?.let { raw -> runCatching { TvTarget.host(raw) }.getOrNull() } }.firstOrNull()
                         if (host != null && info.port in 1..65535) { answer.set(Endpoint(host, info.port)); latch.countDown() }
                         else resolving.set(false)
                     }
