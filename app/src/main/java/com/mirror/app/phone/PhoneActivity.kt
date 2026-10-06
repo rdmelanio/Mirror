@@ -2,6 +2,9 @@ package com.mirror.app.phone
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
+import android.widget.CheckBox
+import android.widget.EditText
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -29,6 +32,8 @@ class PhoneActivity : Activity() {
     private lateinit var cameras: RadioGroup
     private lateinit var resolutions: RadioGroup
     private lateinit var orientations: RadioGroup
+    private var pairingDialog: AlertDialog? = null
+    private val security get() = PhoneSecurity.get(this)
     private var orientation = "landscape"
     private var front = false
     private var fullHd = false
@@ -45,6 +50,27 @@ class PhoneActivity : Activity() {
         content.addView(label("Mirror · Phone camera", 28f))
         start = action("Start") { if (CameraService.active) stopService(Intent(this, CameraService::class.java)) else requestStart() }
         content.addView(start)
+        content.addView(CheckBox(this).apply {
+            text = "Standby - camera turns on only when your TV connects"; isChecked = mirrorPreferences().getBoolean("standby", true)
+            setOnCheckedChangeListener { _, enabled -> mirrorPreferences().edit().putBoolean("standby", enabled).apply() }
+        })
+        content.addView(action("Pair new TV") { showPairing() })
+        content.addView(action("Paired devices") { showDevices() })
+        content.addView(action("Allow browser viewing: ${if (security.browserEnabled()) "On" else "Off"}") {
+            val button = content.getChildAt(5) as? Button
+            if (security.browserEnabled()) {
+                security.setBrowserPassword(null); button?.text = "Allow browser viewing: Off"
+            } else {
+                val password = EditText(this).apply { hint = "Set a browser password"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD }
+                val dialog = AlertDialog.Builder(this).setTitle("Allow browser viewing")
+                    .setMessage("Use username mirror and this password in Chrome. Video is not encrypted yet. Browser controls are disabled.")
+                    .setView(password).setPositiveButton("Enable", null).setNegativeButton("Cancel", null).create()
+                dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                    if (password.text.isEmpty()) password.error = "Enter a password"
+                    else { security.setBrowserPassword(password.text.toString()); button?.text = "Allow browser viewing: On"; dialog.dismiss() }
+                } }; dialog.show()
+            }
+        })
         content.addView(label("Camera"))
         cameras = choices(listOf("Rear", "Front"), if (front) 1 else 0) { front = it == 1; save() }
         content.addView(cameras)
@@ -103,16 +129,56 @@ class PhoneActivity : Activity() {
         for (group in listOf(cameras, resolutions)) for (i in 0 until group.childCount) group.getChildAt(i).isEnabled = !CameraService.active
         val address = LocalNetwork.address(this)
         val metrics = CameraService.stats
-        status.text = (if (address == null) "Not on Wi-Fi - connect this phone to the same Wi-Fi as your TV"
-            else "${if (CameraService.active) "Streaming at" else "Stream address:"} http://$address:8080/video") +
+        status.text = (if (address == null) "Not on Wi-Fi - connect to the same Wi-Fi as your TV"
+            else "${if (CameraService.active && !CameraService.cameraRunning) "Standby at" else if (CameraService.active) "Streaming at" else "Stream address:"} http://$address:8080/video") +
             (if (CameraService.active) String.format(java.util.Locale.US,
                 "\nCamera %.0f fps - Encode %.0f ms - Sending %.0f fps - %d %s",
                 metrics.cameraFps, metrics.encodeMs, metrics.sendFps, metrics.clients.get(),
                 if (metrics.clients.get() == 1) "viewer" else "viewers") else "") +
             (if (CameraService.active && orientation == "landscape" && CameraService.physicalPortrait) "\nTip: mount the phone sideways for a wider view" else "") +
-            (CameraService.error?.let { "\n$it" } ?: "")
+            (CameraService.error?.let { "\n$it" } ?: "") +
+            (CameraService.note?.let { "\n$it" } ?: if (CameraService.standbyFallback) "\nStandby is unavailable on this device; the camera stays running." else "")
     }
-    override fun onResume() { super.onResume(); handler.post(refresh) }
+    private fun showPairing() {
+        pairingDialog?.dismiss()
+        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val code = label("", 32f); content.addView(code)
+        content.addView(label("On your TV, enter this code. It is valid for 2 minutes while this screen stays open."))
+        var shown: String? = security.showCode()
+        val regenerate = action("Regenerate") { shown = security.showCode() }; content.addView(regenerate)
+        val dialog = AlertDialog.Builder(this).setTitle("Pair new TV").setView(content).setNegativeButton("Close", null).create()
+        val tick = object : Runnable {
+            override fun run() {
+                val lock = security.lockSeconds(); val remaining = security.remainingSeconds()
+                code.text = if (lock > 0) "Too many attempts - wait ${lock}s" else if (remaining == 0L) "Code expired - Regenerate" else "$shown\nExpires in ${remaining}s"
+                regenerate.isEnabled = lock == 0L
+                handler.postDelayed(this, 1000)
+            }
+        }
+        dialog.setOnDismissListener { security.hideCode(); handler.removeCallbacks(tick); pairingDialog = null }
+        pairingDialog = dialog; dialog.show(); handler.post(tick); regenerate.requestFocus()
+    }
+    private fun showDevices() {
+        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = ScrollView(this).apply { addView(content) }
+        fun render() {
+            content.removeAllViews()
+            val devices = security.list()
+            if (devices.isEmpty()) content.addView(label("No paired devices"))
+            devices.forEach { device ->
+                val seen = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(device.lastSeen))
+                content.addView(label("${device.name}\nLast seen: $seen"))
+                content.addView(action("Remove ${device.name}") { security.remove(device.hash); render() })
+            }
+        }
+        render(); AlertDialog.Builder(this).setTitle("Paired devices").setView(scroll).setNegativeButton("Close", null).show()
+    }
+    override fun onResume() {
+        super.onResume(); handler.post(refresh)
+        if (CameraService.active && CameraService.standbyFallback) startService(Intent(this, CameraService::class.java).setAction(CameraService.RETRY))
+    }
+    override fun onStop() { pairingDialog?.dismiss(); super.onStop() }
     override fun onPause() { handler.removeCallbacks(refresh); super.onPause() }
 }
+
 

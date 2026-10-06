@@ -30,6 +30,12 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.lifecycle.LifecycleService
 import com.mirror.app.R
+import com.mirror.app.core.LocalNetwork
+import android.net.ConnectivityManager
+import android.net.NetworkRequest
+import android.net.NetworkCapabilities
+import android.os.Handler
+import android.os.Looper
 import java.util.concurrent.Executors
 
 @androidx.annotation.OptIn(androidx.camera.camera2.interop.ExperimentalCamera2Interop::class)
@@ -42,6 +48,28 @@ class CameraService : LifecycleService() {
     private var wifi: WifiManager.WifiLock? = null
     @Volatile private var destroyed = false
     private var starting = false
+    private val main = Handler(Looper.getMainLooper())
+    private var front = false
+    private var fullHd = false
+    private var boundAddress: String? = null
+    private var opening = false
+    @Volatile private var cameraEpoch = 0
+    private var idleSince = 0L
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private val standby get() = mirrorPreferences().getBoolean("standby", true) && !standbyFallback
+    private val maintenance = object : Runnable {
+        override fun run() {
+            if (destroyed) return
+            reconcileWifi()
+            val viewers = server?.viewerNames().orEmpty()
+            if (viewers.isEmpty()) {
+                if (idleSince == 0L) idleSince = android.os.SystemClock.elapsedRealtime()
+                if (standby && cameraRunning && android.os.SystemClock.elapsedRealtime() - idleSince >= 60_000) stopCamera()
+            } else idleSince = 0L
+            updateNotification(viewers)
+            main.postDelayed(this, 1000)
+        }
+    }
     private var analysis: ImageAnalysis? = null
     private var capture: ImageCapture? = null
     private var orientationListener: OrientationEventListener? = null
@@ -49,32 +77,30 @@ class CameraService : LifecycleService() {
     @Volatile private var streamOrientation = "landscape"
     private val preferencesChanged = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
         if (key == "streamOrientation") streamOrientation = prefs.getString(key, "landscape") ?: "landscape"
+        if (key == "standby") main.post { if (!standby && boundAddress != null) startCamera() }
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
         if (intent?.action == STOP) { stopSelf(); return START_NOT_STICKY }
-        if (starting) return START_NOT_STICKY
+        if (starting) {
+            if (intent?.action == RETRY && standbyFallback && boundAddress != null) startCamera()
+            return START_NOT_STICKY
+        }
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             error = "Camera permission is required"; stopSelf(); return START_NOT_STICKY
         }
-        starting = true; active = true; error = null; stats = StreamStats()
+        starting = true; active = true; error = null; standbyFallback = mirrorPreferences().getBoolean("standbyFallback", false); stats = StreamStats()
         try {
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(NotificationChannel("camera", "Camera streaming", NotificationManager.IMPORTANCE_LOW))
-            val open = PendingIntent.getActivity(this, 0, Intent(this, PhoneActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-            val stop = PendingIntent.getService(this, 1, Intent(this, CameraService::class.java).setAction(STOP), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-            val notification = Notification.Builder(this, "camera").setSmallIcon(R.drawable.ic_mirror)
-                .setContentTitle("Mirror camera is streaming").setContentText("Open Mirror to manage the stream")
-                .setContentIntent(open).setOngoing(true).setCategory(Notification.CATEGORY_SERVICE)
-                .addAction(Notification.Action.Builder(null, "Stop", stop).build()).build()
+            val notification = notification("Standby - waiting for TV")
             if (Build.VERSION.SDK_INT >= 29) startForeground(8080, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
             else startForeground(8080, notification)
             wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Mirror:camera").apply { acquire() }
             @Suppress("DEPRECATION")
             wifi = applicationContext.getSystemService(WifiManager::class.java).createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Mirror:stream").apply { acquire() }
-            server = MjpegServer(Build.MODEL, stats).also { it.start() }
-            val front = intent?.getBooleanExtra("front", false) ?: false
-            val fullHd = intent?.getBooleanExtra("fullHd", false) ?: false
+            front = intent?.getBooleanExtra("front", false) ?: false
+            fullHd = intent?.getBooleanExtra("fullHd", false) ?: false
             physicalRotation = intent?.getIntExtra("rotation", Surface.ROTATION_0) ?: Surface.ROTATION_0
             physicalPortrait = physicalRotation == Surface.ROTATION_0 || physicalRotation == Surface.ROTATION_180
             streamOrientation = mirrorPreferences().getString("streamOrientation", "landscape") ?: "landscape"
@@ -93,9 +119,24 @@ class CameraService : LifecycleService() {
                     }
                 }
             }.also { if (it.canDetectOrientation()) it.enable() }
+            val managerNetwork = getSystemService(ConnectivityManager::class.java)
+            networkCallback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) { main.post { reconcileWifi() } }
+                override fun onLost(network: android.net.Network) { main.post { reconcileWifi() } }
+                override fun onLinkPropertiesChanged(network: android.net.Network, properties: android.net.LinkProperties) { main.post { reconcileWifi() } }
+            }.also { managerNetwork.registerNetworkCallback(NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build(), it) }
+            reconcileWifi(); main.post(maintenance)
+        } catch (failure: Exception) { fail(failure) }
+        return START_NOT_STICKY
+    }
+    private fun startCamera() {
+        if (destroyed || boundAddress == null || cameraRunning || opening) return
+        opening = true
+        val epoch = cameraEpoch
+        try {
             val future = ProcessCameraProvider.getInstance(this)
             future.addListener({
-                if (destroyed) return@addListener
+                if (destroyed || boundAddress == null || cameraEpoch != epoch) return@addListener
                 try {
                     provider = future.get()
                     val selector = if (front) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
@@ -130,12 +171,12 @@ class CameraService : LifecycleService() {
                     var encodedFrames = 0
                     analysis.setAnalyzer(analyzer) { image ->
                         try {
-                            if (!destroyed) {
+                            if (!destroyed && cameraEpoch == epoch) {
                                 val start = System.nanoTime()
                                 val jpeg = encoder.encode(image, quality, streamOrientation)
                                 stats.rotationDegrees = 0
                                 stats.encoded((System.nanoTime() - start) / 1_000_000.0)
-                                server?.publish(jpeg, 0)
+                                if (!destroyed && cameraEpoch == epoch) server?.publish(jpeg, 0)
                                 if (++encodedFrames % 30 == 0 && stats.encodeMs > 25.0 && quality > 60) quality -= 2
                             }
                         } catch (failure: Exception) { error = "Camera frame failed: ${failure.message}" }
@@ -143,16 +184,74 @@ class CameraService : LifecycleService() {
                     }
                     val camera = provider!!.bindToLifecycle(this, selector, analysis, capture)
                     server?.controls = CameraControls(this, camera, capture)
-                    advertise()
-                } catch (failure: Exception) { fail(failure) }
+                    cameraRunning = true; opening = false
+                    camera.cameraInfo.cameraState.observe(this) { state ->
+                        if (cameraEpoch == epoch && state.error != null && server?.viewerNames()?.isNotEmpty() == true) {
+                            standbyFailed(); stopCamera()
+                        }
+                    }
+                } catch (failure: Exception) { opening = false; standbyFailed(); error = "Camera could not wake: ${failure.message}. Open Mirror on the phone." }
             }, java.util.concurrent.Executor { task -> android.os.Handler(mainLooper).post(task) })
-        } catch (failure: Exception) { fail(failure) }
-        return START_NOT_STICKY
+        } catch (failure: Exception) { opening = false; standbyFailed(); error = failure.message }
+    }
+    private fun standbyFailed() {
+        standbyFallback = true
+        mirrorPreferences().edit().putBoolean("standbyFallback", true).apply()
+        note = "Android refused to wake the camera in the background. Keep Mirror open briefly; the camera will stay running for this device."
+    }
+    private fun stopCamera() {
+        cameraEpoch++; opening = false; cameraRunning = false
+        analysis?.clearAnalyzer(); provider?.unbindAll(); analysis = null; capture = null
+        server?.controls = null; server?.clearFrames()
+    }
+    private fun reconcileWifi() {
+        if (destroyed) return
+        val address = LocalNetwork.address(this)
+        if (address == boundAddress) { if (address == null) error = "Not on Wi-Fi - connect to the same Wi-Fi as your TV"; return }
+        stopCamera(); server?.close(); server = null
+        registration?.let { runCatching { getSystemService(NsdManager::class.java).unregisterService(it) } }; registration = null
+        boundAddress = address
+        if (address == null) { error = "Not on Wi-Fi - connect to the same Wi-Fi as your TV"; return }
+        try {
+            error = null
+            server = MjpegServer(Build.MODEL, stats, PhoneSecurity.get(this), java.net.InetAddress.getByName(address),
+                { ip -> main.post { blockedNotification(ip) } }, { names -> main.post {
+                    if (names.isNotEmpty() && server?.viewerNames()?.isNotEmpty() == true) { idleSince = 0; startCamera() }
+                    updateNotification(names)
+                } }).also { it.start() }
+            advertise()
+            if (!standby) startCamera()
+        } catch (failure: Exception) { error = "Wi-Fi server failed: ${failure.message}"; boundAddress = null }
+    }
+    private fun notification(text: String): Notification {
+        val open = PendingIntent.getActivity(this, 0, Intent(this, PhoneActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val stop = PendingIntent.getService(this, 1, Intent(this, CameraService::class.java).setAction(STOP), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        return Notification.Builder(this, "camera").setSmallIcon(R.drawable.ic_mirror).setContentTitle("Mirror camera")
+            .setContentText(text).setContentIntent(open).setOngoing(true).setCategory(Notification.CATEGORY_SERVICE)
+            .addAction(Notification.Action.Builder(null, "Stop", stop).build()).build()
+    }
+    private var notificationText = ""
+    private fun updateNotification(names: List<String>) {
+        val text = if (boundAddress == null) "Not on Wi-Fi - connect to the same Wi-Fi as your TV"
+            else if (names.isEmpty()) if (standby) "Standby - waiting for TV" else "Camera ready - 0 viewer(s)"
+            else "Streaming to ${names.distinct().joinToString(", ")} - ${names.size} viewer(s)"
+        if (text != notificationText) {
+            notificationText = text
+            if (Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+                getSystemService(NotificationManager::class.java).notify(8080, notification(text))
+        }
+    }
+    private fun blockedNotification(ip: String) {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(NotificationChannel("blocked", "Blocked connections", NotificationManager.IMPORTANCE_DEFAULT))
+        manager.notify(ip.hashCode(), Notification.Builder(this, "blocked").setSmallIcon(R.drawable.ic_mirror)
+            .setContentTitle("Blocked connection from $ip").setAutoCancel(true).build())
     }
     private fun fail(failure: Exception) { error = failure.message ?: "Could not start camera"; stopSelf() }
     private fun advertise() {
         val nsd = getSystemService(NsdManager::class.java)
-        val info = NsdServiceInfo().apply { serviceName = Build.MODEL; serviceType = "_mirrorcam._tcp."; port = 8080 }
+        val info = NsdServiceInfo().apply { serviceName = Build.MODEL; serviceType = "_mirrorcam._tcp."; port = 8080; setAttribute("cameraId", PhoneSecurity.get(this@CameraService).cameraId) }
         val listener = object : NsdManager.RegistrationListener {
             override fun onServiceRegistered(info: NsdServiceInfo) {}
             override fun onRegistrationFailed(info: NsdServiceInfo, code: Int) { registration = null }
@@ -164,7 +263,9 @@ class CameraService : LifecycleService() {
         catch (_: Exception) { registration = null } // The address still works if a router blocks discovery.
     }
     override fun onDestroy() {
-        destroyed = true; active = false
+        destroyed = true; active = false; cameraRunning = false
+        main.removeCallbacksAndMessages(null)
+        networkCallback?.let { runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } }; networkCallback = null
         orientationListener?.disable(); orientationListener = null
         mirrorPreferences().unregisterOnSharedPreferenceChangeListener(preferencesChanged)
         analysis = null; capture = null
@@ -177,10 +278,15 @@ class CameraService : LifecycleService() {
     }
     companion object {
         @Volatile var stats = StreamStats()
+        @Volatile var cameraRunning = false
+        @Volatile var standbyFallback = false
+        @Volatile var note: String? = null
+        const val RETRY = "com.mirror.app.RETRY"
         const val STOP = "com.mirror.app.STOP"
         @Volatile var active = false
         @Volatile var physicalPortrait = true
         @Volatile var error: String? = null
     }
 }
+
 

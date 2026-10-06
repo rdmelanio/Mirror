@@ -45,9 +45,23 @@ jobs:
         with:
           name: mirror-apk
           path: mirror.apk
+      - name: Verify APK version
+        run: |
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging mirror.apk > apk-info.txt
+          python3 - <<'PYTHON'
+          import pathlib, re
+          props = dict(line.split('=', 1) for line in pathlib.Path('gradle.properties').read_text().splitlines() if '=' in line)
+          badging = pathlib.Path('apk-info.txt').read_text()
+          for key, prop in [('versionName', 'mirrorVersionName'), ('versionCode', 'mirrorVersionCode')]:
+              value = re.search(rf"{key}='([^']+)'", badging).group(1)
+              assert value == props[prop], (key, value, props[prop])
+          print('Verified APK version:', props['mirrorVersionName'], props['mirrorVersionCode'])
+          PYTHON
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
           name: Mirror build ${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
           make_latest: true
           files: mirror.apk
+

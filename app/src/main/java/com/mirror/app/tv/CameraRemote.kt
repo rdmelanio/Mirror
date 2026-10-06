@@ -7,7 +7,7 @@ import java.net.URL
 import java.util.concurrent.Executors
 
 /** Separate from MJPEG read/decode; all commands are serialized in request order. */
-class CameraRemote(address: String) {
+class CameraRemote(address: String, private val auth: SourceAuth = SourceAuth(), private val unauthorized: () -> Unit = {}) {
     private val base = URL(address).let { URL(it.protocol, it.host, it.port, "/") }
     private val worker = Executors.newSingleThreadExecutor()
     @Volatile private var closed = false
@@ -39,8 +39,10 @@ class CameraRemote(address: String) {
         connection = http
         try {
             http.connectTimeout = 4000; http.readTimeout = 14000; http.useCaches = false
+            auth.apply(http)
             if (closed) error("Camera connection closed")
             val code = http.responseCode
+            if (code == 401 && auth.token != null) { unauthorized(); error("This TV is no longer paired") }
             if (code == 404 || code == 405 || code == 501) throw UnsupportedSource()
             val stream = if (code in 200..299) http.inputStream else http.errorStream
             val json = stream?.bufferedReader()?.use { JSONObject(it.readText()) }
@@ -50,3 +52,4 @@ class CameraRemote(address: String) {
     }
     fun close() { closed = true; connection?.disconnect(); worker.shutdownNow() }
 }
+

@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.4.0 (140) — 2026-10-05
+
+- Add cameraId-based pairing, a remote/touch number pad, 2-minute secure codes,
+  five-attempt lockout, hashed token persistence, authenticated camera routes,
+  paired-device management, immediate stream revocation and blocked-IP alerts.
+- Add opt-in password-protected browser video/status (no browser control),
+  optional IP Webcam Basic credentials, Wi-Fi interface binding and loss/recovery.
+  HTTP remains unencrypted; existing viewers pair once after upgrading.
+- Add saved default-on phone standby with authenticated stream wake, 60-second
+  idle shutdown, connected-viewer notifications and a background-camera fallback.
+  Start stays user initiated; there is no boot auto-start.
+- Add saved TV auto-sleep (default 10 minutes), dim sleep screen and key/touch wake.
+- Add Delayed mode with 3/5/10/15-second options, compressed-JPEG buffering capped
+  at 60 MiB, countdown/badge and the existing single-frame decode/bitmap pool.
+- Preserve orientation, real zoom/pan, flashlight, focus, snapshots/Compare,
+  freeze, Ring Light, filters, touch/remote, stats, Show FPS and rediscovery.
+- Extend security, HTTP and bounded-buffer JVM regression coverage. Keep the
+  existing universal 32/64-bit APK, signing key, 720p encoder and 30 fps send cap.
+
+Hardware acceptance still requires the OnePlus 6T (Android 14), Z Fold 7
+(Android 16) and TCL Google TV (Android TV 14, 32-bit). Automated checks do not
+measure their 24–30 fps performance or establish vendor background-camera policy.
+
 ## 1.3.0 (130) — 2026-10-05
 
 - Add saved Landscape / Portrait / Auto stream orientation and physical mount
@@ -24,3 +47,4 @@ Fit on a 16:9 display, no black inner ring window, camera controls, full-resolut
 unmirrored gallery images, freeze/compare, remote/touch, and normal volume keys.
 Confirm at least 24 fps on the camera and weak 32-bit viewer. This device benchmark
 requires physical hardware and is not established by the automated build checks.
+

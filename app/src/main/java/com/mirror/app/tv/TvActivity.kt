@@ -12,6 +12,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -40,6 +41,16 @@ class TvActivity : ComponentActivity() {
     private lateinit var root: FrameLayout
     private lateinit var paused: TextView
     private lateinit var flash: View
+    private lateinit var delayBadge: TextView
+    private lateinit var sleepScreen: TextView
+    private val pairing by lazy { ViewerPairing(mirrorPreferences()) }
+    private var pairingScreen: PairingScreen? = null
+    private var pairedCamera: ViewerPairing.Camera? = null
+    private var revoked = false
+    private var sleeping = false
+    private var wakeTouch = false
+    private var wakeKey = -1
+    private var lastInteraction = 0L
     private var remote: CameraRemote? = null
     var cameraSupported: Boolean? = null
         private set
@@ -74,6 +85,8 @@ class TvActivity : ComponentActivity() {
         override fun run() {
             if (!started) return
             val now = SystemClock.elapsedRealtime()
+            if (!sleeping && settings.autoSleep > 0 && now - lastInteraction >= settings.autoSleep * 60_000L) sleep()
+            if (sleeping || pairingScreen != null || revoked) { handler.postDelayed(this, 1000); return }
             val seconds = ((now - lastSample) / 1000.0).coerceAtLeast(.001)
             lastSample = now
             val received = (client?.receivedFrames?.getAndSet(0) ?: 0) / seconds
@@ -124,6 +137,12 @@ class TvActivity : ComponentActivity() {
         root.addView(flash, FrameLayout.LayoutParams(-1, -1))
         menu = QuickMenu(this)
         root.addView(menu.panel, FrameLayout.LayoutParams(dp(380), -1, Gravity.END))
+        delayBadge = label("", 16f).apply { setBackgroundColor(Color.argb(170, 0, 0, 0)); visibility = View.GONE }
+        root.addView(delayBadge, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START))
+        sleepScreen = label("Sleeping - press any button to wake", 20f).apply {
+            gravity = Gravity.CENTER; setTextColor(Color.DKGRAY); setBackgroundColor(Color.BLACK); visibility = View.GONE
+        }
+        root.addView(sleepScreen, FrameLayout.LayoutParams(-1, -1))
         setContentView(root); refreshSettings(); immersive()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() { handleBack() }
@@ -131,13 +150,13 @@ class TvActivity : ComponentActivity() {
         toast("Left/Right: Mode   Up/Down: Zoom or Brightness   OK: Menu", 4000)
     }
     override fun onStart() {
-        super.onStart(); started = true; feed.startFrames()
+        super.onStart(); started = true; sleeping = false; sleepScreen.visibility = View.GONE; lastInteraction = SystemClock.elapsedRealtime(); feed.startFrames()
         failedSince = SystemClock.elapsedRealtime(); lastSample = failedSince
         feed.drawnFrames.set(0); handler.postDelayed(health, 1000)
         if (settings.url.isNotBlank()) connect() else discoverFirst()
     }
     override fun onStop() {
-        started = false; generation++; client?.stop(); client = null; remote?.close(); remote = null; feed.stopFrames()
+        started = false; clearPairingScreen(); revoked = false; generation++; client?.stop(); client = null; remote?.close(); remote = null; feed.stopFrames()
         frozen = false; paused.visibility = View.GONE; closeCompare(); flash.visibility = View.GONE
         discovery?.stop(); discovery = null; menu.stopDiscovery()
         handler.removeCallbacks(health); failedSince = 0L
@@ -159,13 +178,14 @@ class TvActivity : ComponentActivity() {
         discovery?.stop()
         discoveringSince = SystemClock.elapsedRealtime()
         discovery = CameraDiscovery(this) { _, url ->
-            if (started && failedSince != 0L && (client == null || settings.url != url)) {
-                settings.url = url; settings.save(); handler.removeCallbacks(discoveryTimeout)
-                connect()
+            if (started && !sleeping && pairingScreen == null && !revoked && failedSince != 0L && (client == null || settings.url != url)) {
+                handler.removeCallbacks(discoveryTimeout)
+                connect(automatic = true, candidate = url)
             }
         }.also { it.start() }
     }
     fun setAddress(url: String) {
+        clearPairingScreen(); revoked = false; settings.cameraId = ""; pairedCamera = null
         settings.url = url; settings.save(); handler.removeCallbacks(discoveryTimeout)
         discovery?.stop(); discovery = null
         if (started) connect()
@@ -173,15 +193,48 @@ class TvActivity : ComponentActivity() {
     fun stopAutoDiscovery() {
         discovery?.stop(); discovery = null; handler.removeCallbacks(discoveryTimeout)
     }
-    private fun connect() {
-        client?.stop(); remote?.close(); generation++
-        val session = generation
+    private fun connect(automatic: Boolean = false, candidate: String = settings.url) {
+        if (!started || sleeping) return
+        client?.stop(); client = null; remote?.close(); remote = null; generation++
+        val session = generation; val address = candidate
+        status.text = "Connecting..."; status.visibility = View.VISIBLE
+        Thread({
+            try {
+                val camera = pairing.hello(address)
+                handler.post {
+                    if (!started || sleeping || generation != session) return@post
+                    if (automatic && (camera == null || settings.cameraId.isNotEmpty() && camera.id != settings.cameraId)) {
+                        failedSince = SystemClock.elapsedRealtime(); return@post
+                    }
+                    if (camera == null && settings.cameraId.isNotEmpty()) {
+                        connectionFailed(session); return@post
+                    }
+                    settings.url = address; settings.save()
+                    pairedCamera = camera
+                    if (camera != null) {
+                        settings.cameraId = camera.id; settings.save()
+                        val token = pairing.token(camera.id)
+                        if (token == null) { showPairing(camera); return@post }
+                        startStream(session, SourceAuth(token))
+                    } else startStream(session, SourceAuth(username = settings.username, password = settings.password))
+                }
+            } catch (_: Exception) { handler.post { connectionFailed(session) } }
+        }, "Mirror-identify-camera").start()
+    }
+    private fun connectionFailed(session: Int) {
+        if (!started || sleeping || generation != session) return
+        status.text = "Can't reach camera - open Mirror on your phone and press Start"; status.visibility = View.VISIBLE
+        if (failedSince == 0L) failedSince = SystemClock.elapsedRealtime()
+        handler.postDelayed({ if (started && !sleeping && generation == session && pairingScreen == null && !revoked) connect() }, 3000)
+    }
+    private fun startStream(session: Int, auth: SourceAuth) {
         cameraSupported = null; hasFlash = false; torch = false; pendingControls = 0
         snapshotPending = false; probing = false; settings.pan = 0f; feed.opticalZoom = true
         if (frozen) toggleFreeze()
         closeCompare(); menu.refreshCameraControls()
-        remote = CameraRemote(settings.url); probeCamera()
-        status.text = "Connecting..."; status.visibility = View.VISIBLE
+        val unauthorized = { handler.post { if (started && generation == session) unpaired() }; Unit }
+        remote = CameraRemote(settings.url, auth, unauthorized); probeCamera()
+        status.text = if (auth.token != null) "Waking camera..." else "Connecting..."; status.visibility = View.VISIBLE
         client = MjpegClient(settings.url, { frame ->
             if (started && generation == session) feed.submit(frame) else frame.release()
         }, { value -> handler.post {
@@ -190,14 +243,71 @@ class TvActivity : ComponentActivity() {
                 if (value.isEmpty()) { failedSince = 0L; stopAutoDiscovery() }
                 else if (failedSince == 0L) failedSince = SystemClock.elapsedRealtime()
             }
-        } }, { started && generation == session && !comparing && feed.ready() }).also { it.start() }
+        } }, { started && generation == session && !comparing && feed.ready() }, auth, unauthorized, { value -> handler.post {
+            if (started && generation == session) { delayBadge.text = value; delayBadge.visibility = if (value.isBlank()) View.GONE else View.VISIBLE }
+        } }).also { it.configureDelay(if (settings.mode == 2) settings.delay else 0); it.start() }
+    }
+    private fun clearPairingScreen() { pairingScreen?.let { root.removeView(it) }; pairingScreen = null }
+    private fun showPairing(camera: ViewerPairing.Camera) {
+        if (!started || sleeping) return
+        clearPairingScreen(); menu.close(); stopAutoDiscovery(); failedSince = 0L; revoked = false
+        val session = generation; val address = settings.url
+        val screen = PairingScreen(this, camera.name, { code ->
+            Thread({
+                try {
+                    pairing.pair(address, camera, code, android.os.Build.MODEL)
+                    handler.post { if (started && generation == session && pairingScreen != null) { clearPairingScreen(); connect() } }
+                } catch (error: Exception) { handler.post {
+                    if (started && generation == session) pairingScreen?.error(error.message ?: "Pairing failed")
+                } }
+            }, "Mirror-pair-TV").start()
+        }, { clearPairingScreen(); menu.openConnection() })
+        pairingScreen = screen; root.addView(screen, FrameLayout.LayoutParams(-1, -1))
+    }
+    private fun unpaired() {
+        val camera = pairedCamera ?: return
+        pairing.forget(camera.id); generation++; client?.stop(); client = null; remote?.close(); remote = null
+        feed.stopFrames(); feed.startFrames(); stopAutoDiscovery(); menu.close(); closeCompare()
+        frozen = false; paused.visibility = View.GONE; delayBadge.visibility = View.GONE
+        revoked = true; failedSince = 0L
+        status.text = "This TV is no longer paired - press OK to pair again"; status.visibility = View.VISIBLE
+        root.setOnClickListener { if (revoked) showPairing(camera) else if (!menu.isOpen) menu.open() }
+    }
+    private fun sleep() {
+        sleeping = true; generation++; client?.stop(); client = null; remote?.close(); remote = null
+        feed.stopFrames(); stopAutoDiscovery(); menu.close(); closeCompare(); clearPairingScreen()
+        frozen = false; paused.visibility = View.GONE; delayBadge.visibility = View.GONE
+        sleepScreen.visibility = View.VISIBLE
+    }
+    private fun wake() {
+        sleeping = false; lastInteraction = SystemClock.elapsedRealtime(); sleepScreen.visibility = View.GONE
+        feed.startFrames(); failedSince = lastInteraction
+        if (revoked) { status.text = "This TV is no longer paired - press OK to pair again"; status.visibility = View.VISIBLE }
+        else if (settings.url.isNotBlank()) connect() else discoverFirst()
+    }
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            lastInteraction = SystemClock.elapsedRealtime()
+            if (sleeping) { wakeTouch = true; wake() }
+        }
+        if (wakeTouch) { if (event.actionMasked in listOf(MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL)) wakeTouch = false; return true }
+        return super.dispatchTouchEvent(event)
+    }
+    fun userActivity() { lastInteraction = SystemClock.elapsedRealtime() }
+    fun trackDialog(dialog: android.app.Dialog) {
+        val window = dialog.window ?: return
+        val callback = window.callback
+        window.callback = object : android.view.Window.Callback by callback {
+            override fun dispatchKeyEvent(event: KeyEvent): Boolean { userActivity(); return callback.dispatchKeyEvent(event) }
+            override fun dispatchTouchEvent(event: MotionEvent): Boolean { userActivity(); return callback.dispatchTouchEvent(event) }
+        }
     }
     fun menuVisibilityChanged(open: Boolean) {
         statusSpace.setPadding(0, 0, if (open) dp(380) else 0, 0)
         gear?.visibility = if (open) View.GONE else View.VISIBLE
     }
     fun refreshSettings() {
-        settings.save(); feed.refresh(); light.invalidate()
+        settings.save(); client?.configureDelay(if (settings.mode == 2) settings.delay else 0); feed.refresh(); light.invalidate()
         fps.visibility = if (settings.showFps) View.VISIBLE else View.GONE
     }
     fun toast(value: String, duration: Long = 1500) {
@@ -212,6 +322,9 @@ class TvActivity : ComponentActivity() {
             if (started && generation == session) {
                 probing = false
                 if (supported != null) {
+                    if (pairedCamera != null && json != null && !json.optBoolean("streaming") && !supported) {
+                        lastProbe = 0L; return@post
+                    }
                     cameraSupported = supported; feed.opticalZoom = supported
                     if (json != null && supported) applyCameraStatus(json)
                     else { minZoom = 1f; maxZoom = 3f; settings.zoom = settings.zoom.coerceIn(1f, 3f) }
@@ -306,6 +419,23 @@ class TvActivity : ComponentActivity() {
     // platform callback; intercepting before focused Views is required for remote OK.
     @android.annotation.SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == wakeKey) {
+            if (event.action == KeyEvent.ACTION_UP) wakeKey = -1
+            return true
+        }
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            lastInteraction = SystemClock.elapsedRealtime()
+            if (sleeping) {
+                wake()
+                if (event.keyCode !in listOf(KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN, KeyEvent.KEYCODE_VOLUME_MUTE)) {
+                    wakeKey = event.keyCode; return true
+                }
+            }
+            if (revoked && event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+                pairedCamera?.let { showPairing(it) }; return true
+            }
+        }
+        if (pairingScreen != null || revoked) return super.dispatchKeyEvent(event)
         // Route live controls before a touch gear/root can consume remote OK.
         // Menu and Compare retain normal focus navigation; volume passes to Android.
         if (!menu.isOpen && !comparing && event.keyCode in listOf(
@@ -320,7 +450,7 @@ class TvActivity : ComponentActivity() {
     }
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         // Focused menu controls handle touch/D-pad normally; AndroidX owns Back on every API.
-        if (menu.isOpen || comparing) return super.onKeyDown(keyCode, event)
+        if (pairingScreen != null || revoked || menu.isOpen || comparing) return super.onKeyDown(keyCode, event)
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY) {
             if (event.repeatCount == 0) toggleFreeze()
             return true
@@ -338,6 +468,10 @@ class TvActivity : ComponentActivity() {
                 val direction = if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP) 1 else -1
                 if (settings.mode == 0) {
                     zoomBy(direction)
+                } else if (settings.mode == 2) {
+                    val options = listOf(3, 5, 10, 15)
+                    settings.delay = options[(options.indexOf(settings.delay) + direction).coerceIn(0, options.lastIndex)]
+                    toast("Delayed ${settings.delay}s")
                 } else { settings.light = (settings.light + direction * 10).coerceIn(10, 100); toast("Ring Light ${settings.light}%") }
                 refreshSettings()
             }
@@ -345,7 +479,11 @@ class TvActivity : ComponentActivity() {
                 if (settings.mode == 0 && settings.zoom > 1f) {
                     settings.pan = (settings.pan + if (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) .15f else -.15f).coerceIn(-1f, 1f)
                     toast(zoomHint())
-                } else { settings.mode = 1 - settings.mode; toast(if (settings.mode == 0) "MIRROR" else "RING LIGHT") }
+                } else {
+                    val direction = if (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 1 else -1
+                    settings.mode = (settings.mode + direction + 3) % 3
+                    toast(listOf("MIRROR", "RING LIGHT", "DELAYED")[settings.mode])
+                }
                 refreshSettings()
             }
         }
@@ -354,19 +492,21 @@ class TvActivity : ComponentActivity() {
     private fun zoomHint(): String = "Zoom ${String.format(Locale.US, "%.2f", settings.zoom).let { if (it.endsWith("00")) it.dropLast(1) else it.trimEnd('0') }}x" +
         if (settings.zoom > 1f) " - Left/Right to pan, zoom to 1x to change mode" else ""
     override fun onKeyLongPress(keyCode: Int, event: KeyEvent): Boolean {
-        if (!menu.isOpen && !comparing && keyCode in listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+        if (pairingScreen == null && !revoked && !menu.isOpen && !comparing && keyCode in listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER)) {
             longOk = true; toggleFreeze(); return true
         }
         return super.onKeyLongPress(keyCode, event)
     }
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (!menu.isOpen && !comparing && keyCode in listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+        if (pairingScreen == null && !revoked && !menu.isOpen && !comparing && keyCode in listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER)) {
             if (!longOk && !event.isCanceled) { if (frozen) toggleFreeze() else menu.open() }
             longOk = false; return true
         }
         return super.onKeyUp(keyCode, event)
     }
     private fun handleBack() {
+        if (sleeping) { wake(); return }
+        if (pairingScreen != null) { clearPairingScreen(); menu.openConnection(); return }
         if (comparing) { closeCompare(); lastBack = 0L; return }
         if (menu.isOpen) { menu.close(); lastBack = 0L; return }
         val now = SystemClock.elapsedRealtime()
@@ -374,4 +514,5 @@ class TvActivity : ComponentActivity() {
         else { lastBack = now; toast("Press Back again to exit", 2000) }
     }
 }
+
 

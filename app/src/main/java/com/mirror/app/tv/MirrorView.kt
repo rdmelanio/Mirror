@@ -95,7 +95,7 @@ class MirrorView(context: Context, private val settings: TvSettings) : View(cont
         val x = area.width() / rotatedWidth; val y = area.height() / rotatedHeight
         val base = if (settings.mode == 1 || settings.fill) max(x, y) else min(x, y)
         // Real zoom is already in the phone pixels. A small extra crop supplies pan travel.
-        val scale = base * if (settings.mode != 0) 1f else if (!opticalZoom) settings.zoom
+        val scale = base * if (settings.mode == 1) 1f else if (!opticalZoom) settings.zoom
             else if (settings.zoom > 1f && settings.pan != 0f) 1.15f else 1f
         val travel = max(0f, (rotatedWidth * scale - area.width()) / 2f)
         matrix.reset(); matrix.postTranslate(-bitmap.width / 2f, -bitmap.height / 2f)
@@ -135,4 +135,5 @@ class MirrorView(context: Context, private val settings: TvSettings) : View(cont
         }
     }
 }
+
 

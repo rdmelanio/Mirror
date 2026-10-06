@@ -27,6 +27,8 @@ class QuickMenu(private val activity: TvActivity) {
     private val content = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(activity.dp(16), activity.dp(16), activity.dp(16), activity.dp(16)) }
     private val first: Button
     private lateinit var address: EditText
+    private lateinit var username: EditText
+    private lateinit var password: EditText
     private lateinit var find: Button
     private lateinit var results: LinearLayout
     private var discovery: CameraDiscovery? = null
@@ -41,7 +43,11 @@ class QuickMenu(private val activity: TvActivity) {
         panel.addView(content)
         first = activity.action("Close menu") { close() }; content.addView(first)
         heading("Mode")
-        option("Mode", listOf("MIRROR", "RING LIGHT"), { settings.mode }) { settings.mode = it }
+        option("Mode", listOf("MIRROR", "RING LIGHT", "DELAYED"), { settings.mode }) { settings.mode = it }
+        val delays = listOf(3, 5, 10, 15)
+        option("Delay", delays.map { "$it seconds" }, { delays.indexOf(settings.delay) }) { settings.delay = delays[it] }
+        val sleep = listOf(0, 5, 10, 15, 30)
+        option("Auto-sleep", listOf("Off", "5 minutes", "10 minutes", "15 minutes", "30 minutes"), { sleep.indexOf(settings.autoSleep) }) { settings.autoSleep = sleep[it] }
         heading("Camera")
         val torchButton = activity.action("") { activity.toggleTorch() }
         val focusButton = activity.action("Focus center") { activity.focusCenter() }
@@ -86,7 +92,11 @@ class QuickMenu(private val activity: TvActivity) {
             contentDescription = "Camera stream address"
         }
         content.addView(address, LinearLayout.LayoutParams(-1, activity.dp(56)))
+        username = EditText(activity).apply { hint = "Username (IP Webcam, optional)"; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY); contentDescription = "IP Webcam username" }
+        password = EditText(activity).apply { hint = "Password (IP Webcam, optional)"; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY); contentDescription = "IP Webcam password"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD }
+        content.addView(username); content.addView(password)
         content.addView(activity.action("Connect") {
+            settings.username = username.text.toString(); settings.password = password.text.toString(); settings.save()
             try { val url = StreamAddress.normalize(address.text.toString()); activity.setAddress(url); close() }
             catch (error: Exception) { activity.toast(error.message ?: "Invalid address", 3000); address.requestFocus() }
         })
@@ -102,9 +112,10 @@ class QuickMenu(private val activity: TvActivity) {
     private fun option(title: String, choices: List<String>, read: () -> Int, write: (Int) -> Unit) {
         lateinit var button: Button
         button = activity.action("") {
-            AlertDialog.Builder(activity).setTitle(title).setSingleChoiceItems(choices.toTypedArray(), read()) { dialog, index ->
+            val dialog = AlertDialog.Builder(activity).setTitle(title).setSingleChoiceItems(choices.toTypedArray(), read()) { dialog, index ->
                 write(index); activity.refreshSettings(); refreshControls(); dialog.dismiss(); button.requestFocus()
             }.setNegativeButton("Cancel", null).show()
+            activity.trackDialog(dialog)
         }
         val refresh = { button.text = "$title: ${choices[read()]}"; Unit }
         refreshers.add(refresh); refresh(); content.addView(button)
@@ -133,7 +144,7 @@ class QuickMenu(private val activity: TvActivity) {
     private fun refreshControls() { refreshers.forEach { it() } }
     fun open() {
         if (isOpen) return
-        refreshControls(); address.setText(settings.url)
+        refreshControls(); address.setText(settings.url); username.setText(settings.username); password.setText(settings.password)
         panel.animate().cancel(); panel.visibility = View.VISIBLE; activity.menuVisibilityChanged(true); panel.translationX = activity.dp(380).toFloat()
         panel.animate().translationX(0f).setDuration(180).start()
         panel.post { panel.scrollTo(0, 0); first.requestFocus() }
@@ -161,4 +172,5 @@ class QuickMenu(private val activity: TvActivity) {
     }
     fun stopDiscovery() { discovery?.stop(); discovery = null; handler.removeCallbacks(notFound) }
 }
+
 
