@@ -37,6 +37,8 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
     private var hint = false
     private var holding = false
     private var downX = 0f; private var downY = 0f
+    private var downAt = 0L
+    private var gestureCancelled = false
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var gestureSize = settings.sizePercent.toFloat()
     private var sizeChanged = false
@@ -391,7 +393,7 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         scaleDetector.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                downX = event.x; downY = event.y; multiplePointers = false; dragging = false
+                downX = event.x; downY = event.y; downAt = SystemClock.uptimeMillis(); gestureCancelled = false; multiplePointers = false; dragging = false
                 downItem = hitAreas.entries.lastOrNull { (_, a) ->
                     event.x in a.left..a.right && event.y in a.top..a.bottom
                 }?.key?.takeIf { settings.layoutEditing || it == "tv_launch" }
@@ -417,16 +419,20 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
                         layoutChanged = true
                     }
                 } else if (kotlin.math.abs(event.x - downX) > touchSlop || kotlin.math.abs(event.y - downY) > touchSlop) {
-                    cancelHold(); removeCallbacks(armDrag)
+                    gestureCancelled = true; cancelHold(); removeCallbacks(armDrag)
                 }
             }
             MotionEvent.ACTION_UP -> {
                 val tap = !multiplePointers && !dragging && kotlin.math.abs(event.x - downX) <= touchSlop && kotlin.math.abs(event.y - downY) <= touchSlop
                 cancelHold(); removeCallbacks(armDrag)
-                if (tap && downItem == "tv_launch") {
+                if (tap && downItem == "tv_launch" && !gestureCancelled && SystemClock.uptimeMillis() - downAt < 450) {
                     clearSelection()
-                    if (!TvLauncher.running) { launchRequested = true; TvLauncher.launch(context) }
-                } else if (tap) selected = downItem
+                    if (!TvLauncher.running) {
+                        launchRequested = true; hint = false
+                        android.widget.Toast.makeText(context, "Connecting to TV…", android.widget.Toast.LENGTH_SHORT).show()
+                        TvLauncher.launch(context)
+                    }
+                } else if (tap && downItem != "tv_launch") selected = downItem
                 dragging = false; saveSize(); if (selected != null) finishSelection(); invalidate(); performClick()
             }
             MotionEvent.ACTION_CANCEL -> { cancelHold(); clearSelection(); saveSize(); invalidate() }

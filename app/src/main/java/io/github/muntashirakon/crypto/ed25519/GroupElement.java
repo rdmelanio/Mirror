@@ -793,7 +793,6 @@ public class GroupElement implements Serializable {
         trT = q.T.multiply(T); // q->2dT
         trX = Z.multiply(q.Z);
         D = trX.add(trX);
-        System.out.println("===> " + D.toString());
         return p1p1(curve, trZ.subtract(trY), trZ.add(trY), D.subtract(trT), D.add(trT));
     }
 

@@ -47,9 +47,11 @@ class TvAdbTest {
         override fun getCredentials(): TlsCredentials = BcDefaultTlsCredentialedSigner(TlsCryptoParameters(context), crypto as BcTlsCrypto,
             PrivateKeyFactory.createKey(identity.pair.private.encoded),
             Certificate(ByteArray(0), arrayOf(CertificateEntry(crypto.createCertificate(identity.certificate.encoded), null))), signature)
-        override fun getCertificateRequest() = CertificateRequest(ByteArray(0), Vector<SignatureAndHashAlgorithm>().apply { add(signature) }, null, null)
+        override fun getCertificateRequest() = CertificateRequest(ByteArray(0), Vector<SignatureAndHashAlgorithm>().apply { add(signature); add(SignatureAndHashAlgorithm.getInstance(HashAlgorithm.sha256, SignatureAlgorithm.rsa)) }, null, null)
         override fun notifyClientCertificate(certificate: Certificate) { assertArrayEquals(identity.certificate.encoded, certificate.getCertificateAt(0).encoded) }
-        fun binding() = context.exportKeyingMaterial("adb-label\u0000", null, 64)
+        private var exported: ByteArray? = null
+        override fun notifyHandshakeComplete() { super.notifyHandshakeComplete(); exported = context.exportKeyingMaterial("adb-label\u0000", null, 64) }
+        fun binding() = exported!!.clone()
     }
     private fun <T> peer(serverWork: (Socket) -> Unit, clientWork: (Socket) -> T): T {
         val worker = Executors.newSingleThreadExecutor()

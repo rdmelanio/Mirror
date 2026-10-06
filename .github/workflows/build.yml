@@ -32,6 +32,17 @@ jobs:
         run: python3 scripts/check-warning-loop.py
       - name: Build and check
         run: ./gradlew :app:assembleRelease :app:testDebugUnitTest :app:lintRelease
+      - name: Show failed unit test details
+        if: failure()
+        run: |
+          python3 - <<'PYTHON'
+          import pathlib, xml.etree.ElementTree as ET
+          for path in pathlib.Path('app/build/test-results').rglob('TEST-*.xml'):
+              for case in ET.parse(path).getroot().iter('testcase'):
+                  for failure in case.findall('failure'):
+                      print(case.attrib.get('classname'), case.attrib.get('name'))
+                      print((failure.text or '')[:12000])
+          PYTHON
       - name: Show lint details on failure
         if: failure()
         run: |

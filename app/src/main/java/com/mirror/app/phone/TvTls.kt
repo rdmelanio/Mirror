@@ -11,6 +11,10 @@ import java.security.cert.X509Certificate
 
 /** Isolated, pure Java TLS 1.3. Never changes Android's global security providers. */
 internal class TvTls(private val key: PrivateKey, private val certificate: X509Certificate) : DefaultTlsClient(BcTlsCrypto(SecureRandom())) {
+    private var binding: ByteArray? = null
+    override fun notifyHandshakeComplete() {
+        super.notifyHandshakeComplete(); binding = context.exportKeyingMaterial("adb-label\u0000", null, 64)
+    }
     override fun getSupportedVersions(): Array<ProtocolVersion> = arrayOf(ProtocolVersion.TLSv13)
     override fun getAuthentication(): TlsAuthentication = object : TlsAuthentication {
         override fun notifyServerCertificate(server: TlsServerCertificate) {
@@ -26,5 +30,5 @@ internal class TvTls(private val key: PrivateKey, private val certificate: X509C
                 PrivateKeyFactory.createKey(key.encoded), chain, signature)
         }
     }
-    fun pairingBinding(): ByteArray = context.exportKeyingMaterial("adb-label\u0000", null, 64)
+    fun pairingBinding(): ByteArray = binding?.clone() ?: throw java.io.IOException("Pairing binding unavailable")
 }

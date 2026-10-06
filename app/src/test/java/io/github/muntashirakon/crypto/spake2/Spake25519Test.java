@@ -328,6 +328,7 @@ public class Spake25519Test {
                 aliceMsg = alice.generateMessage(alicePassword, Utils.hexToBytes("47f6c458e5f062db8427d2d9bb20c954a76d6943959756a18d11d45e1ad190f980a86d185a93ca1d3025c5febe3aac4045b34a39b1f511385ca97fc4332137f3"));
                 bobMsg = bob.generateMessage(bobPassword, Utils.hexToBytes("a6bf9f9bf7819e0ded8c2dd82a1aa38acb2f8a6403429cff33d64ea9c40439d5fd7029811a5f5a8f7c89c8b44ac0b421f6b24ca2ba18d2069995831730cd8c5a"));
             } catch (Exception e) {
+                if (aliceCorruptMsgBit < 0) throw new RuntimeException("SPAKE2 exchange failed", e);
                 return false;
             }
 
@@ -344,6 +345,7 @@ public class Spake25519Test {
                 aliceKey = alice.processMessage(bobMsg);
                 bobKey = bob.processMessage(aliceMsg);
             } catch (Exception e) {
+                if (aliceCorruptMsgBit < 0) throw new RuntimeException("SPAKE2 exchange failed", e);
                 return false;
             }
 

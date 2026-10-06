@@ -346,7 +346,6 @@ public class Spake2Context implements Destroyable {
     public byte[] generateMessage(final byte[] password) throws IllegalArgumentException, IllegalStateException {
         byte[] privateKey = new byte[64];
         new SecureRandom().nextBytes(privateKey);
-        System.out.printf("PVKEY(%s): %s%n", mMyRole, Utils.bytesToHex(privateKey));
         return generateMessage(password, privateKey);
     }
 
@@ -444,24 +443,20 @@ public class Spake2Context implements Destroyable {
             throw new IllegalArgumentException("Point received from peer was not on the curve.");
         }
 
-        System.out.printf("Q*(%s): %s%n", mMyRole, Utils.bytesToHex(QStar.toByteArray()));
 
         // Unmask peer's value.
         GroupElement peersMask = geScalarMultiplySmallPrecomp(mCurveSpec.getCurve(), mPasswordScalar,
                 mMyRole == Spake2Role.Alice ? SPAKE_N_SMALL_PRECOMP : SPAKE_M_SMALL_PRECOMP);
 
-        System.out.printf("PEER'S MASK(%s): %s%n", mMyRole, Utils.bytesToHex(peersMask.toByteArray()));
 
         GroupElement QExt = QStar.sub(peersMask.toCached()).toP3();
         // FIXME: Create a single precomp converter or fix generating single precompute
         GroupElement QPrecomp = new GroupElement(QExt.getCurve(), GroupElement.Representation.P3, QExt.getX(),
                 QExt.getY(), QExt.getZ(), QExt.getT(), true, true);
 
-        System.out.printf("QExt(%s): %s%n", mMyRole, Utils.bytesToHex(QExt.toByteArray()));
 
         byte[] dhShared = QPrecomp.scalarMultiply(mPrivateKey).toByteArray();
 
-        System.out.printf("DH(%s): %s%n", mMyRole, Utils.bytesToHex(dhShared));
 
         MessageDigest sha;
         try {

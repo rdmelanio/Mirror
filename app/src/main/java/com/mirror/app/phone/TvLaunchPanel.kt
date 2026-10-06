@@ -11,6 +11,7 @@ internal class TvLaunchPanel(private val activity: ComponentActivity, private va
     private lateinit var state: TextView
     private val changed: () -> Unit = { refresh() }
     private var active = false
+    private var refreshIcon: (() -> Unit)? = null
     init {
         content.addView(activity.label("TV / ONE-TAP LAUNCH", 23f))
         content.addView(activity.label("Pair once here, separately from Bugjaeger. Tap the white mirror icon to wake your TV and open Mirror. The connection closes afterward."))
@@ -54,7 +55,7 @@ internal class TvLaunchPanel(private val activity: ComponentActivity, private va
                 .setNegativeButton("Cancel", null).setPositiveButton("Forget") { _, _ -> TvLauncher.forget(activity) }.show()
         }
         val show = CheckBox(activity).apply { text = "Show white mirror icon on clock"; isChecked = ClockSettings.load(activity).tvIcon }
-        show.setOnCheckedChangeListener { _, value -> ClockSettings.load(activity).copy(tvIcon = value).save(activity) }; content.addView(show)
+        show.setOnCheckedChangeListener { _, value -> val s = ClockSettings.load(activity); if (s.tvIcon != value) s.copy(tvIcon = value).save(activity) }; content.addView(show)
         val sizeLabel = activity.label(""); content.addView(sizeLabel)
         val size = SeekBar(activity).apply { max = 72; progress = ClockSettings.load(activity).tvIconSize - 24 }
         fun caption() { sizeLabel.text = "Mirror icon size: ${size.progress + 24} dp" }; caption()
@@ -65,6 +66,7 @@ internal class TvLaunchPanel(private val activity: ComponentActivity, private va
             override fun onStartTrackingTouch(bar: SeekBar) {}
             override fun onStopTrackingTouch(bar: SeekBar) {}
         }); content.addView(size)
+        refreshIcon = { val s = ClockSettings.load(activity); show.isChecked = s.tvIcon; size.progress = s.tvIconSize - 24; caption() }
         content.addView(activity.action("RESET MIRROR ICON POSITION") {
             val s = ClockSettings.load(activity); s.copy(positions = s.positions - "tv_launch").save(activity)
         })
@@ -73,6 +75,7 @@ internal class TvLaunchPanel(private val activity: ComponentActivity, private va
         state = activity.label(""); content.addView(state); refresh()
     }
     private fun refresh() {
+        refreshIcon?.invoke()
         buttons.forEach { it.isEnabled = !TvLauncher.running }
         state.text = "${if (TvLauncher.paired(activity)) "TV PAIRED" else "TV NOT PAIRED"}\n${TvLauncher.status}"
     }

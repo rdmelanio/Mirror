@@ -36,7 +36,11 @@ Sources copied into `app/src/main/java/io/github/muntashirakon`:
 
 - SPAKE2-Java 2.2.1, commit `7615ddd680b990e14513ebb66eac4cb0dbf82464`:
   <https://github.com/MuntashirAkon/spake2-java>. All twelve pure Java sources from
-  `java/src/main/java` are unmodified, available under LGPL-3.0. No JNI sources or
+  `java/src/main/java` are provided under LGPL-3.0. Secret-bearing upstream debug
+  output is removed from GroupElement and Spake2Context. Curve point decoding
+  masks the Java signed byte before extracting its sign bit. Field multiplication
+  uses the signed-limb ref10 routine from EdDSA-Java v0.3.0 (CC0), fixing the
+  upstream unsigned-limb routine that fails with signed point coordinates. No JNI sources or
   binaries are used. `licenses/spake2-LGPL-3.0.txt` and `licenses/GPL-3.0.txt`.
 - LibADB Android 3.1.1, commit `c849886ebc6d48e7b46d967e78a6bb65c90c3b74`:
   <https://github.com/MuntashirAkon/libadb-android>. AndroidPubkey, PairingAuthCtx,
@@ -44,6 +48,9 @@ Sources copied into `app/src/main/java/io/github/muntashirakon`:
   dual license. Only class visibility is widened for the first two; the byte-array
   stream is reduced to the constructor/overrides used by AndroidPubkey.
   `licenses/libadb-Apache-2.0.txt`.
+- EdDSA-Java v0.3.0, signed-limb field multiplication only (CC0):
+  <https://github.com/str4d/ed25519-java/tree/v0.3.0>.
+  `licenses/EdDSA-Java-CC0.txt`.
 - Bouncy Castle 1.81, Maven Central bcprov/bcpkix/bctls-jdk18on, MIT-style license:
   <https://github.com/bcgit/bc-java/tree/r1rv81>. `licenses/bouncycastle.html`.
 
