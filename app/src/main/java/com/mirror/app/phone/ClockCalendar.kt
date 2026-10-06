@@ -35,7 +35,7 @@ class ClockCalendar(private val context: Context, private val changed: () -> Uni
         }
     }
     fun start(settings: ClockSettings) {
-        if (!settings.schedule) { stop(); snapshot = Snapshot(loading = false); return }
+        if (!settings.schedule && !settings.departureEnabled) { stop(); snapshot = Snapshot(loading = false); return }
         if (active && selected == settings.calendarId) return
         stop(); active = true; selected = settings.calendarId
         snapshot = Snapshot(calendarId = selected)
@@ -80,7 +80,7 @@ class ClockCalendar(private val context: Context, private val changed: () -> Uni
             if (result.isSuccess) runCatching { writeCache(context, value) }
             handler.post {
                 if (!active || epoch != generation || id != selected) return@post
-                busy = false; snapshot = value; changed()
+                busy = false; snapshot = value; DepartureAlerts.accept(context, value); changed()
                 handler.removeCallbacks(periodic); handler.postDelayed(periodic, 15 * 60_000L)
                 scheduleBoundary()
                 if (pending) { val requestSync = pendingSync; pending = false; pendingSync = false; refresh(requestSync) }
@@ -110,7 +110,15 @@ class ClockCalendar(private val context: Context, private val changed: () -> Uni
             cursor.use { while (it.moveToNext()) result += Source(it.getLong(0), it.getString(1).orEmpty(), it.getString(2).orEmpty(), it.getString(3).orEmpty()) }
             return result.sortedBy { it.name.lowercase() }
         }
-        private fun readEvents(context: Context, id: Long): Snapshot {
+        internal fun readForDeparture(context: Context, id: Long): Snapshot {
+            val source = sources(context).firstOrNull { it.id == id } ?: throw NoSuchElementException("Choose a calendar")
+            if (source.type != CalendarContract.ACCOUNT_TYPE_LOCAL && source.account.isNotBlank()) runCatching {
+                ContentResolver.requestSync(Account(source.account, source.type), CalendarContract.AUTHORITY,
+                    Bundle().apply { putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true) })
+            }
+            return readEvents(context, id)
+        }
+        internal fun readEvents(context: Context, id: Long): Snapshot {
             val now = System.currentTimeMillis()
             val today = java.time.Instant.ofEpochMilli(now).atZone(ClockRoster.zone).toLocalDate()
             val from = today.minusDays(7).atStartOfDay(ClockRoster.zone).toInstant().toEpochMilli()
@@ -139,7 +147,7 @@ class ClockCalendar(private val context: Context, private val changed: () -> Uni
             return Snapshot(id, duties.distinctBy { Triple(it.id, it.start, it.end) }, now, from, until, loading = false, offline = !online)
         }
         private fun cache(context: Context) = context.getSharedPreferences("mirror_roster_cache", Context.MODE_PRIVATE)
-        private fun writeCache(context: Context, snapshot: Snapshot) {
+        internal fun writeCache(context: Context, snapshot: Snapshot) {
             val entries = JSONArray()
             snapshot.duties.forEach { d -> entries.put(JSONObject().put("id", d.id).put("text", d.text).put("start", d.start)
                 .put("end", d.end).put("day", d.day.toString()).put("allDay", d.allDay).put("fallback", d.calendarTimes)) }

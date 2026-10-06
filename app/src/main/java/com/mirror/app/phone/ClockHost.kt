@@ -39,6 +39,9 @@ class ClockController(private val context: Context, private val view: ClockView,
     private val tick = Runnable { render() }
     private val deadline = Runnable { render() }
     private val stateChanged: () -> Unit = { if (running) { applyLight(); render() } }
+    private val alertChanged = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (running && !preview && key == "active") { view.stopInteraction(); render() }
+    }
     private val preferencesChanged = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "settings" && running) { view.settings = ClockSettings.load(context); calendar.start(view.settings); render() }
     }
@@ -50,6 +53,11 @@ class ClockController(private val context: Context, private val view: ClockView,
         running = true; policy = ClockLightPolicy(); view.settings = ClockSettings.load(context)
         ClockSettings.prefs(context).registerOnSharedPreferenceChangeListener(preferencesChanged)
         ClockMirrorState.listeners.add(stateChanged)
+        view.showDepartureAlerts = !preview
+        if (!preview) {
+            DepartureAlerts.prefs(context).registerOnSharedPreferenceChangeListener(alertChanged)
+            if (view.settings.departureEnabled) DepartureAlerts.configure(context)
+        }
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_TIME_CHANGED); addAction(Intent.ACTION_TIMEZONE_CHANGED)
             addAction(android.app.AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED)
@@ -64,6 +72,7 @@ class ClockController(private val context: Context, private val view: ClockView,
         if (!running) return
         running = false; view.saveSize(); view.stopInteraction(); calendar.stop(); sensors.unregisterListener(this); handler.removeCallbacksAndMessages(null)
         ClockSettings.prefs(context).unregisterOnSharedPreferenceChangeListener(preferencesChanged)
+        DepartureAlerts.prefs(context).unregisterOnSharedPreferenceChangeListener(alertChanged)
         ClockMirrorState.listeners.remove(stateChanged); context.unregisterReceiver(receiver)
     }
     private fun render() {
@@ -72,8 +81,9 @@ class ClockController(private val context: Context, private val view: ClockView,
         view.mirrorState = ClockMirrorState.state
         applyLight(); view.invalidate()
         ClockWeather.refresh(context, view.settings) { if (running) view.invalidate() }
-        val interval = if (!view.blank && (view.settings.seconds || view.settings.drift ||
-            (view.settings.status && view.mirrorState == "LIVE"))) 1000L else 60_000L
+        val alert = if (!preview) DepartureAlerts.active(context) else null
+        val interval = if (alert?.kind == DeparturePlan.Kind.WARNING || (!view.blank && (view.settings.seconds || view.settings.drift ||
+            (view.settings.status && view.mirrorState == "LIVE")))) 1000L else 60_000L
         handler.postDelayed(tick, interval - System.currentTimeMillis() % interval)
         scheduleDeadline()
     }
@@ -84,7 +94,8 @@ class ClockController(private val context: Context, private val view: ClockView,
         val blank = !preview && policy.blank(view.settings, now)
         if (night != view.night || blank != view.blank) { view.night = night; view.blank = blank; view.invalidate() }
         if (!preview) window?.let {
-            val brightness = policy.brightness(view.settings, live, now)
+            val alert = DepartureAlerts.active(context)
+            val brightness = if (alert != null) minOf(0.35f, maxOf(0.08f, view.settings.maxBrightness / 100f)) else policy.brightness(view.settings, live, now)
             if (kotlin.math.abs(it.attributes.screenBrightness - brightness) >= 0.002f) {
                 it.attributes = it.attributes.apply { screenBrightness = brightness }
             }
@@ -129,7 +140,14 @@ class ClockActivity : androidx.activity.ComponentActivity() {
             override fun handleOnBackPressed() { /* Hold to exit on buttons and gestures alike. */ }
         })
     }
-    override fun onResume() { super.onResume(); immersive(window); controller.start() }
+    private fun wakeForDeparture() {
+        if (intent.getBooleanExtra("departure", false) && DepartureAlerts.active(this) != null) {
+            if (Build.VERSION.SDK_INT >= 27) setTurnScreenOn(true)
+            else { @Suppress("DEPRECATION") window.addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON) }
+        }
+    }
+    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); wakeForDeparture() }
+    override fun onResume() { super.onResume(); wakeForDeparture(); immersive(window); controller.start() }
     override fun onPause() { controller.stop(); super.onPause() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) immersive(window) }
 }

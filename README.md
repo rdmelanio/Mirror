@@ -1,4 +1,4 @@
-# Mirror 1.6.1
+# Mirror 1.7.0
 
 One Android APK for a phone camera and a Google TV mirror. Kotlin, Android Views,
 one `:app` module, Android 8.0+ (API 26). The APK contains no native `.so` libraries
@@ -264,6 +264,61 @@ SharedPreferences. Fonts are bundled into `res/font` before Gradle by
 command before local builds too. Missing or changed fonts fail the build; there
 is no font fallback. No new wake locks are acquired by the clock.
 
+### Leave for duty alarms (v1.7)
+
+Open Phone mode → Clock → **Departure alarm settings and tests**. Choose your
+synced roster calendar, enable departure alarms, and allow calendar access,
+notifications, **precise alarms**, and **full-screen alarms** where Android asks.
+The setup page shows permission readiness, alarm volume, the last calendar check,
+and the next caution/warning with reporting times in **Philippine time**.
+
+- **Master caution:** default **60 minutes before reporting**. One chime, with an
+  amber screen that stays visible until acknowledged, warning replaces it, or
+  reporting time is reached. It shows the remaining minutes to the final alert.
+- **Master warning:** default **50 minutes before reporting**. A repeating sound
+  for **10 seconds** by default; type a duration of 1–600 seconds. A red/black panel
+  flashes slowly (one second on, one second off) until **Stop** or **10 minutes**,
+  then restores your normal clock. Stop silences sound immediately too.
+- Both stages have independent enable switches and editable lead times (1–1440
+  minutes). Caution must be earlier than warning. A 09:25 report gives an 08:25
+  caution and 08:35 warning with the defaults.
+- Flights, **AS**, and timed training/unfamiliar codes are included. **OFF** is
+  always excluded; **HS,HSA** are excluded by default. Edit the skip-code list for
+  new duties that do not require leaving home. All-day entries are skipped.
+  Flights without a complete reporting/debriefing pair are flagged and skipped;
+  you may explicitly opt into using the event start as the departure anchor.
+
+Built-in tones are original **Airbus-inspired** synthesized sounds, not authentic
+Airbus recordings. Choose an audio file for either stage if you prefer your own
+clip. Custom caution plays once, capped at five seconds. Warning repeats for your
+chosen duration. **Test caution** and **Test warning** open the clock, without
+marking real calendar alerts delivered; Stop active alert is also in settings.
+
+Audio uses Android **alarm volume**, normally sounding in Silent mode. Mirror
+does not change your volume or bypass Do Not Disturb: allow **Alarms** in DND and
+test with your real settings. Alerts temporarily wake/show the clock over the
+secure lock screen, brighten the alert panel, and remain visible even during
+clock Away mode. Stop returns to the saved clock layout/night/away settings;
+streaming and standby are independent throughout. Notification contents stay
+private; only the clock alert shows the selected duty.
+
+Exact AlarmManager alarms run without the clock being open. Low-frequency Android
+jobs recheck the selected local calendar about every 15 minutes and on provider
+changes; visible-clock refreshes also reschedule alarms. Android jobs/account sync
+can be deferred, so the app can only act on entries already synced to the phone.
+A late update triggers only the most urgent overdue stage while reporting is
+still ahead. Past-reporting alerts are skipped. Delivered stages are recorded per
+calendar/event/Philippine day to avoid replays, including after a process restart
+or a time edit. Cancelled or moved duties are rechecked before sounding; a failed
+provider read does not sound an unverified cached departure alarm.
+
+Alarms are rebuilt after reboot/app update/time changes. **Unlock once after a
+reboot** for access to the calendar. Force-stopping Mirror disables alarms until
+you reopen it. Settings must show precise alarms and notifications allowed;
+full-screen presentation depends on Android/ROM permission and notification
+channel settings. Verify locked-screen sound, DND, Stop, and expiry on your phone
+before relying on it as your departure reminder.
+
 ### Calendar roster and info colors
 
 In Phone mode → Clock, enable **Show calendar schedule**, grant **Calendar read
@@ -324,7 +379,7 @@ native libraries, uploads the `mirror-apk` artifact, and publishes `mirror.apk`
 in a latest GitHub Release tagged `build-<run_number>`.
 
 The project uses stable AGP 9.3.2, Kotlin 2.4.20 (AGP built-in Kotlin), and Gradle
-9.8.0. Compile and target SDK are 36. Version name `1.6.1` and code `161` are
+9.8.0. Compile and target SDK are 36. Version name `1.7.0` and code `170` are
 defined once in `gradle.properties`. Bump both for future changes.
 
 Both debug and release builds use `keystore/mirror.jks`. Its alias and passwords

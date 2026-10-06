@@ -22,17 +22,25 @@ data class ClockSettings(
     val pixelShift: Boolean = true, val drift: Boolean = false, val reposition: Boolean = true,
     val autoBrightness: Boolean = true, val maxBrightness: Int = 60,
     val autoNight: Boolean = true, val away: Boolean = true, val awayHours: Int = 8,
-    val dimLive: Boolean = true
+    val dimLive: Boolean = true,
+    val departureEnabled: Boolean = false, val cautionEnabled: Boolean = true, val warningEnabled: Boolean = true,
+    val cautionMinutes: Int = 60, val warningMinutes: Int = 50, val warningSeconds: Int = 10,
+    val excludedDutyCodes: String = "HS,HSA", val allowCalendarStartAlerts: Boolean = false,
+    val cautionSound: String = "", val warningSound: String = ""
 ) {
     val usesUtc: Boolean get() = showUtc && primaryUtc
     fun json(): String = JSONObject().apply {
-        put("schema", 4); put("showUtc", showUtc); put("sizePercent", sizePercent)
+        put("schema", 5); put("showUtc", showUtc); put("sizePercent", sizePercent)
         put("layoutEditing", layoutEditing)
         put("positions", JSONObject().apply {
             positions.forEach { (key, value) -> put(key, JSONObject().put("x", value.x).put("y", value.y)) }
         })
         put("scheduleColor", scheduleColor); put("dateColor", dateColor); put("alarmColor", alarmColor); put("weatherColor", weatherColor)
         put("schedule", schedule); put("calendarId", calendarId); put("calendarName", calendarName)
+        put("departureEnabled", departureEnabled); put("cautionEnabled", cautionEnabled); put("warningEnabled", warningEnabled)
+        put("cautionMinutes", cautionMinutes); put("warningMinutes", warningMinutes); put("warningSeconds", warningSeconds)
+        put("excludedDutyCodes", excludedDutyCodes); put("allowCalendarStartAlerts", allowCalendarStartAlerts)
+        put("cautionSound", cautionSound); put("warningSound", warningSound)
         put("style", style); put("primaryUtc", primaryUtc); put("hourFormat", hourFormat); put("minimalFont", minimalFont)
         put("color", color); put("gradient", gradient); put("secondColor", secondColor)
         put("date", date); put("alarm", alarm); put("weather", weather); put("city", city)
@@ -41,7 +49,11 @@ data class ClockSettings(
         put("reposition", reposition); put("autoBrightness", autoBrightness); put("maxBrightness", maxBrightness)
         put("autoNight", autoNight); put("away", away); put("awayHours", awayHours); put("dimLive", dimLive)
     }.toString()
-    fun save(context: Context) { prefs(context).edit().putString("settings", json()).apply() }
+    fun save(context: Context) {
+        val previous = load(context)
+        prefs(context).edit().putString("settings", json()).apply()
+        if (DepartureAlerts.configuration(previous) != DepartureAlerts.configuration(this)) DepartureAlerts.configure(context)
+    }
     companion object {
         fun prefs(context: Context) = context.getSharedPreferences("mirror_clock", Context.MODE_PRIVATE)
         fun load(context: Context) = parse(prefs(context).getString("settings", null))
@@ -79,7 +91,15 @@ data class ClockSettings(
                 maxBrightness = j.optInt("maxBrightness", d.maxBrightness).coerceIn(1, 60),
                 autoNight = j.optBoolean("autoNight", d.autoNight), away = j.optBoolean("away", d.away),
                 awayHours = j.optInt("awayHours", d.awayHours).takeIf { it in listOf(4, 8, 12, 24) } ?: 8,
-                dimLive = j.optBoolean("dimLive", d.dimLive)
+                dimLive = j.optBoolean("dimLive", d.dimLive),
+                departureEnabled = j.optBoolean("departureEnabled", false),
+                cautionEnabled = j.optBoolean("cautionEnabled", true), warningEnabled = j.optBoolean("warningEnabled", true),
+                cautionMinutes = j.optInt("cautionMinutes", 60).coerceIn(1, 1440),
+                warningMinutes = j.optInt("warningMinutes", 50).coerceIn(1, 1440),
+                warningSeconds = j.optInt("warningSeconds", 10).coerceIn(1, 600),
+                excludedDutyCodes = j.optString("excludedDutyCodes", "HS,HSA").take(1000),
+                allowCalendarStartAlerts = j.optBoolean("allowCalendarStartAlerts", false),
+                cautionSound = j.optString("cautionSound", "").take(4000), warningSound = j.optString("warningSound", "").take(4000)
             )
         }.getOrDefault(ClockSettings())
     }

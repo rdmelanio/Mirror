@@ -72,6 +72,11 @@ class ClockSettingsPanel(private val activity: Activity, private val content: Li
         refreshControls += { calendarButton.text = "Roster calendar: ${settings.calendarName.ifBlank { "Choose calendar" }}" }
         content.addView(activity.action("Refresh calendar now") { controller.refreshCalendar() })
         content.addView(activity.label("Read-only. Today/overnight and tomorrow are shown with reporting–debriefing or duty times. Empty tomorrow says no calendar entry, never OFF. Refreshes every 15 minutes, at duty end, on opening and on synced changes. Google sync completion depends on Android."))
+        content.addView(activity.label("Leave for duty · caution and warning", 22f))
+        content.addView(activity.action("Departure alarm settings and tests") {
+            activity.startActivity(Intent(activity, DepartureSettingsActivity::class.java))
+        })
+        content.addView(activity.label("Single caution chime at 60 minutes before reporting; warning at 50 minutes with a 10-second sound. Configure both, choose sounds, test alerts and check the next scheduled departure here. Alerts are off until enabled."))
         content.addView(activity.label("Info lines", 22f))
         toggle("Date", { settings.date }) { save(settings.copy(date = it)) }
         toggle("Next alarm (hidden when none)", { settings.alarm }) { save(settings.copy(alarm = it)) }

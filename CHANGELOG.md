@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.7.0
+
+- Add optional phone-only Leave for duty alarms tied to the selected synced roster calendar in Philippine time.
+- Configure caution and warning independently: defaults 60 and 50 minutes before reporting; warning sound lasts 10 seconds, editable from 1–600 seconds.
+- Add persistent amber caution and slow red/black warning screens over the secure lock screen. Acknowledge/Stop restores the saved clock; warning clears automatically after ten minutes.
+- Include flights, airport standby and timed training/new duty codes; skip OFF, HS/HSA and all-day entries. Add editable excluded codes and explicit opt-in for incomplete flight event times.
+- Schedule precise alarms independently of the visible clock, refresh with Android calendar jobs/provider changes, rebuild after reboot/update/time changes, and revalidate synced duties before sounding.
+- Prevent duplicate stage delivery, handle overnight reporting, reschedule changed duties, and trigger only the most urgent overdue stage before reporting.
+- Add original Airbus-inspired tones, selectable audio files, test buttons, next-alert/readiness status, and alarm-volume/DND setup links. Keep notifications private and camera/TV streaming independent.
+- Add regression coverage for duty eligibility, stage timing, late updates, overnight duties, delivery history, cancellation and settings migration. Version name 1.7.0, version code 170.
+
 ## 1.6.1
 
 - Give the clock a large, independent center area. Place date/alarm at upper left,

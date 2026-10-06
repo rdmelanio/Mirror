@@ -19,6 +19,9 @@ import kotlin.math.min
 class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View(context) {
     var settings = ClockSettings.load(context)
         set(value) { field = value; if (!value.layoutEditing) clearSelection(); invalidate() }
+    var showDepartureAlerts = true
+    private var alertStop: RectF? = null
+    private var alertTouch = false
     var night = false
     var blank = false
     var mirrorState = "CAMERA OFF"
@@ -87,7 +90,8 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
     }.format(date)
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        hitAreas.clear()
+        hitAreas.clear(); alertStop = null
+        if (showDepartureAlerts) DepartureAlerts.active(context)?.let { drawDeparture(canvas, it); return }
         if (blank || width == 0 || height == 0) return
         val s = settings; val now = Date()
         val use24 = s.hourFormat == "24-hour" || (s.hourFormat == "System" && DateFormat.is24HourFormat(context))
@@ -284,8 +288,65 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         paint.strokeWidth = maxOf(1f, radius * 0.25f)
         canvas.drawCircle(x, y, radius, paint); paint.style = Paint.Style.FILL
     }
+    private fun drawDeparture(canvas: Canvas, alert: DepartureAlerts.Active) {
+        val now = System.currentTimeMillis()
+        val warning = alert.kind == DeparturePlan.Kind.WARNING
+        val lit = !warning || (now - alert.started) / 1000 % 2 == 0L
+        val color = if (warning) 0xFFFF2A1A.toInt() else 0xFFFFB000.toInt()
+        val density = resources.displayMetrics.density
+        val inset = minOf(24f * density, minOf(width, height) * 0.08f)
+        val usableWidth = width - inset * 2
+        val usableHeight = height - inset * 2
+        val offsetX = (((now / 60_000) % 5).toInt() - 2) * minOf(4f * density, inset / 3)
+        val offsetY = (((now / 60_000 + 2) % 5).toInt() - 2) * minOf(4f * density, inset / 3)
+        canvas.save(); canvas.translate(offsetX, offsetY)
+        if (lit) {
+            paint.shader = null; paint.color = if (warning) 0xFF280300.toInt() else 0xFF281B00.toInt(); paint.alpha = 255
+            canvas.drawRect(inset, inset, width - inset, height - inset, paint)
+            paint.color = color; paint.style = Paint.Style.STROKE; paint.strokeWidth = 4f * density
+            canvas.drawRect(inset, inset, width - inset, height - inset, paint); paint.style = Paint.Style.FILL
+        }
+        val rows = mutableListOf(
+            Row(if (alert.test) "TEST · ${alert.kind.name}" else "MASTER ${alert.kind.name}", 58f, bold, color = color),
+            Row(if (warning) "LEAVE FOR DUTY" else "PREPARE TO LEAVE", 28f, regular, color = color),
+            Row(alert.duty, 26f, regular, color = Color.WHITE),
+            Row("REPORT ${DepartureAlerts.stamp(alert.reporting)}", 24f, regular, color = Color.WHITE))
+        if (!warning) {
+            val minutes = ((alert.warningAt - now).coerceAtLeast(0) + 59_999) / 60_000
+            rows += Row("$minutes MIN TO ${if (settings.warningEnabled) "FINAL ALERT" else "REPORTING"}", 26f, regular, color = color)
+        } else rows += Row("Flashing clears after 10 minutes", 18f, regular, color = Color.WHITE)
+        val region = ClockLayout.Area(inset * 1.5f, inset * 1.5f, width - inset * 1.5f, inset + usableHeight * 0.68f)
+        // Header follows the warning flash; duty context and stop control remain readable.
+        if (warning && !lit) rows[0] = rows[0].copy(color = Color.BLACK)
+        drawGroup(canvas, rows, region, 0)
+        val buttonHeight = minOf(64f * density, usableHeight * 0.2f)
+        val buttonWidth = minOf(340f * density, usableWidth * 0.8f)
+        val button = RectF(width / 2f - buttonWidth / 2, height - inset * 1.5f - buttonHeight,
+            width / 2f + buttonWidth / 2, height - inset * 1.5f)
+        paint.shader = null; paint.alpha = 255; paint.color = color
+        canvas.drawRoundRect(button, 8f * density, 8f * density, paint)
+        paint.color = Color.BLACK; paint.typeface = bold; paint.textSize = minOf(28f * density, buttonHeight * 0.45f)
+        val text = if (warning) "STOP" else "ACKNOWLEDGE"
+        canvas.drawText(text, button.centerX() - paint.measureText(text) / 2, button.centerY() - (paint.ascent() + paint.descent()) / 2, paint)
+        alertStop = RectF(button.left + offsetX, button.top + offsetY, button.right + offsetX, button.bottom + offsetY)
+        canvas.restore()
+    }
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (exit == null) return true
+        if (showDepartureAlerts && DepartureAlerts.active(context) != null) {
+            stopInteraction()
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { downX = event.x; downY = event.y; alertTouch = alertStop?.contains(event.x, event.y) == true }
+                MotionEvent.ACTION_MOVE -> if (kotlin.math.abs(event.x - downX) > touchSlop || kotlin.math.abs(event.y - downY) > touchSlop) alertTouch = false
+                MotionEvent.ACTION_UP -> {
+                    if (alertTouch && alertStop?.contains(event.x, event.y) == true) { DepartureAlerts.acknowledge(context); invalidate(); performClick() }
+                    alertTouch = false
+                }
+                MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> alertTouch = false
+            }
+            return true
+        }
+        alertTouch = false
         scaleDetector.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
