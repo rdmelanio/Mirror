@@ -5,6 +5,17 @@ import org.junit.Test
 import java.util.Base64
 
 class PairingAuthorityTest {
+    @Test fun blockedNotificationsHaveIndependentOneMinuteWindowsPerIp() {
+        var time = 0L
+        val security = PairingAuthority(elapsed = { time })
+        assertTrue(security.shouldNotifyBlocked("192.168.1.2"))
+        assertFalse(security.shouldNotifyBlocked("192.168.1.2"))
+        assertTrue(security.shouldNotifyBlocked("192.168.1.3"))
+        time = 59_999
+        assertFalse(security.shouldNotifyBlocked("192.168.1.2"))
+        time = 60_000
+        assertTrue(security.shouldNotifyBlocked("192.168.1.2"))
+    }
     @Test fun codeRequiresVisibleScreenExpiresAndLocksAfterFiveFailures() {
         var time = 1000L
         val security = PairingAuthority(elapsed = { time })

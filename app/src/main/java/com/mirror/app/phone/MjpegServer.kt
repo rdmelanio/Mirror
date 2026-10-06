@@ -31,7 +31,6 @@ class MjpegServer(private val name: String, private val stats: StreamStats,
     private data class Viewer(val hash: String?, val name: String)
     private val authorized = ConcurrentHashMap<Socket, String>()
     private val viewers = ConcurrentHashMap<Socket, Viewer>()
-    private val blockedAt = ConcurrentHashMap<String, Long>()
     fun viewerNames(): List<String> = viewers.values.map { it.name }
     fun clearFrames() { synchronized(monitor) { latest.set(null); monitor.notifyAll() } }
     companion object {
@@ -121,14 +120,8 @@ class MjpegServer(private val name: String, private val stats: StreamStats,
                     security.browserAuth(headers["authorization"].orEmpty())
                 if (device == null && !browser) {
                     if (path in listOf("/video", "/status", "/control")) {
-                        val ip = client.inetAddress.hostAddress.orEmpty(); val now = System.nanoTime()
-                        synchronized(blockedAt) {
-                            val previous = blockedAt[ip]
-                            if (previous == null || now - previous >= TimeUnit.MINUTES.toNanos(1)) {
-                                if (blockedAt.size >= 256) blockedAt.entries.removeIf { now - it.value >= TimeUnit.MINUTES.toNanos(1) }
-                                if (blockedAt.size < 256) { blockedAt[ip] = now; blocked(ip) }
-                            }
-                        }
+                        val ip = client.inetAddress.hostAddress.orEmpty()
+                        if (security.shouldNotifyBlocked(ip)) blocked(ip)
                     }
                     output.write(("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"Mirror\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").toByteArray(Charsets.US_ASCII))
                     output.flush(); return

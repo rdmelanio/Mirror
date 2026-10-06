@@ -16,6 +16,7 @@ class PairingAuthority(saved: String = "{}", private val persist: (String) -> Un
     private val state = runCatching { JSONObject(saved) }.getOrElse { JSONObject() }
     val cameraId: String = state.optString("cameraId").ifEmpty { randomToken() }
     private val devices = LinkedHashMap<String, Device>()
+    private val blockedAt = LinkedHashMap<String, Long>()
     private var code: ByteArray? = null
     private var expires = 0L
     private var wrong = 0
@@ -38,6 +39,16 @@ class PairingAuthority(saved: String = "{}", private val persist: (String) -> Un
             devices.values.forEach { put(JSONObject().put("hash", it.hash).put("name", it.name).put("lastSeen", it.lastSeen)) }
         })
         persist(state.toString())
+    }
+    /** Shared by server instances so Wi-Fi recovery cannot reset notification throttling. */
+    @Synchronized fun shouldNotifyBlocked(ip: String): Boolean {
+        val time = elapsed()
+        val previous = blockedAt[ip]
+        if (previous != null && time - previous < 60_000) return false
+        if (blockedAt.size >= 256) blockedAt.entries.removeIf { time - it.value >= 60_000 }
+        if (blockedAt.size >= 256) return false
+        blockedAt[ip] = time
+        return true
     }
     @Synchronized fun showCode(): String? {
         if (elapsed() < lockedUntil) return null
