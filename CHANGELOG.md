@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.8.0
+
+- Bundle the supplied Airbus master warning as a prepared seamless PCM loop, removing its introductory fade-in and MP3 restart gap while retaining the original warning cadence. Keep duration and immediate Stop controls.
+- Introduce a focused Phone home with live preview, Start/Stop camera, Clock mode, one Settings button and compact camera status.
+- Group all detailed phone controls into settings categories. Wide screens show left navigation, a vertical separator and right-hand controls; portrait uses category pages with Back navigation.
+- Add a phone-only ECAM-inspired black/B612 interface and alert panels with amber/red annunciators, green duty data and cyan actions. Keep warning details/Stop readable while the annunciator flashes.
+- Fix night mode overriding caution text to red; retain existing clock styles, custom colors and saved positions.
+- Preserve pairing/browser security, camera controls, diagnostics, alarm tests, calendar/weather settings, screen saver setup and display protection in their respective categories.
+- Validate the audio splice before packaging and add alert-layout geometry coverage. Version name 1.8.0, version code 180.
+
 ## 1.7.0
 
 - Add optional phone-only Leave for duty alarms tied to the selected synced roster calendar in Philippine time.

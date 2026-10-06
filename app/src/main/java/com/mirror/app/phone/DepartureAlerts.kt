@@ -117,7 +117,7 @@ object DepartureAlerts {
                 mark(c, overdue); show(c, overdue)
                 alerts = DeparturePlan.alerts(snapshot.duties, s, now, delivered(c))
             } else {
-                val open = PendingIntent.getActivity(c, 17020, Intent(c, DepartureSettingsActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                val open = PendingIntent.getActivity(c, 17020, Intent(c, PhoneSettingsActivity::class.java).putExtra("section", "alarms"), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 try { c.getSystemService(AlarmManager::class.java).setAlarmClock(AlarmManager.AlarmClockInfo(now + 500, open),
                     alarmIntent(c, overdue.kind, overdue.token)) }
                 catch (_: SecurityException) { prefs(c).edit().putString("status", "Allow precise alarms to schedule departure alerts").apply(); return }
@@ -131,7 +131,7 @@ object DepartureAlerts {
             val manager = c.getSystemService(AlarmManager::class.java)
             if (next == null) manager.cancel(alarmIntent(c, kind))
             else {
-                val show = PendingIntent.getActivity(c, 17020, Intent(c, DepartureSettingsActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                val show = PendingIntent.getActivity(c, 17020, Intent(c, PhoneSettingsActivity::class.java).putExtra("section", "alarms"), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 try { manager.setAlarmClock(AlarmManager.AlarmClockInfo(next.at, show), alarmIntent(c, kind, next.token)) }
                 catch (_: SecurityException) { prefs(c).edit().putString("status", "Allow precise alarms to schedule departure alerts").apply(); return }
                 descriptions += "${kind.name}: ${stamp(next.at)} · ${next.duty.text} · REPORT ${stamp(next.duty.start)}"

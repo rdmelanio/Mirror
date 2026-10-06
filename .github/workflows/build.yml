@@ -28,6 +28,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Bundle verified official B612 fonts
         run: python3 scripts/fetch-clock-fonts.py
+      - name: Verify supplied warning loop
+        run: python3 scripts/check-warning-loop.py
       - name: Build and check
         run: ./gradlew :app:assembleRelease :app:testDebugUnitTest :app:lintRelease
       - name: Show lint details on failure

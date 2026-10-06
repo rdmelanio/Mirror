@@ -2,109 +2,48 @@ package com.mirror.app.phone
 
 import android.Manifest
 import android.app.Activity
-import android.app.AlertDialog
-import android.widget.CheckBox
-import android.widget.EditText
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
-import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.provider.Settings
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
-import android.widget.ScrollView
-import android.widget.TextView
-import android.widget.Toast
-import com.mirror.app.core.LauncherActivity
-import com.mirror.app.core.LocalNetwork
-import com.mirror.app.core.action
-import com.mirror.app.core.insetContent
-import com.mirror.app.core.label
-import com.mirror.app.core.mirrorPreferences
+import android.graphics.Color
+import android.os.*
+import android.widget.*
+import com.mirror.app.core.*
 
 class PhoneActivity : Activity() {
-    private var clockPanel: ClockSettingsPanel? = null
+    private lateinit var controller: ClockController
     private lateinit var start: Button
     private lateinit var status: TextView
-    private lateinit var cameras: RadioGroup
-    private lateinit var resolutions: RadioGroup
-    private lateinit var orientations: RadioGroup
-    private var pairingDialog: AlertDialog? = null
-    private val security get() = PhoneSecurity.get(this)
-    private var orientation = "landscape"
-    private var front = false
-    private var fullHd = false
     private val handler = Handler(Looper.getMainLooper())
     private val refresh = object : Runnable {
         override fun run() { update(); handler.postDelayed(this, 1000) }
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        orientation = mirrorPreferences().getString("streamOrientation", "landscape") ?: "landscape"
-        front = mirrorPreferences().getBoolean("phoneFront", false)
-        fullHd = mirrorPreferences().getBoolean("phoneFullHd", false)
-        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        content.addView(label("Mirror · Phone camera", 28f))
-        start = action("Start") { if (CameraService.active) stopService(Intent(this, CameraService::class.java)) else requestStart() }
-        content.addView(start)
-        content.addView(CheckBox(this).apply {
-            text = "Standby - camera turns on only when your TV connects"; isChecked = mirrorPreferences().getBoolean("standby", true)
-            setOnCheckedChangeListener { _, enabled -> mirrorPreferences().edit().putBoolean("standby", enabled).apply() }
-        })
-        content.addView(action("Pair new TV") { showPairing() })
-        content.addView(action("Paired devices") { showDevices() })
-        content.addView(action("Allow browser viewing: ${if (security.browserEnabled()) "On" else "Off"}") {
-            val button = content.getChildAt(5) as? Button
-            if (security.browserEnabled()) {
-                security.setBrowserPassword(null); button?.text = "Allow browser viewing: Off"
-            } else {
-                val password = EditText(this).apply { hint = "Set a browser password"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD }
-                val dialog = AlertDialog.Builder(this).setTitle("Allow browser viewing")
-                    .setMessage("Use username mirror and this password in Chrome. Video is not encrypted yet. Browser controls are disabled.")
-                    .setView(password).setPositiveButton("Enable", null).setNegativeButton("Cancel", null).create()
-                dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                    if (password.text.isEmpty()) password.error = "Enter a password"
-                    else { security.setBrowserPassword(password.text.toString()); button?.text = "Allow browser viewing: On"; dialog.dismiss() }
-                } }; dialog.show()
-            }
-        })
-        content.addView(label("Camera"))
-        cameras = choices(listOf("Rear", "Front"), if (front) 1 else 0) { front = it == 1; save() }
-        content.addView(cameras)
-        content.addView(label("Resolution"))
-        resolutions = choices(listOf("720p", "1080p"), if (fullHd) 1 else 0) { fullHd = it == 1; save() }
-        content.addView(resolutions)
-        content.addView(label("Stream orientation"))
-        val modes = listOf("landscape", "portrait", "auto")
-        orientations = choices(listOf("Landscape", "Portrait", "Auto"), modes.indexOf(orientation).coerceAtLeast(0)) {
-            orientation = modes[it]; mirrorPreferences().edit().putString("streamOrientation", orientation).apply()
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }
+        val header = label("MIRROR / PHONE", 23f); root.addView(header)
+        val wide = resources.configuration.screenWidthDp >= 600
+        val body = LinearLayout(this).apply { orientation = if (wide) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL }
+        val preview = ClockView(this)
+        controller = ClockController(this, preview, null, preview = true)
+        val display = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        display.addView(preview, LinearLayout.LayoutParams(-1, if (wide) -1 else dp(280)))
+        val controls = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), 0, 0, 0) }
+        start = action("START CAMERA") { if (CameraService.active) stopService(Intent(this, CameraService::class.java)) else requestStart() }
+        controls.addView(start)
+        controls.addView(action("CLOCK MODE") { startActivity(Intent(this, ClockActivity::class.java)) })
+        controls.addView(action("SETTINGS") { startActivity(Intent(this, PhoneSettingsActivity::class.java)) })
+        status = label("", 15f); controls.addView(status)
+        if (wide) {
+            body.addView(display, LinearLayout.LayoutParams(0, -1, 1.65f))
+            body.addView(ScrollView(this).apply { addView(controls) }, LinearLayout.LayoutParams(0, -1, 1f))
+            root.addView(body, LinearLayout.LayoutParams(-1, 0, 1f))
+        } else {
+            body.addView(display); body.addView(controls)
+            root.addView(ScrollView(this).apply { addView(body) }, LinearLayout.LayoutParams(-1, 0, 1f))
         }
-        content.addView(orientations)
-        status = label("").apply { setTextIsSelectable(true) }; content.addView(status)
-        content.addView(action("Battery optimization settings") {
-            runCatching { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
-                .onFailure { startActivity(Intent(Settings.ACTION_SETTINGS)) }
-        })
-        content.addView(action("Change role") {
-            stopService(Intent(this, CameraService::class.java)); LauncherActivity.changeRole(this)
-        })
-        clockPanel = ClockSettingsPanel(this, content)
-        val scroll = ScrollView(this).apply { addView(content) }
-        setContentView(scroll); insetContent(content); start.requestFocus(); update()
+        PhoneUi.style(root); header.setTextColor(PhoneUi.GREEN)
+        setContentView(root); insetContent(root, 10); update()
     }
-    private fun choices(names: List<String>, selected: Int, changed: (Int) -> Unit): RadioGroup {
-        val group = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
-        names.forEachIndexed { index, name -> group.addView(RadioButton(this).apply {
-            id = android.view.View.generateViewId(); text = name; tag = index; isChecked = index == selected
-        }) }
-        group.setOnCheckedChangeListener { _, id -> group.findViewById<RadioButton>(id)?.let { changed(it.tag as Int) } }
-        return group
-    }
-    private fun save() { mirrorPreferences().edit().putBoolean("phoneFront", front).putBoolean("phoneFullHd", fullHd).apply() }
     private fun requestStart() {
         val missing = mutableListOf<String>()
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) missing.add(Manifest.permission.CAMERA)
@@ -123,66 +62,25 @@ class PhoneActivity : Activity() {
         try {
             @Suppress("DEPRECATION") val rotation = windowManager.defaultDisplay.rotation
             startForegroundService(Intent(this, CameraService::class.java)
-                .putExtra("front", front).putExtra("fullHd", fullHd).putExtra("rotation", rotation))
+                .putExtra("front", mirrorPreferences().getBoolean("phoneFront", false)).putExtra("fullHd", mirrorPreferences().getBoolean("phoneFullHd", false)).putExtra("rotation", rotation))
         } catch (failure: Exception) { Toast.makeText(this, "Could not start: ${failure.message}", Toast.LENGTH_LONG).show() }
     }
+
     private fun update() {
-        start.text = if (CameraService.active) "Stop" else "Start"
-        for (group in listOf(cameras, resolutions)) for (i in 0 until group.childCount) group.getChildAt(i).isEnabled = !CameraService.active
-        val address = LocalNetwork.address(this)
+        start.text = if (CameraService.active) "STOP CAMERA" else "START CAMERA"
         val metrics = CameraService.stats
-        status.text = (if (address == null) "Not on Wi-Fi - connect to the same Wi-Fi as your TV"
-            else "${if (CameraService.active && !CameraService.cameraRunning) "Standby at" else if (CameraService.active) "Streaming at" else "Stream address:"} http://$address:8080/video") +
-            (if (CameraService.active) String.format(java.util.Locale.US,
-                "\nCamera %.0f fps - Encode %.0f ms - Sending %.0f fps - %d %s",
-                metrics.cameraFps, metrics.encodeMs, metrics.sendFps, metrics.clients.get(),
-                if (metrics.clients.get() == 1) "viewer" else "viewers") else "") +
-            (if (CameraService.active && orientation == "landscape" && CameraService.physicalPortrait) "\nTip: mount the phone sideways for a wider view" else "") +
-            (CameraService.error?.let { "\n$it" } ?: "") +
-            (CameraService.note?.let { "\n$it" } ?: if (CameraService.standbyFallback) "\nStandby is unavailable on this device; the camera stays running." else "")
-    }
-    private fun showPairing() {
-        pairingDialog?.dismiss()
-        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val code = label("", 32f); content.addView(code)
-        content.addView(label("On your TV, enter this code. It is valid for 2 minutes while this screen stays open."))
-        var shown: String? = security.showCode()
-        val regenerate = action("Regenerate") { shown = security.showCode() }; content.addView(regenerate)
-        val dialog = AlertDialog.Builder(this).setTitle("Pair new TV").setView(content).setNegativeButton("Close", null).create()
-        val tick = object : Runnable {
-            override fun run() {
-                val lock = security.lockSeconds(); val remaining = security.remainingSeconds()
-                code.text = if (lock > 0) "Too many attempts - wait ${lock}s" else if (remaining == 0L) "Code expired - Regenerate" else "$shown\nExpires in ${remaining}s"
-                regenerate.isEnabled = lock == 0L
-                handler.postDelayed(this, 1000)
-            }
-        }
-        dialog.setOnDismissListener { security.hideCode(); handler.removeCallbacks(tick); pairingDialog = null }
-        pairingDialog = dialog; dialog.show(); handler.post(tick); regenerate.requestFocus()
-    }
-    private fun showDevices() {
-        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this).apply { addView(content) }
-        fun render() {
-            content.removeAllViews()
-            val devices = security.list()
-            if (devices.isEmpty()) content.addView(label("No paired devices"))
-            devices.forEach { device ->
-                val seen = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(device.lastSeen))
-                content.addView(label("${device.name}\nLast seen: $seen"))
-                content.addView(action("Remove ${device.name}") { security.remove(device.hash); render() })
-            }
-        }
-        render(); AlertDialog.Builder(this).setTitle("Paired devices").setView(scroll).setNegativeButton("Close", null).show()
+        val live = metrics.clients.get() > 0
+        val state = if (!CameraService.active) "CAMERA OFF" else if (live) "CAMERA LIVE" else "CAMERA READY"
+        status.setTextColor(if (live) Color.RED else PhoneUi.GREEN)
+        status.text = state + (if (CameraService.active) String.format(java.util.Locale.US,
+            "\n%.0f fps · %.0f ms\n%d viewer%s", metrics.cameraFps, metrics.encodeMs, metrics.clients.get(), if (metrics.clients.get() == 1) "" else "s") else "\nStart the camera before Clock mode") +
+            (CameraService.error?.let { "\n$it" } ?: "") + (CameraService.note?.let { "\n$it" } ?: "") +
+            if (LocalNetwork.address(this) == null) "\nConnect to your TV's Wi-Fi" else ""
     }
     override fun onResume() {
-        super.onResume(); handler.post(refresh); clockPanel?.start()
+        super.onResume(); controller.start(); handler.post(refresh)
         if (ClockSettings.load(this).departureEnabled) DepartureAlerts.configure(this)
         if (CameraService.active && CameraService.standbyFallback) startService(Intent(this, CameraService::class.java).setAction(CameraService.RETRY))
     }
-    override fun onStop() { pairingDialog?.dismiss(); super.onStop() }
-    override fun onPause() { clockPanel?.stop(); handler.removeCallbacks(refresh); super.onPause() }
+    override fun onPause() { controller.stop(); handler.removeCallbacks(refresh); super.onPause() }
 }
-
-
-

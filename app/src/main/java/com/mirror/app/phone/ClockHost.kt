@@ -167,14 +167,4 @@ class MirrorClockDream : DreamService() {
     override fun onDetachedFromWindow() { controller?.stop(); controller = null; super.onDetachedFromWindow() }
 }
 
-class ClockSettingsActivity : Activity() {
-    private var panel: ClockSettingsPanel? = null
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        val content = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.VERTICAL }
-        panel = ClockSettingsPanel(this, content)
-        setContentView(android.widget.ScrollView(this).apply { addView(content) }); insetContent(content)
-    }
-    override fun onResume() { super.onResume(); panel?.start() }
-    override fun onPause() { panel?.stop(); super.onPause() }
-}
+class ClockSettingsActivity : PhoneSettingsActivity()

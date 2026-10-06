@@ -14,26 +14,32 @@ import com.mirror.app.core.action
 import com.mirror.app.core.dp
 import com.mirror.app.core.label
 
-class ClockSettingsPanel(private val activity: Activity, private val content: LinearLayout) {
+class ClockSettingsPanel(private val activity: Activity, private val content: LinearLayout, private val category: String = "home") {
     private var settings = ClockSettings.load(activity)
     private val preview = ClockView(activity)
     private val controller = ClockController(activity, preview, null, preview = true)
     private var alive = true
     private val refreshControls = mutableListOf<() -> Unit>()
     private fun save(value: ClockSettings) { settings = value; settings.save(activity); preview.settings = value }
-    fun start() { settings = ClockSettings.load(activity); refreshControls.forEach { it() }; controller.start() }
+    fun start() { settings = ClockSettings.load(activity); refreshControls.forEach { it() }; if (category in listOf("home", "style", "calendar")) controller.start() }
     fun stop() { controller.stop() }
     init {
+        if (category == "home") {
         content.addView(activity.label("Clock", 26f))
-        content.addView(preview, LinearLayout.LayoutParams(-1, activity.dp(280)))
+        content.addView(preview, LinearLayout.LayoutParams(-1, activity.dp(if (activity.resources.configuration.screenWidthDp > activity.resources.configuration.screenHeightDp) 210 else 280)))
         content.addView(activity.action("Clock mode") { activity.startActivity(Intent(activity, ClockActivity::class.java)) })
         content.addView(activity.label("Clock mode can display over your secure lock screen without unlocking it. Hold empty space for 2 seconds to exit. Start the camera first to keep streaming or standby available."))
+        }
+        if (category == "setup") {
         content.addView(activity.action("Set as screen saver") {
             runCatching { activity.startActivity(Intent(Settings.ACTION_DREAM_SETTINGS)) }.onFailure {
                 Toast.makeText(activity, "Screen saver settings are unavailable on this ROM", Toast.LENGTH_LONG).show()
             }
         })
         content.addView(activity.label("Choose Mirror Clock and set When to start: While charging"))
+        }
+        if (category == "style") {
+        content.addView(preview, LinearLayout.LayoutParams(-1, activity.dp(210)))
         choice("Style", listOf("Cockpit", "Minimal", "Stacked", "Word clock"), { settings.style }) { save(settings.copy(style = it)) }
         toggle("Show UTC time", { settings.showUtc }) { save(settings.copy(showUtc = it)) }
         content.addView(activity.label("Turn UTC off for local time only. Cockpit hides its second line; your primary-time preference is kept for when UTC is enabled again."))
@@ -59,6 +65,8 @@ class ClockSettingsPanel(private val activity: Activity, private val content: Li
         content.addView(activity.action("Alarm color · HSV") { colorPicker(settings.alarmColor) { save(settings.copy(alarmColor = it)) } })
         content.addView(activity.action("Weather color · HSV") { colorPicker(settings.weatherColor) { save(settings.copy(weatherColor = it)) } })
         content.addView(activity.label("Night mode temporarily makes all text red. Your custom colors return in daylight."))
+        }
+        if (category == "calendar") {
         content.addView(activity.label("Calendar schedule · Philippine time", 22f))
         toggle("Show calendar schedule", { settings.schedule }) {
             save(settings.copy(schedule = it))
@@ -72,14 +80,16 @@ class ClockSettingsPanel(private val activity: Activity, private val content: Li
         refreshControls += { calendarButton.text = "Roster calendar: ${settings.calendarName.ifBlank { "Choose calendar" }}" }
         content.addView(activity.action("Refresh calendar now") { controller.refreshCalendar() })
         content.addView(activity.label("Read-only. Today/overnight and tomorrow are shown with reporting–debriefing or duty times. Empty tomorrow says no calendar entry, never OFF. Refreshes every 15 minutes, at duty end, on opening and on synced changes. Google sync completion depends on Android."))
-        content.addView(activity.label("Leave for duty · caution and warning", 22f))
-        content.addView(activity.action("Departure alarm settings and tests") {
-            activity.startActivity(Intent(activity, DepartureSettingsActivity::class.java))
-        })
-        content.addView(activity.label("Single caution chime at 60 minutes before reporting; warning at 50 minutes with a 10-second sound. Configure both, choose sounds, test alerts and check the next scheduled departure here. Alerts are off until enabled."))
+        }
+        if (category == "info") {
         content.addView(activity.label("Info lines", 22f))
         toggle("Date", { settings.date }) { save(settings.copy(date = it)) }
         toggle("Next alarm (hidden when none)", { settings.alarm }) { save(settings.copy(alarm = it)) }
+        toggle("Camera indicator", { settings.status }) { save(settings.copy(status = it)) }
+        content.addView(activity.label("White hollow circle: camera waiting/ready. Red blinking circle: being viewed. Dim gray hollow circle: camera service off. The indicator moves with the clock; it never uses roster standby codes."))
+        toggle("Seconds", { settings.seconds }) { save(settings.copy(seconds = it)) }
+        }
+        if (category == "weather") {
         val weatherToggle = toggle("Weather", { settings.weather }) { save(settings.copy(weather = it && settings.city.isNotBlank())) }
         weatherToggle.isEnabled = settings.city.isNotBlank()
         val city = EditText(activity).apply { hint = "Weather city"; setSingleLine(true); setText(settings.city); filters = arrayOf(android.text.InputFilter.LengthFilter(200)) }
@@ -105,9 +115,8 @@ class ClockSettingsPanel(private val activity: Activity, private val content: Li
             }
         }
         content.addView(search)
-        toggle("Camera indicator", { settings.status }) { save(settings.copy(status = it)) }
-        content.addView(activity.label("White hollow circle: camera waiting/ready. Red blinking circle: being viewed. Dim gray hollow circle: camera service off. The indicator moves with the clock; it never uses roster standby codes."))
-        toggle("Seconds", { settings.seconds }) { save(settings.copy(seconds = it)) }
+        }
+        if (category == "display") {
         content.addView(activity.label("Burn-in protection", 22f))
         toggle("Pixel shift · every minute", { settings.pixelShift }) { save(settings.copy(pixelShift = it)) }
         toggle("Slow drift", { settings.drift }) { save(settings.copy(drift = it)) }
@@ -123,10 +132,12 @@ class ClockSettingsPanel(private val activity: Activity, private val content: Li
         choice("Away hours", listOf("4", "8", "12", "24"), { settings.awayHours.toString() }) { save(settings.copy(awayHours = it.toInt())) }
         content.addView(activity.label("Away resumes as soon as light rises above 5 lux. Camera streaming and standby continue while the clock is black."))
         toggle("Dim while LIVE", { settings.dimLive }) { save(settings.copy(dimLive = it)) }
-        content.addView(activity.action("About Mirror") {
-            val text = activity.label("Mirror ${BuildConfig.VERSION_NAME}\n\nWeather data by Open-Meteo.com\n\nB612 and B612 Mono by the B612 project. Official source: https://github.com/polarsys/b612\n\n" + activity.resources.openRawResource(R.raw.b612_ofl).bufferedReader().use { it.readText() }, 14f)
-            AlertDialog.Builder(activity).setTitle("About & font license").setView(ScrollView(activity).apply { addView(text) }).setPositiveButton("Close", null).show()
-        })
+        }
+        if (category == "about") {
+            content.addView(activity.label("Mirror ${BuildConfig.VERSION_NAME}", 26f))
+            content.addView(activity.label("Weather data by Open-Meteo.com\n\nB612 and B612 Mono: https://github.com/polarsys/b612\n\nMaster warning: recording supplied by the app owner, prepared as a seamless PCM loop. Built-in caution: original synthesized single chime.", 16f))
+            content.addView(activity.label(activity.resources.openRawResource(R.raw.b612_ofl).bufferedReader().use { it.readText() }, 14f))
+        }
         content.addOnAttachStateChangeListener(object : android.view.View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: android.view.View) { alive = true }
             override fun onViewDetachedFromWindow(v: android.view.View) { alive = false; stop() }

@@ -1,4 +1,4 @@
-# Mirror 1.7.0
+# Mirror 1.8.0
 
 One Android APK for a phone camera and a Google TV mirror. Kotlin, Android Views,
 one `:app` module, Android 8.0+ (API 26). The APK contains no native `.so` libraries
@@ -188,9 +188,29 @@ hide it. **Reset filters** restores defaults. Returning to the TV app resumes it
 saved connection; unreachable streams retry every three seconds and rediscover cameras after ten
 seconds. Tap the video or the touchscreen gear to open the scrollable Quick Menu.
 
+## Phone home and settings
+
+Home keeps the live preview, camera Start/Stop, Clock mode, and one Settings button.
+Landscape places the preview beside the controls; portrait stacks them. A compact
+camera state and metrics remain visible, while detailed stream diagnostics are
+under Camera & stream.
+
+Settings uses a category list on the left, a vertical separator, and controls on
+the right on wide screens. Portrait opens a category page with Back navigation.
+Categories: Style & layout, Departure alarms, Duty & calendar, Weather, Clock
+information, Display protection, Camera & stream, Pairing & security, Android
+setup, and About Mirror. Pairing/browser security, camera/resolution/orientation,
+standby, screen saver setup, battery settings and Change role remain available.
+
+The phone UI uses a black ECAM-inspired palette and B612 typography. Alerts use
+amber/red annunciators, green duty data and cyan actions. Only the warning
+annunciator flashes; duty details and the acknowledgement control stay readable.
+Caution stays amber even when automatic night mode is active. Clock styles,
+custom colors and saved layout positions are retained.
+
 ## Clock Face
 
-Phone mode now has a **Clock** section with a live preview. Start the camera
+Phone mode opens with a live clock preview and Start/Stop camera, Clock mode and Settings actions. Start the camera
 service first, then tap **Clock mode**. The clock is independent of the existing
 streaming/standby service; opening it, closing it, or entering Away never stops
 capture or disconnects a TV. No TV controls or TV clock overlay are added.
@@ -218,7 +238,7 @@ in settings restores the center/corner arrangement. Disable **Allow tap-and-hold
 layout editing** if you prefer to prevent accidental changes. Pinching cancels
 selection and the exit hold; the brief hint never changes the clock's size.
 
-For automatic use while charging, tap **Set as screen saver**, choose **Mirror
+For automatic use while charging, open **Settings → Android setup → Set as screen saver**, choose **Mirror
 Clock**, and set **When to start: While charging**. The screen saver's settings
 button opens the same Clock settings. Screen saver activation and secure-keyguard
 behavior depend on your Android ROM; test both on the OnePlus before leaving it
@@ -254,7 +274,7 @@ Weather is off until a city is selected. Type a city, tap **Find weather city**,
 and select the correct match. Open-Meteo geocoding needs no location permission.
 Current temperature and condition refresh every 30 minutes while a clock/preview
 is visible. The last success is cached; offline or failed refreshes show `--`.
-Weather data by Open-Meteo.com. Phone **About Mirror** contains the complete B612
+Weather data by Open-Meteo.com. **Settings → About Mirror** contains the complete B612
 SIL Open Font License; the repository copy is `licenses/B612-OFL.txt`.
 
 All clock preferences live in one versioned `ClockSettings` JSON value in private
@@ -266,7 +286,7 @@ is no font fallback. No new wake locks are acquired by the clock.
 
 ### Leave for duty alarms (v1.7)
 
-Open Phone mode → Clock → **Departure alarm settings and tests**. Choose your
+Open Phone mode → **Settings → Departure alarms**. Choose your
 synced roster calendar, enable departure alarms, and allow calendar access,
 notifications, **precise alarms**, and **full-screen alarms** where Android asks.
 The setup page shows permission readiness, alarm volume, the last calendar check,
@@ -288,11 +308,16 @@ and the next caution/warning with reporting times in **Philippine time**.
   Flights without a complete reporting/debriefing pair are flagged and skipped;
   you may explicitly opt into using the event start as the departure anchor.
 
-Built-in tones are original **Airbus-inspired** synthesized sounds, not authentic
-Airbus recordings. Choose an audio file for either stage if you prefer your own
-clip. Custom caution plays once, capped at five seconds. Warning repeats for your
-chosen duration. **Test caution** and **Test warning** open the clock, without
-marking real calendar alerts delivered; Stop active alert is also in settings.
+The default master warning is the owner-supplied **Airbus warning recording**,
+prepared as a steady PCM loop. Its two-second fade-in is omitted; two complete
+warning cycles loop in an AudioTrack static buffer without restarting an MP3
+player. The cadence is retained and the splice is smoothed. Built-in caution is
+an original single chime. Custom audio selections are preserved and continue
+using their existing playback path; choose **Use supplied Airbus warning** to
+switch from a custom file to the prepared seamless loop. Custom caution plays
+once, capped at five seconds. Warning stops after the chosen duration or Stop.
+**Test caution** and **Test warning** open the clock without marking real duty
+alerts delivered. See `docs/warning-audio.md` for preparation and verification.
 
 Audio holds a bounded wake lock only during its configured playback, releasing
 it when sound stops. The persistent visual alert does not hold a CPU wake lock.
@@ -323,7 +348,7 @@ before relying on it as your departure reminder.
 
 ### Calendar roster and info colors
 
-In Phone mode → Clock, enable **Show calendar schedule**, grant **Calendar read
+In Phone mode → **Settings → Duty & calendar**, enable **Show calendar schedule**, grant **Calendar read
 access**, and choose the calendar that eCrew exports to. The Google account must
 already be added to the phone with Calendar sync enabled. Mirror reads Android's
 synced calendar provider; it does not sign into Google separately and never
@@ -381,7 +406,7 @@ native libraries, uploads the `mirror-apk` artifact, and publishes `mirror.apk`
 in a latest GitHub Release tagged `build-<run_number>`.
 
 The project uses stable AGP 9.3.2, Kotlin 2.4.20 (AGP built-in Kotlin), and Gradle
-9.8.0. Compile and target SDK are 36. Version name `1.7.0` and code `170` are
+9.8.0. Compile and target SDK are 36. Version name `1.8.0` and code `180` are
 defined once in `gradle.properties`. Bump both for future changes.
 
 Both debug and release builds use `keystore/mirror.jks`. Its alias and passwords

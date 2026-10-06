@@ -14,6 +14,7 @@ import kotlin.math.*
 /** A bounded audio foreground service, independent of the camera service. Only a timed wake lock during audible playback. */
 class DepartureSoundService : Service() {
     private var player: MediaPlayer? = null
+    private var loopTrack: AudioTrack? = null
     private var focus: AudioFocusRequest? = null
     private val handler = Handler(Looper.getMainLooper())
     private var token: String? = null
@@ -47,6 +48,25 @@ class DepartureSoundService : Service() {
             finishAudio(); return START_NOT_STICKY
         }
         val uri = if (active.kind == DeparturePlan.Kind.CAUTION) settings.cautionSound else settings.warningSound
+        if (active.kind == DeparturePlan.Kind.WARNING && uri.isBlank()) {
+            try {
+                val pcm = resources.openRawResource(R.raw.airbus_master_warning).use { it.readBytes() }
+                val track = AudioTrack.Builder().setAudioAttributes(attributes)
+                    .setAudioFormat(AudioFormat.Builder().setSampleRate(44100).setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                    .setTransferMode(AudioTrack.MODE_STATIC).setBufferSizeInBytes(pcm.size).build()
+                loopTrack = track
+                check(track.state != AudioTrack.STATE_UNINITIALIZED) { "Warning audio output unavailable" }
+                check(track.write(pcm, 0, pcm.size) == pcm.size) { "Warning buffer incomplete" }
+                check(track.state == AudioTrack.STATE_INITIALIZED) { "Warning audio output unavailable" }
+                check(track.setLoopPoints(0, pcm.size / 2, -1) == AudioTrack.SUCCESS) { "Warning loop unavailable" }
+                track.play()
+            } catch (_: Exception) {
+                DepartureAlerts.prefs(this).edit().putString("audioStatus", "Warning could not play · check alarm output and test again").apply()
+                finishAudio()
+            }
+            return START_NOT_STICKY
+        }
         val media = MediaPlayer(); player = media
         media.setAudioAttributes(attributes)
         media.isLooping = active.kind == DeparturePlan.Kind.WARNING
@@ -72,6 +92,7 @@ class DepartureSoundService : Service() {
     }
     private fun releaseAudio() {
         player?.release(); player = null
+        loopTrack?.let { track -> runCatching { if (track.state == AudioTrack.STATE_INITIALIZED) track.stop() }; track.release() }; loopTrack = null
         playbackWake?.let { if (it.isHeld) it.release() }; playbackWake = null
         focus?.let { getSystemService(AudioManager::class.java).abandonAudioFocusRequest(it) }; focus = null
     }
