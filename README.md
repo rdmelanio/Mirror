@@ -1,4 +1,4 @@
-# Mirror 1.5.0
+# Mirror 1.5.1
 
 One Android APK for a phone camera and a Google TV mirror. Kotlin, Android Views,
 one `:app` module, Android 8.0+ (API 26). The APK contains no native `.so` libraries
@@ -202,6 +202,17 @@ unless overridden; aviation UTC always uses 24-hour Z notation. Choose a preset,
 touch the HSV sliders for a custom color, or enable a vertical two-color gradient.
 Date, next alarm, weather, mirror status and seconds have individual saved toggles.
 
+**Show UTC time** can be switched off for a local-only clock. Cockpit hides the
+second time line; enabling UTC again restores your saved primary-time preference.
+**Clock size** ranges from 40–100% of the available space (default 90%). Pinch
+with two fingers directly on Clock mode or the screen saver to resize it. The
+size is saved when the gesture finishes and is shared with the settings slider.
+The larger layout fits all content inside the display, with room reserved for
+pixel shifting. On narrow portrait screens, hiding UTC or optional info lines
+can give the main digits more room. Pinching or moving a finger cancels the
+exit hold; use a fresh, stationary two-second hold to exit. The brief exit hint
+no longer resizes or moves the clock.
+
 For automatic use while charging, tap **Set as screen saver**, choose **Mirror
 Clock**, and set **When to start: While charging**. The screen saver's settings
 button opens the same Clock settings. Screen saver activation and secure-keyguard
@@ -254,7 +265,7 @@ native libraries, uploads the `mirror-apk` artifact, and publishes `mirror.apk`
 in a latest GitHub Release tagged `build-<run_number>`.
 
 The project uses stable AGP 9.3.2, Kotlin 2.4.20 (AGP built-in Kotlin), and Gradle
-9.8.0. Compile and target SDK are 36. Version name `1.5.0` and code `150` are
+9.8.0. Compile and target SDK are 36. Version name `1.5.1` and code `151` are
 defined once in `gradle.properties`. Bump both for future changes.
 
 Both debug and release builds use `keystore/mirror.jks`. Its alias and passwords

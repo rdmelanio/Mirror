@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.5.1
+
+- Add a saved Show UTC time toggle. Disable it for local time only; re-enable it
+  to restore the primary UTC/local preference. Cockpit hides its second line when off.
+- Add two-finger pinch-to-zoom in Clock mode and Mirror Clock screen saver, plus
+  a synchronized 40–100% Clock size slider and a larger default layout.
+- Keep the entire clock and info lines inside the display at every size, with
+  pixel-shift clearance. Save zoom after gestures rather than writing every frame.
+- Fix the exit hint resizing/moving the clock. Pinching and finger movement cancel
+  the exit hold, preventing accidental exits while adjusting size.
+- Refresh settings controls when returning from the clock; respect system insets
+  in screen saver settings and use an explicit screen saver settings component.
+- Preserve camera/standby lifecycle, TV code, signing key and existing preferences.
+  Version name 1.5.1, version code 151.
+
 ## 1.5.0
 
 - Add phone-only Clock mode and interactive Mirror Clock screen saver using one

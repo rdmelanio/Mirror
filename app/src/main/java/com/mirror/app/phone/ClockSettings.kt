@@ -6,6 +6,7 @@ import org.json.JSONObject
 /** The complete, versioned clock preference payload; ready for future transport. */
 data class ClockSettings(
     val style: String = "Cockpit", val primaryUtc: Boolean = false,
+    val showUtc: Boolean = true, val sizePercent: Int = 90,
     val hourFormat: String = "System", val minimalFont: String = "System thin",
     val color: Int = 0xFF00E040.toInt(), val gradient: Boolean = false,
     val secondColor: Int = 0xFF00E5FF.toInt(),
@@ -17,8 +18,9 @@ data class ClockSettings(
     val autoNight: Boolean = true, val away: Boolean = true, val awayHours: Int = 8,
     val dimLive: Boolean = true
 ) {
+    val usesUtc: Boolean get() = showUtc && primaryUtc
     fun json(): String = JSONObject().apply {
-        put("schema", 1)
+        put("schema", 2); put("showUtc", showUtc); put("sizePercent", sizePercent)
         put("style", style); put("primaryUtc", primaryUtc); put("hourFormat", hourFormat); put("minimalFont", minimalFont)
         put("color", color); put("gradient", gradient); put("secondColor", secondColor)
         put("date", date); put("alarm", alarm); put("weather", weather); put("city", city)
@@ -37,6 +39,8 @@ data class ClockSettings(
             ClockSettings(
                 style = choice("style", d.style, listOf("Cockpit", "Minimal", "Stacked", "Word clock")),
                 primaryUtc = j.optBoolean("primaryUtc", d.primaryUtc),
+                showUtc = j.optBoolean("showUtc", d.showUtc),
+                sizePercent = j.optInt("sizePercent", d.sizePercent).coerceIn(40, 100),
                 hourFormat = choice("hourFormat", d.hourFormat, listOf("System", "12-hour", "24-hour")),
                 minimalFont = choice("minimalFont", d.minimalFont, listOf("System thin", "B612")),
                 color = j.optInt("color", d.color) or 0xFF000000.toInt(), gradient = j.optBoolean("gradient", d.gradient),

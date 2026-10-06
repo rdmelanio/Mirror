@@ -7,6 +7,7 @@ import android.hardware.*
 import android.os.*
 import android.service.dreams.DreamService
 import android.view.*
+import com.mirror.app.core.insetContent
 
 /** Updated only by service state changes, never by the encoder. Main-thread listeners. */
 object ClockMirrorState {
@@ -51,7 +52,7 @@ class ClockController(private val context: Context, private val view: ClockView,
     }
     fun stop() {
         if (!running) return
-        running = false; sensors.unregisterListener(this); handler.removeCallbacksAndMessages(null)
+        running = false; view.saveSize(); sensors.unregisterListener(this); handler.removeCallbacksAndMessages(null)
         ClockSettings.prefs(context).unregisterOnSharedPreferenceChangeListener(preferencesChanged)
         ClockMirrorState.listeners.remove(stateChanged); context.unregisterReceiver(receiver)
     }
@@ -139,9 +140,9 @@ class ClockSettingsActivity : Activity() {
     private var panel: ClockSettingsPanel? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val content = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.VERTICAL; setPadding(24, 24, 24, 24) }
+        val content = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.VERTICAL }
         panel = ClockSettingsPanel(this, content)
-        setContentView(android.widget.ScrollView(this).apply { addView(content) })
+        setContentView(android.widget.ScrollView(this).apply { addView(content) }); insetContent(content)
     }
     override fun onResume() { super.onResume(); panel?.start() }
     override fun onPause() { panel?.stop(); super.onPause() }

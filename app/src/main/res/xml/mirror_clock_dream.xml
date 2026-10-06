@@ -1,2 +1,2 @@
 <dream xmlns:android="http://schemas.android.com/apk/res/android"
-    android:settingsActivity="com.mirror.app.phone.ClockSettingsActivity" />
+    android:settingsActivity="com.mirror.app/com.mirror.app.phone.ClockSettingsActivity" />

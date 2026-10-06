@@ -8,7 +8,7 @@ class ClockTest {
         val defaults = ClockSettings.parse(null)
         assertTrue(defaults.date && defaults.alarm && defaults.status && defaults.pixelShift && defaults.reposition)
         assertFalse(defaults.weather || defaults.seconds || defaults.drift)
-        val custom = defaults.copy(style = "Stacked", primaryUtc = true, hourFormat = "12-hour", minimalFont = "B612",
+        val custom = defaults.copy(style = "Stacked", primaryUtc = true, showUtc = false, sizePercent = 75, hourFormat = "12-hour", minimalFont = "B612",
             color = 0xFFFFB000.toInt(), secondColor = 0xFFFF40FF.toInt(), gradient = true,
             weather = true, city = "Manila", latitude = 14.6, longitude = 120.98, date = false,
             alarm = false, status = false, seconds = true, pixelShift = false, drift = true, reposition = false,
@@ -17,6 +17,30 @@ class ClockTest {
         assertEquals(defaults, ClockSettings.parse("broken json"))
         val invalid = ClockSettings.parse("{\"maxBrightness\":100,\"awayHours\":1,\"style\":\"Unknown\"}")
         assertEquals(60, invalid.maxBrightness); assertEquals(8, invalid.awayHours); assertEquals("Cockpit", invalid.style)
+    }
+    @Test fun oldPreferencesMigrateAndUtcTogglePreservesPrimaryChoice() {
+        val old = ClockSettings.parse("{\"schema\":1,\"primaryUtc\":true,\"color\":-65536}")
+        assertTrue(old.showUtc); assertTrue(old.usesUtc); assertEquals(90, old.sizePercent)
+        val hidden = ClockSettings.parse(old.copy(showUtc = false).json())
+        assertFalse(hidden.usesUtc); assertTrue(hidden.primaryUtc)
+        assertTrue(hidden.copy(showUtc = true).usesUtc)
+        assertEquals(40, ClockSettings.parse("{\"sizePercent\":-10}").sizePercent)
+        assertEquals(100, ClockSettings.parse("{\"sizePercent\":999}").sizePercent)
+    }
+    @Test fun zoomFitsPortraitLandscapeAndLongInfoLinesWithShiftRoom() {
+        for ((width, height) in listOf(360f to 780f, 780f to 360f, 280f to 280f)) {
+            for ((blockWidth, blockHeight) in listOf(700f to 350f, 190f to 700f, 1100f to 300f)) {
+                var previous = 0f
+                for (percent in 40..100) {
+                    val scale = ClockLayout.scale(width, height, 28f, blockWidth, blockHeight, percent)
+                    assertTrue(scale > previous)
+                    assertTrue(blockWidth * scale <= width - 56f + 0.001f)
+                    assertTrue(blockHeight * scale <= height - 56f + 0.001f)
+                    previous = scale
+                }
+            }
+        }
+        assertEquals(0f, ClockLayout.scale(0f, 0f, 28f, 300f, 300f, 90), 0f)
     }
     @Test fun nightRequiresContinuousLowAndHighWithHysteresis() {
         val p = ClockLightPolicy()
