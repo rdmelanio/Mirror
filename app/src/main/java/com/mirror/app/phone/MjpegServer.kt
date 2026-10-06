@@ -15,13 +15,15 @@ import java.util.concurrent.TimeUnit
 class MjpegServer(private val name: String, private val stats: StreamStats,
                   private val security: PairingAuthority, private val bindAddress: java.net.InetAddress,
                   private val blocked: (String) -> Unit = {}, private val viewersChanged: (List<String>) -> Unit = {},
-                  private val allowAddress: (java.net.InetAddress) -> Boolean = ::isLanAddress) {
+                  private val allowAddress: (java.net.InetAddress) -> Boolean = ::isLanAddress,
+                  private val listenPort: Int = 8080) {
     @Volatile var controls: ControlEndpoint? = null
     private val monitor = Object()
     private data class Frame(val jpeg: ByteArray, val rotation: Int)
     private val latest = AtomicReference<Frame?>()
     @Volatile private var running = false
     private var server: ServerSocket? = null
+    val port: Int get() = server?.localPort ?: listenPort
     private val workers = Executors.newFixedThreadPool(4)
     private val watchdog = Executors.newSingleThreadScheduledExecutor()
     private val sockets = ConcurrentHashMap<Socket, Long>()
@@ -42,7 +44,7 @@ class MjpegServer(private val name: String, private val stats: StreamStats,
         }
     }
     fun start() {
-        val socket = ServerSocket().apply { reuseAddress = true; bind(java.net.InetSocketAddress(bindAddress, 8080)) }
+        val socket = ServerSocket().apply { reuseAddress = true; bind(java.net.InetSocketAddress(bindAddress, listenPort)) }
         server = socket; running = true
         security.onRevoked = { hash ->
             authorized.forEach { (client, tokenHash) -> if (tokenHash == hash) runCatching { client.close() } }

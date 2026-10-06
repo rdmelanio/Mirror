@@ -13,7 +13,7 @@ class MjpegServerTest {
     private val security = PairingAuthority()
     private val token = security.pair(security.showCode()!!, "test-device", "Test TV").token!!
     private fun server(name: String, stats: StreamStats) = MjpegServer(name, stats, security,
-        java.net.InetAddress.getByName("127.0.0.1"), allowAddress = { it.isLoopbackAddress })
+        java.net.InetAddress.getByName("127.0.0.1"), allowAddress = { it.isLoopbackAddress }, listenPort = 0)
     private fun line(input: BufferedInputStream): String {
         val bytes = java.io.ByteArrayOutputStream()
         while (true) {
@@ -34,7 +34,7 @@ class MjpegServerTest {
             }
         }
         fun get(path: String, code: String = "200 OK"): JSONObject {
-            Socket("127.0.0.1", 8080).use { socket ->
+            Socket("127.0.0.1", server.port).use { socket ->
                 socket.soTimeout = 3000
                 socket.getOutputStream().write("GET $path HTTP/1.1\r\nHost: localhost\r\nX-Mirror-Token: $token\r\n\r\n".toByteArray())
                 val input = BufferedInputStream(socket.getInputStream())
@@ -44,7 +44,7 @@ class MjpegServerTest {
             }
         }
         server.start()
-        val viewers = List(2) { Socket("127.0.0.1", 8080).apply { soTimeout = 3000 } }
+        val viewers = List(2) { Socket("127.0.0.1", server.port).apply { soTimeout = 3000 } }
         try {
             server.publish(byteArrayOf(1, 2), 0)
             viewers.forEach { socket ->
@@ -68,8 +68,8 @@ class MjpegServerTest {
         val stats = StreamStats()
         val server = server("Test camera", stats)
         server.start()
-        val first = Socket("127.0.0.1", 8080).apply { soTimeout = 3000 }
-        val second = Socket("127.0.0.1", 8080).apply { soTimeout = 3000 }
+        val first = Socket("127.0.0.1", server.port).apply { soTimeout = 3000 }
+        val second = Socket("127.0.0.1", server.port).apply { soTimeout = 3000 }
         try {
             val jpeg = byteArrayOf(-1, -40, 1, 2, -1, -39)
             stats.rotationDegrees = 90; stats.encoded(12.0)
@@ -93,7 +93,7 @@ class MjpegServerTest {
             val start = System.nanoTime()
             repeat(100) { server.publish(jpeg, 90) }
             assertTrue(System.nanoTime() - start < 1_000_000_000L)
-            Socket("127.0.0.1", 8080).use { socket ->
+            Socket("127.0.0.1", server.port).use { socket ->
                 socket.soTimeout = 3000
                 socket.getOutputStream().write("GET /status HTTP/1.1\r\nHost: localhost\r\nX-Mirror-Token: $token\r\n\r\n".toByteArray())
                 val input = BufferedInputStream(socket.getInputStream())

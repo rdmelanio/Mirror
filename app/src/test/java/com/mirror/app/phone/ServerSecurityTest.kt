@@ -8,8 +8,9 @@ import java.util.Base64
 import org.json.JSONObject
 
 class ServerSecurityTest {
+    private var port = 0
     private fun request(path: String, header: String = "", method: String = "GET", body: String = ""): String =
-        Socket("127.0.0.1", 8080).use { socket ->
+        Socket("127.0.0.1", port).use { socket ->
             socket.soTimeout = 3000
             socket.getOutputStream().write(("$method $path HTTP/1.1\r\nHost: localhost\r\n$header" +
                 "Content-Length: ${body.toByteArray().size}\r\n\r\n$body").toByteArray())
@@ -20,8 +21,8 @@ class ServerSecurityTest {
         val token = security.pair(security.showCode()!!, "id", "TV").token!!
         var blocked = 0
         val server = MjpegServer("Camera", StreamStats(), security, InetAddress.getByName("127.0.0.1"),
-            blocked = { blocked++ }, allowAddress = { it.isLoopbackAddress })
-        server.start()
+            blocked = { blocked++ }, allowAddress = { it.isLoopbackAddress }, listenPort = 0)
+        server.start(); port = server.port
         try {
             val hello = request("/hello")
             assertTrue(hello.startsWith("HTTP/1.1 200")); assertTrue(hello.contains(security.cameraId))
@@ -43,8 +44,8 @@ class ServerSecurityTest {
     }
     @Test fun pairingHttpReturnsTokenAndLocksOutBruteForce() {
         val security = PairingAuthority(); val code = security.showCode()!!
-        val server = MjpegServer("Camera", StreamStats(), security, InetAddress.getByName("127.0.0.1"), allowAddress = { it.isLoopbackAddress })
-        server.start()
+        val server = MjpegServer("Camera", StreamStats(), security, InetAddress.getByName("127.0.0.1"), allowAddress = { it.isLoopbackAddress }, listenPort = 0)
+        server.start(); port = server.port
         try {
             fun body(value: String) = JSONObject().put("code", value).put("deviceId", "id").put("deviceName", "TV").toString()
             val result = request("/pair", method = "POST", body = body(code))
@@ -68,10 +69,10 @@ class ServerSecurityTest {
     @Test fun removalClosesAnAlreadyOpenStreamWithoutWaitingForAnotherFrame() {
         val security = PairingAuthority()
         val token = security.pair(security.showCode()!!, "id", "TV").token!!
-        val server = MjpegServer("Camera", StreamStats(), security, InetAddress.getByName("127.0.0.1"), allowAddress = { it.isLoopbackAddress })
-        server.start()
+        val server = MjpegServer("Camera", StreamStats(), security, InetAddress.getByName("127.0.0.1"), allowAddress = { it.isLoopbackAddress }, listenPort = 0)
+        server.start(); port = server.port
         try {
-            Socket("127.0.0.1", 8080).use { socket ->
+            Socket("127.0.0.1", port).use { socket ->
                 socket.soTimeout = 3000
                 socket.getOutputStream().write("GET /video HTTP/1.1\r\nHost: localhost\r\nX-Mirror-Token: $token\r\n\r\n".toByteArray())
                 val input = socket.getInputStream().bufferedReader()
