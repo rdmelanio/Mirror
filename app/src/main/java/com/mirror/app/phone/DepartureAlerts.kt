@@ -15,7 +15,7 @@ object DepartureAlerts {
     const val STOP = "com.mirror.app.DEPARTURE_STOP"
     const val EXPIRE = "com.mirror.app.DEPARTURE_EXPIRE"
     private const val PERIODIC = 17001
-    private const val CHANGES = 17002
+    internal const val CHANGES = 17002
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private var generation = 0
@@ -57,10 +57,10 @@ object DepartureAlerts {
             .addTriggerContentUri(JobInfo.TriggerContentUri(CalendarContract.CONTENT_URI, JobInfo.TriggerContentUri.FLAG_NOTIFY_FOR_DESCENDANTS))
             .setTriggerContentUpdateDelay(1000).setTriggerContentMaxDelay(5000).build())
     }
-    fun refresh(context: Context, complete: (() -> Unit)? = null, fireToken: String? = null) {
+    fun refresh(context: Context, complete: (() -> Unit)? = null, fireToken: String? = null, sync: Boolean = fireToken == null) {
         val c = context.applicationContext; val s = ClockSettings.load(c); val epoch = generation
         worker.execute {
-            val result = runCatching { ClockCalendar.readForDeparture(c, s.calendarId) }
+            val result = runCatching { ClockCalendar.readForDeparture(c, s.calendarId, sync) }
             main.post {
                 try {
                     if (epoch != generation || configuration(s) != configuration(ClockSettings.load(c))) return@post
@@ -98,6 +98,13 @@ object DepartureAlerts {
             val current = snapshot.duties.firstOrNull { "${s.calendarId}:${it.id}:${it.day}" == active.occurrence }
             if (current == null || !DeparturePlan.eligible(current, s) || current.start != active.reporting ||
                 (active.kind == DeparturePlan.Kind.CAUTION && !s.cautionEnabled) || (active.kind == DeparturePlan.Kind.WARNING && !s.warningEnabled)) acknowledge(c)
+            else if (active.kind == DeparturePlan.Kind.CAUTION) {
+                val warningAt = if (s.warningEnabled) current.start - s.warningMinutes * 60_000L else current.start
+                if (warningAt != active.warningAt) {
+                    val stored = JSONObject(prefs(c).getString("active", "{}")!!)
+                    prefs(c).edit().putString("active", stored.put("warningAt", warningAt).toString()).apply()
+                }
+            }
         }
         if (!exactAllowed(c) || !notificationsAllowed(c)) {
             cancelFuture(c)
@@ -154,6 +161,7 @@ object DepartureAlerts {
     }
     private fun show(c: Context, a: DeparturePlan.Alert, test: Boolean = false) {
         val previous = active(c)
+        if (test && previous != null && !previous.test) return
         prefs(c).edit().remove("audioStatus").apply()
         // Never replace an unacknowledged warning with a lower-priority caution.
         if (previous != null && !previous.test && !test && previous.kind.level > a.kind.level) return
@@ -201,7 +209,7 @@ class DepartureReceiver : BroadcastReceiver() {
 }
 class DepartureRefreshJob : JobService() {
     override fun onStartJob(params: JobParameters): Boolean {
-        DepartureAlerts.refresh(this, { jobFinished(params, false); DepartureAlerts.watchChanges(this) })
+        DepartureAlerts.refresh(this, { jobFinished(params, false); DepartureAlerts.watchChanges(this) }, sync = params.jobId != DepartureAlerts.CHANGES)
         return true
     }
     override fun onStopJob(params: JobParameters): Boolean = true

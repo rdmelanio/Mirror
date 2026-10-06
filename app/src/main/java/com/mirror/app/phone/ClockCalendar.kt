@@ -110,9 +110,9 @@ class ClockCalendar(private val context: Context, private val changed: () -> Uni
             cursor.use { while (it.moveToNext()) result += Source(it.getLong(0), it.getString(1).orEmpty(), it.getString(2).orEmpty(), it.getString(3).orEmpty()) }
             return result.sortedBy { it.name.lowercase() }
         }
-        internal fun readForDeparture(context: Context, id: Long): Snapshot {
+        internal fun readForDeparture(context: Context, id: Long, sync: Boolean): Snapshot {
             val source = sources(context).firstOrNull { it.id == id } ?: throw NoSuchElementException("Choose a calendar")
-            if (source.type != CalendarContract.ACCOUNT_TYPE_LOCAL && source.account.isNotBlank()) runCatching {
+            if (sync && source.type != CalendarContract.ACCOUNT_TYPE_LOCAL && source.account.isNotBlank()) runCatching {
                 ContentResolver.requestSync(Account(source.account, source.type), CalendarContract.AUTHORITY,
                     Bundle().apply { putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true) })
             }
