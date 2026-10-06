@@ -15,7 +15,7 @@ import com.mirror.app.core.*
 open class PhoneSettingsActivity : ComponentActivity() {
     private val categories = linkedMapOf("style" to "Style & layout", "alarms" to "Departure alarms", "calendar" to "Duty & calendar",
         "weather" to "Weather", "info" to "Clock information", "display" to "Display protection", "camera" to "Camera & stream",
-        "pairing" to "Pairing & security", "setup" to "Android setup", "about" to "About Mirror")
+        "pairing" to "Pairing & security", "tv_launch" to "TV launch", "setup" to "Android setup", "about" to "About Mirror")
     private var selected: String? = null
     private var wide = false
     private var resumed = false
@@ -25,6 +25,7 @@ open class PhoneSettingsActivity : ComponentActivity() {
     private lateinit var heading: TextView
     private val buttons = mutableMapOf<String, Button>()
     private var clockPanel: ClockSettingsPanel? = null
+    private var tvPanel: TvLaunchPanel? = null
     private var controls: PhoneControlsPanel? = null
     private var alarmPanel: DepartureSettingsPanel? = null
     private var alarmContent: LinearLayout? = null
@@ -68,10 +69,11 @@ open class PhoneSettingsActivity : ComponentActivity() {
     }
     private fun show(id: String) {
         if (id !in categories) return
-        stopPage(); clockPanel = null; controls = null; selected = id
+        stopPage(); clockPanel = null; controls = null; tvPanel = null; selected = id
         details.removeAllViews()
         val content = if (id == "alarms" && alarmContent != null) alarmContent!! else LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         when (id) {
+            "tv_launch" -> tvPanel = TvLaunchPanel(this, content)
             "alarms" -> if (alarmPanel == null) { alarmContent = content; alarmPanel = DepartureSettingsPanel(this, content) }
             "camera", "pairing" -> controls = PhoneControlsPanel(this, content, id)
             else -> {
@@ -95,10 +97,10 @@ open class PhoneSettingsActivity : ComponentActivity() {
     }
     private fun startPage() {
         if (selected == null) return
-        clockPanel?.start(); controls?.start()
+        clockPanel?.start(); controls?.start(); tvPanel?.start()
         if (selected == "alarms") alarmPanel?.start()
     }
-    private fun stopPage() { clockPanel?.stop(); controls?.stop(); alarmPanel?.stop() }
+    private fun stopPage() { clockPanel?.stop(); controls?.stop(); tvPanel?.stop(); alarmPanel?.stop() }
     override fun onResume() { super.onResume(); resumed = true; startPage() }
     override fun onPause() { resumed = false; stopPage(); super.onPause() }
     override fun onDestroy() { stopPage(); alarmPanel?.dispose(); super.onDestroy() }

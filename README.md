@@ -447,3 +447,29 @@ separated for future maintenance.
 
 
 
+
+### One-tap TV launch (v1.9)
+
+Open Phone Settings → TV launch. On the TV enable Wireless debugging, then open
+Pair device with pairing code. Enter the TV's LAN IP, the **connection port** from
+the main debugging screen, and the separate **pairing port + six-digit code** from
+the temporary pairing dialog. Pairing in Bugjaeger does not pair Mirror.
+
+After pairing, tap the small white mirror icon on the clock or screen saver to
+wake the TV and launch Mirror. Hold the icon briefly to select/drag it; pinch while
+selected (with one finger on the icon) to resize it. Enable layout editing under
+Style & layout. TV launch settings also provide an icon size slider and visibility
+switch. Hold empty space for two seconds to exit the clock.
+
+Mirror discovers the paired TV's current connection port only when tapped, runs
+the fixed wake/launch commands, and disconnects. No persistent ADB connection or
+background discovery is required. Saved credentials normally survive reconnects,
+TV restarts and app upgrades; forgetting the phone on the TV, clearing app data or
+resetting either device requires pairing again. TV firmware may disable debugging
+or network access during deep sleep. Your TV must keep debugging reachable in
+standby; Mirror cannot wake a TV with an unreachable ADB service.
+
+Keep both devices on the same LAN. If your router blocks discovery, update the
+address/connection port in TV launch settings without re-pairing. Use a DHCP
+reservation for a stable TV address. The camera service and normal streaming
+pairing are independent. See [implementation and licenses](docs/tv-launch.md).

@@ -9,6 +9,7 @@ data class ClockPosition(val x: Float, val y: Float)
 data class ClockSettings(
     val style: String = "Cockpit", val primaryUtc: Boolean = false,
     val showUtc: Boolean = true, val sizePercent: Int = 90,
+    val tvIcon: Boolean = false, val tvIconSize: Int = 36,
     val layoutEditing: Boolean = true, val positions: Map<String, ClockPosition> = emptyMap(),
     val hourFormat: String = "System", val minimalFont: String = "System thin",
     val color: Int = 0xFF00E040.toInt(), val gradient: Boolean = false,
@@ -30,7 +31,7 @@ data class ClockSettings(
 ) {
     val usesUtc: Boolean get() = showUtc && primaryUtc
     fun json(): String = JSONObject().apply {
-        put("schema", 6); put("showUtc", showUtc); put("sizePercent", sizePercent)
+        put("schema", 7); put("tvIcon", tvIcon); put("tvIconSize", tvIconSize); put("showUtc", showUtc); put("sizePercent", sizePercent)
         put("layoutEditing", layoutEditing)
         put("positions", JSONObject().apply {
             positions.forEach { (key, value) -> put(key, JSONObject().put("x", value.x).put("y", value.y)) }
@@ -65,8 +66,9 @@ data class ClockSettings(
                 primaryUtc = j.optBoolean("primaryUtc", d.primaryUtc),
                 showUtc = j.optBoolean("showUtc", d.showUtc),
                 sizePercent = j.optInt("sizePercent", d.sizePercent).coerceIn(40, 100),
+                tvIcon = j.optBoolean("tvIcon", d.tvIcon), tvIconSize = j.optInt("tvIconSize", d.tvIconSize).coerceIn(24, 96),
                 layoutEditing = j.optBoolean("layoutEditing", true),
-                positions = listOf("clock", "date", "alarm", "weather", "today", "tomorrow", "calendar_checked", "status").mapNotNull { key ->
+                positions = listOf("clock", "date", "alarm", "weather", "today", "tomorrow", "calendar_checked", "status", "tv_launch").mapNotNull { key ->
                     val position = j.optJSONObject("positions")?.optJSONObject(key) ?: return@mapNotNull null
                     val x = position.optDouble("x"); val y = position.optDouble("y")
                     if (!x.isFinite() || !y.isFinite()) null else key to ClockPosition(x.toFloat().coerceIn(0f, 1f), y.toFloat().coerceIn(0f, 1f))

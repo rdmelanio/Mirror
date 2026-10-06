@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.9.0
+
+- Add a phone-only white mirror icon to the clock and screen saver. Tap to wake the paired TV and launch Mirror; hold to select/drag, then pinch to resize the icon independently of the clock. Save position and size, add a size slider, visibility toggle and position reset.
+- Add a TV launch settings category with Android 11+ secure wireless ADB pairing, a wake/launch test, address/connection-port updates and Forget pairing. Pair Mirror separately from Bugjaeger once; retain the encrypted client identity across normal app updates and reconnects.
+- Discover only the paired TV's advertised secure ADB service on demand, handling changing ports/IPs. Fall back to the configured connection address/port when discovery is unavailable.
+- Send wake-up before launching the existing TV activity; accept Android's harmless already-running response. Bound discovery and socket operations, prevent concurrent launches, report failures, and close the connection on success or failure.
+- Keep all TV discovery/ADB work off the UI thread and independent of camera streaming. No persistent ADB connection, background scan, added foreground service or wake lock. Retain a universal APK without native libraries using pure Java TLS/SPAKE2.
+- Bundle third-party notices/licenses in About and add secure pairing/TLS/ADB protocol and settings migration regression checks. Preserve existing clock, ECAM alerts, roster, weather, camera and TV features. Version name 1.9.0, version code 190.
+
 ## 1.8.0
 
 - Bundle the supplied Airbus master warning as a prepared seamless PCM loop, removing its introductory fade-in and MP3 restart gap while retaining the original warning cadence. Make this recording the warning default on upgrade; keep duration, caution audio and immediate Stop controls.

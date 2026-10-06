@@ -42,6 +42,10 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.4.2")
     implementation("androidx.camera:camera-lifecycle:1.4.2")
     implementation("androidx.lifecycle:lifecycle-service:2.8.7")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.81")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.81")
+    implementation("org.bouncycastle:bctls-jdk18on:1.81")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
 }
+

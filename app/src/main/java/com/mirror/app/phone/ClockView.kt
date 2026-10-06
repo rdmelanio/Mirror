@@ -41,6 +41,17 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
     private var gestureSize = settings.sizePercent.toFloat()
     private var sizeChanged = false
     private var layoutChanged = false
+    private var iconSizeChanged = false
+    private var resizingIcon = false
+    private var launchRequested = false
+    private var attached = false
+    private val tvChanged: () -> Unit = {
+        invalidate()
+        if (launchRequested && !TvLauncher.running) {
+            launchRequested = false
+            if (attached) android.widget.Toast.makeText(context, TvLauncher.status, android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
     private val hitAreas = linkedMapOf<String, ClockLayout.Area>()
     private var selected: String? = null
     private var downItem: String? = null
@@ -58,27 +69,33 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
     private fun finishSelection() { removeCallbacks(clearSelectionTask); postDelayed(clearSelectionTask, 8000) }
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
-            cancelHold(); clearSelection(); multiplePointers = true; hint = false; gestureSize = settings.sizePercent.toFloat()
+            cancelHold(); removeCallbacks(armDrag); resizingIcon = selected == "tv_launch"
+            multiplePointers = true; hint = false
+            gestureSize = (if (resizingIcon) settings.tvIconSize else settings.sizePercent).toFloat()
             return true
         }
         override fun onScale(detector: ScaleGestureDetector): Boolean {
-            gestureSize = (gestureSize * detector.scaleFactor).coerceIn(40f, 100f)
+            gestureSize = (gestureSize * detector.scaleFactor).coerceIn(if (resizingIcon) 24f else 40f, if (resizingIcon) 96f else 100f)
             val percent = gestureSize.roundToInt()
-            if (percent != settings.sizePercent) {
+            if (resizingIcon) {
+                if (percent != settings.tvIconSize) { settings = settings.copy(tvIconSize = percent); iconSizeChanged = true }
+            } else if (percent != settings.sizePercent) {
                 settings = settings.copy(sizePercent = percent); sizeChanged = true
             }
             return true
         }
         override fun onScaleEnd(detector: ScaleGestureDetector) { saveSize() }
     }).apply { isQuickScaleEnabled = false }
+    private fun cancelExitOnly() { removeCallbacks(held) }
     private fun cancelHold() { holding = false; removeCallbacks(held) }
     internal fun stopInteraction() { cancelHold(); clearSelection(); hint = false; removeCallbacks(hideHint) }
     internal fun saveSize() {
-        if (sizeChanged || layoutChanged) {
+        if (sizeChanged || layoutChanged || iconSizeChanged) {
             val fresh = ClockSettings.load(context)
             fresh.copy(sizePercent = if (sizeChanged) settings.sizePercent else fresh.sizePercent,
-                positions = if (layoutChanged) settings.positions else fresh.positions).save(context)
-            sizeChanged = false; layoutChanged = false
+                positions = if (layoutChanged) settings.positions else fresh.positions,
+                tvIconSize = if (iconSizeChanged) settings.tvIconSize else fresh.tvIconSize).save(context)
+            sizeChanged = false; layoutChanged = false; iconSizeChanged = false
         }
     }
     private val hideHint = Runnable { hint = false; invalidate() }
@@ -215,7 +232,27 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
             drawIndicator(canvas, cx, cy, radius, now.time)
             recordHit(canvas, "status", ClockLayout.Area(cx - radius, cy - radius, cx + radius, cy + radius), x, y)
         }
+        if (s.tvIcon) drawTvIcon(canvas, zones, x, y)
         canvas.restore()
+    }
+    private fun drawTvIcon(canvas: Canvas, zones: ClockLayout.Zones, x: Float, y: Float) {
+        val density = resources.displayMetrics.density
+        val edge = zones.motionLimit + minOf(16f * density, minOf(width, height) * 0.04f)
+        val size = minOf(settings.tvIconSize * density, (minOf(width, height) - 2 * edge).coerceAtLeast(0f))
+        if (size <= 0f) return
+        val position = settings.positions["tv_launch"] ?: ClockPosition(0.5f, 0.91f)
+        val area = ClockLayout.place(width.toFloat(), height.toFloat(), edge, size, size, position)
+        paint.shader = null; paint.color = Color.WHITE; paint.alpha = if (night) 100 else 210
+        paint.style = Paint.Style.STROKE; paint.strokeWidth = maxOf(1f, size * 0.035f)
+        val left = area.left + size * 0.2f; val right = area.right - size * 0.2f
+        val top = area.top + size * 0.09f; val bottom = area.top + size * 0.76f
+        canvas.drawRoundRect(left, top, right, bottom, size * 0.12f, size * 0.12f, paint)
+        canvas.drawLine(left + size * 0.12f, top + size * 0.25f, left + size * 0.28f, top + size * 0.09f, paint)
+        canvas.drawLine(left + size * 0.14f, top + size * 0.4f, left + size * 0.4f, top + size * 0.14f, paint)
+        canvas.drawLine(area.centerX, bottom, area.centerX, area.bottom - size * 0.12f, paint)
+        canvas.drawLine(area.centerX - size * 0.15f, area.bottom - size * 0.1f, area.centerX + size * 0.15f, area.bottom - size * 0.1f, paint)
+        paint.style = Paint.Style.FILL
+        recordHit(canvas, "tv_launch", area, x, y)
     }
     /** Fits only this region. Corner content cannot reduce the central clock's scale. */
     private fun drawGroup(canvas: Canvas, rows: List<Row>, area: ClockLayout.Area, alignment: Int,
@@ -269,7 +306,7 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         if (key != null) recordHit(canvas, key, ClockLayout.Area(actualLeft, top, actualLeft + actualWidth, top + actualHeight), motionX, motionY)
     }
     private fun recordHit(canvas: Canvas, key: String, area: ClockLayout.Area, motionX: Float, motionY: Float) {
-        val pad = 5f * resources.displayMetrics.density
+        val pad = if (key == "tv_launch") maxOf(5f * resources.displayMetrics.density, (48f * resources.displayMetrics.density - area.width) / 2) else 5f * resources.displayMetrics.density
         val hit = ClockLayout.Area(area.left + motionX - pad, area.top + motionY - pad, area.right + motionX + pad, area.bottom + motionY + pad)
         hitAreas[key] = hit
         if (selected == key) {
@@ -355,14 +392,18 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.x; downY = event.y; multiplePointers = false; dragging = false
-                downItem = if (settings.layoutEditing) hitAreas.entries.lastOrNull { (_, a) ->
+                downItem = hitAreas.entries.lastOrNull { (_, a) ->
                     event.x in a.left..a.right && event.y in a.top..a.bottom
-                }?.key else null
+                }?.key?.takeIf { settings.layoutEditing || it == "tv_launch" }
                 holding = true; hint = true; invalidate()
                 removeCallbacks(hideHint); postDelayed(hideHint, 2500)
                 removeCallbacks(held); postDelayed(held, 2000)
                 removeCallbacks(armDrag)
-                if (downItem != null && downItem == selected) { removeCallbacks(clearSelectionTask); postDelayed(armDrag, 450) }
+                if (downItem != null && settings.layoutEditing && (downItem == selected || downItem == "tv_launch")) {
+                    if (downItem == "tv_launch") selected = downItem
+                    removeCallbacks(clearSelectionTask); postDelayed(armDrag, 450)
+                }
+                if (downItem == "tv_launch") cancelExitOnly()
                 if (downItem == null) clearSelection()
             }
             MotionEvent.ACTION_MOVE -> {
@@ -382,14 +423,18 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
             MotionEvent.ACTION_UP -> {
                 val tap = !multiplePointers && !dragging && kotlin.math.abs(event.x - downX) <= touchSlop && kotlin.math.abs(event.y - downY) <= touchSlop
                 cancelHold(); removeCallbacks(armDrag)
-                if (tap) selected = downItem
+                if (tap && downItem == "tv_launch") {
+                    clearSelection()
+                    if (!TvLauncher.running) { launchRequested = true; TvLauncher.launch(context) }
+                } else if (tap) selected = downItem
                 dragging = false; saveSize(); if (selected != null) finishSelection(); invalidate(); performClick()
             }
             MotionEvent.ACTION_CANCEL -> { cancelHold(); clearSelection(); saveSize(); invalidate() }
-            MotionEvent.ACTION_POINTER_DOWN -> { cancelHold(); clearSelection(); multiplePointers = true; hint = false; invalidate() }
+            MotionEvent.ACTION_POINTER_DOWN -> { cancelHold(); removeCallbacks(armDrag); if (selected != "tv_launch") clearSelection(); multiplePointers = true; hint = false; invalidate() }
         }
         return true
     }
     override fun performClick(): Boolean { super.performClick(); return true }
-    override fun onDetachedFromWindow() { saveSize(); stopInteraction(); super.onDetachedFromWindow() }
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); attached = true; TvLauncher.listeners.add(tvChanged) }
+    override fun onDetachedFromWindow() { attached = false; launchRequested = false; TvLauncher.listeners.remove(tvChanged); saveSize(); stopInteraction(); super.onDetachedFromWindow() }
 }

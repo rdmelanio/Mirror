@@ -136,6 +136,11 @@ class ClockSettingsPanel(private val activity: Activity, private val content: Li
         if (category == "about") {
             content.addView(activity.label("Mirror ${BuildConfig.VERSION_NAME}", 26f))
             content.addView(activity.label("Weather data by Open-Meteo.com\n\nB612 and B612 Mono: https://github.com/polarsys/b612\n\nMaster warning: recording supplied by the app owner, prepared as a seamless PCM loop. Built-in caution: original synthesized single chime.", 16f))
+            content.addView(activity.action("TV launch · open-source licenses") {
+                val text = activity.label(activity.resources.openRawResource(R.raw.tv_adb_licenses).bufferedReader().use { it.readText() }, 14f)
+                AlertDialog.Builder(activity).setTitle("TV launch licenses").setView(android.widget.ScrollView(activity).apply { addView(text) })
+                    .setPositiveButton("Close", null).show()
+            })
             content.addView(activity.label(activity.resources.openRawResource(R.raw.b612_ofl).bufferedReader().use { it.readText() }, 14f))
         }
         content.addOnAttachStateChangeListener(object : android.view.View.OnAttachStateChangeListener {
