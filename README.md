@@ -312,9 +312,10 @@ The default master warning is the owner-supplied **Airbus warning recording**,
 prepared as a steady PCM loop. Its two-second fade-in is omitted; two complete
 warning cycles loop in an AudioTrack static buffer without restarting an MP3
 player. The cadence is retained and the splice is smoothed. Built-in caution is
-an original single chime. Custom audio selections are preserved and continue
-using their existing playback path; choose **Use supplied Airbus warning** to
-switch from a custom file to the prepared seamless loop. Custom caution plays
+an original single chime. Upgrading to v1.8 selects the supplied warning recording as the new default;
+caution audio, timings and clock preferences are retained. You can select another
+custom warning afterward; custom files use their existing playback path.
+**Use supplied Airbus warning** returns to the prepared seamless loop. Custom caution plays
 once, capped at five seconds. Warning stops after the chosen duration or Stop.
 **Test caution** and **Test warning** open the clock without marking real duty
 alerts delivered. See `docs/warning-audio.md` for preparation and verification.

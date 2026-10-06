@@ -30,7 +30,7 @@ data class ClockSettings(
 ) {
     val usesUtc: Boolean get() = showUtc && primaryUtc
     fun json(): String = JSONObject().apply {
-        put("schema", 5); put("showUtc", showUtc); put("sizePercent", sizePercent)
+        put("schema", 6); put("showUtc", showUtc); put("sizePercent", sizePercent)
         put("layoutEditing", layoutEditing)
         put("positions", JSONObject().apply {
             positions.forEach { (key, value) -> put(key, JSONObject().put("x", value.x).put("y", value.y)) }
@@ -99,7 +99,8 @@ data class ClockSettings(
                 warningSeconds = j.optInt("warningSeconds", 10).coerceIn(1, 600),
                 excludedDutyCodes = j.optString("excludedDutyCodes", "HS,HSA").take(1000),
                 allowCalendarStartAlerts = j.optBoolean("allowCalendarStartAlerts", false),
-                cautionSound = j.optString("cautionSound", "").take(4000), warningSound = j.optString("warningSound", "").take(4000)
+                cautionSound = j.optString("cautionSound", "").take(4000), // v1.8 adopts the supplied recording; subsequent custom selections are retained.
+                warningSound = if (j.optInt("schema", 0) < 6) "" else j.optString("warningSound", "").take(4000)
             )
         }.getOrDefault(ClockSettings())
     }

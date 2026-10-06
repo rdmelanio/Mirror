@@ -68,6 +68,14 @@ class DeparturePlanTest {
         assertEquals(now + 10 * 60_000, DeparturePlan.expires(DeparturePlan.Kind.WARNING, now, report))
         assertEquals(report, DeparturePlan.expires(DeparturePlan.Kind.CAUTION, now, report))
     }
+    @Test fun suppliedWarningBecomesTheUpgradeDefaultWithoutChangingCautionOrTimings() {
+        val old = ClockSettings.parse("""{"schema":5,"warningSound":"content://old-warning","cautionSound":"content://chime","warningSeconds":17,"cautionMinutes":90}""")
+        assertEquals("", old.warningSound)
+        assertEquals("content://chime", old.cautionSound)
+        assertEquals(17, old.warningSeconds); assertEquals(90, old.cautionMinutes)
+        val changed = old.copy(warningSound = "content://new-choice")
+        assertEquals(changed, ClockSettings.parse(changed.json()))
+    }
     @Test fun settingsPersistBothSoundsAndDurationsAndMigrateExistingClock() {
         val s = settings.copy(cautionMinutes = 90, warningMinutes = 45, warningSeconds = 17, cautionEnabled = false,
             warningSound = "content://audio/warning", cautionSound = "content://audio/chime", excludedDutyCodes = "HS,HSA,HOME", allowCalendarStartAlerts = true)
