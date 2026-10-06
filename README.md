@@ -294,6 +294,8 @@ clip. Custom caution plays once, capped at five seconds. Warning repeats for you
 chosen duration. **Test caution** and **Test warning** open the clock, without
 marking real calendar alerts delivered; Stop active alert is also in settings.
 
+Audio holds a bounded wake lock only during its configured playback, releasing
+it when sound stops. The persistent visual alert does not hold a CPU wake lock.
 Audio uses Android **alarm volume**, normally sounding in Silent mode. Mirror
 does not change your volume or bypass Do Not Disturb: allow **Alarms** in DND and
 test with your real settings. Alerts temporarily wake/show the clock over the

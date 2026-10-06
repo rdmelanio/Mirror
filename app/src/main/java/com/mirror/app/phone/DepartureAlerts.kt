@@ -148,11 +148,14 @@ object DepartureAlerts {
         .format(java.time.Instant.ofEpochMilli(time).atZone(ClockRoster.zone))
     data class Active(val occurrence: String, val token: String, val kind: DeparturePlan.Kind, val duty: String,
                       val reporting: Long, val warningAt: Long, val started: Long, val expires: Long, val test: Boolean)
-    fun active(c: Context): Active? = runCatching {
-        val j = JSONObject(prefs(c).getString("active", "")!!)
-        Active(j.getString("occurrence"), j.getString("token"), DeparturePlan.Kind.valueOf(j.getString("kind")), j.getString("duty"),
-            j.getLong("reporting"), j.getLong("warningAt"), j.getLong("started"), j.getLong("expires"), j.getBoolean("test"))
-    }.getOrNull()?.takeIf { it.expires > System.currentTimeMillis() }
+    fun active(c: Context): Active? {
+        val raw = prefs(c).getString("active", null)?.takeIf { it.isNotBlank() } ?: return null
+        return runCatching {
+            val j = JSONObject(raw)
+            Active(j.getString("occurrence"), j.getString("token"), DeparturePlan.Kind.valueOf(j.getString("kind")), j.getString("duty"),
+                j.getLong("reporting"), j.getLong("warningAt"), j.getLong("started"), j.getLong("expires"), j.getBoolean("test"))
+        }.getOrNull()?.takeIf { it.expires > System.currentTimeMillis() }
+    }
     fun test(c: Context, kind: DeparturePlan.Kind) {
         val now = System.currentTimeMillis(); val s = ClockSettings.load(c)
         show(c, DeparturePlan.Alert("test", kind, now,

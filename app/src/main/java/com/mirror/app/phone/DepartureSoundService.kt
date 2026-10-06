@@ -11,12 +11,13 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.*
 
-/** A bounded audio foreground service, independent of the camera service. No permanent wake lock. */
+/** A bounded audio foreground service, independent of the camera service. Only a timed wake lock during audible playback. */
 class DepartureSoundService : Service() {
     private var player: MediaPlayer? = null
     private var focus: AudioFocusRequest? = null
     private val handler = Handler(Looper.getMainLooper())
     private var token: String? = null
+    private var playbackWake: PowerManager.WakeLock? = null
     override fun onBind(intent: Intent?) = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val active = DepartureAlerts.active(this)
@@ -29,6 +30,10 @@ class DepartureSoundService : Service() {
         val settings = ClockSettings.load(this)
         val limit = if (active.kind == DeparturePlan.Kind.WARNING) settings.warningSeconds * 1000L else 5000L
         val duration = minOf(limit, active.expires - System.currentTimeMillis()).coerceAtLeast(1)
+        // Keep the stop timer running with the screen off; never hold it for the visual alert.
+        playbackWake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Mirror:DepartureAudio").apply {
+            setReferenceCounted(false); acquire(duration + 2000)
+        }
         handler.postDelayed({ finishAudio() }, duration)
         val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
         val manager = getSystemService(AudioManager::class.java)
@@ -67,6 +72,7 @@ class DepartureSoundService : Service() {
     }
     private fun releaseAudio() {
         player?.release(); player = null
+        playbackWake?.let { if (it.isHeld) it.release() }; playbackWake = null
         focus?.let { getSystemService(AudioManager::class.java).abandonAudioFocusRequest(it) }; focus = null
     }
     override fun onDestroy() { handler.removeCallbacksAndMessages(null); releaseAudio(); super.onDestroy() }
