@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.6.1
+
+- Give the clock a large, independent center area. Place date/alarm at upper left,
+  weather at upper right, and the two duty days at lower left/right by default.
+  Long routes and extra duties fit their own regions without shrinking the clock.
+- Add lock-screen and screen-saver layout editing: tap an item to select it,
+  then hold briefly and drag. Save each item's position in the clock settings JSON.
+  Add an editing toggle and Reset layout button; retain pinch sizing and UTC toggle.
+- Keep all clock information moving together for burn-in protection, with safe
+  edge clearance and bounded hourly repositioning. Keep independent info colors.
+- Hold empty space for two seconds to exit while editing is enabled. Cancel pending
+  gestures when leaving the clock; camera streaming and the secure lock remain active.
+- Add center/corner geometry, position persistence and safe placement coverage.
+  Version name 1.6.1, version code 161. No TV changes.
+
 ## 1.6.0
 
 - Add an optional read-only calendar roster to the phone clock and screen saver.

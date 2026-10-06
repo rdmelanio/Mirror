@@ -3,10 +3,13 @@ package com.mirror.app.phone
 import android.content.Context
 import org.json.JSONObject
 
+data class ClockPosition(val x: Float, val y: Float)
+
 /** The complete, versioned clock preference payload; ready for future transport. */
 data class ClockSettings(
     val style: String = "Cockpit", val primaryUtc: Boolean = false,
     val showUtc: Boolean = true, val sizePercent: Int = 90,
+    val layoutEditing: Boolean = true, val positions: Map<String, ClockPosition> = emptyMap(),
     val hourFormat: String = "System", val minimalFont: String = "System thin",
     val color: Int = 0xFF00E040.toInt(), val gradient: Boolean = false,
     val secondColor: Int = 0xFF00E5FF.toInt(),
@@ -23,7 +26,11 @@ data class ClockSettings(
 ) {
     val usesUtc: Boolean get() = showUtc && primaryUtc
     fun json(): String = JSONObject().apply {
-        put("schema", 3); put("showUtc", showUtc); put("sizePercent", sizePercent)
+        put("schema", 4); put("showUtc", showUtc); put("sizePercent", sizePercent)
+        put("layoutEditing", layoutEditing)
+        put("positions", JSONObject().apply {
+            positions.forEach { (key, value) -> put(key, JSONObject().put("x", value.x).put("y", value.y)) }
+        })
         put("scheduleColor", scheduleColor); put("dateColor", dateColor); put("alarmColor", alarmColor); put("weatherColor", weatherColor)
         put("schedule", schedule); put("calendarId", calendarId); put("calendarName", calendarName)
         put("style", style); put("primaryUtc", primaryUtc); put("hourFormat", hourFormat); put("minimalFont", minimalFont)
@@ -46,6 +53,12 @@ data class ClockSettings(
                 primaryUtc = j.optBoolean("primaryUtc", d.primaryUtc),
                 showUtc = j.optBoolean("showUtc", d.showUtc),
                 sizePercent = j.optInt("sizePercent", d.sizePercent).coerceIn(40, 100),
+                layoutEditing = j.optBoolean("layoutEditing", true),
+                positions = listOf("clock", "date", "alarm", "weather", "today", "tomorrow", "calendar_checked", "status").mapNotNull { key ->
+                    val position = j.optJSONObject("positions")?.optJSONObject(key) ?: return@mapNotNull null
+                    val x = position.optDouble("x"); val y = position.optDouble("y")
+                    if (!x.isFinite() || !y.isFinite()) null else key to ClockPosition(x.toFloat().coerceIn(0f, 1f), y.toFloat().coerceIn(0f, 1f))
+                }.toMap(),
                 hourFormat = choice("hourFormat", d.hourFormat, listOf("System", "12-hour", "24-hour")),
                 minimalFont = choice("minimalFont", d.minimalFont, listOf("System thin", "B612")),
                 color = j.optInt("color", d.color) or 0xFF000000.toInt(), gradient = j.optBoolean("gradient", d.gradient),

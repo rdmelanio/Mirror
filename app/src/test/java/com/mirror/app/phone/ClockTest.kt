@@ -9,6 +9,7 @@ class ClockTest {
         assertTrue(defaults.date && defaults.alarm && defaults.status && defaults.pixelShift && defaults.reposition)
         assertFalse(defaults.weather || defaults.seconds || defaults.drift)
         val custom = defaults.copy(style = "Stacked", primaryUtc = true, showUtc = false, sizePercent = 75, hourFormat = "12-hour", minimalFont = "B612",
+            layoutEditing = false, positions = mapOf("date" to ClockPosition(0.1f, 0.2f), "today" to ClockPosition(0.3f, 0.8f)),
             schedule = true, calendarId = 12, calendarName = "Roster", scheduleColor = 0xFFFF00FF.toInt(),
             dateColor = 0xFF00FFFF.toInt(), alarmColor = 0xFFFFFFFF.toInt(), weatherColor = 0xFFFF0000.toInt(),
             color = 0xFFFFB000.toInt(), secondColor = 0xFFFF40FF.toInt(), gradient = true,
@@ -28,6 +29,14 @@ class ClockTest {
         assertTrue(hidden.copy(showUtc = true).usesUtc)
         assertEquals(40, ClockSettings.parse("{\"sizePercent\":-10}").sizePercent)
         assertEquals(100, ClockSettings.parse("{\"sizePercent\":999}").sizePercent)
+    }
+    @Test fun savedPositionsRejectMalformedItemsAndClampToScreen() {
+        val settings = ClockSettings.parse("""{"schema":4,"positions":{
+            "clock":{"x":-1,"y":2},"date":{"x":0.25,"y":0.1},
+            "alarm":{"x":"bad","y":0.5},"unknown":{"x":0.5,"y":0.5}}}""")
+        assertEquals(mapOf("clock" to ClockPosition(0f, 1f), "date" to ClockPosition(0.25f, 0.1f)), settings.positions)
+        val old = ClockSettings.parse("""{"schema":3,"sizePercent":75}""")
+        assertTrue(old.positions.isEmpty()); assertTrue(old.layoutEditing); assertEquals(75, old.sizePercent)
     }
     @Test fun zoomFitsPortraitLandscapeAndLongInfoLinesWithShiftRoom() {
         for ((width, height) in listOf(360f to 780f, 780f to 360f, 280f to 280f)) {

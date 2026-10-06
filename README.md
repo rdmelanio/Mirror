@@ -1,4 +1,4 @@
-# Mirror 1.6.0
+# Mirror 1.6.1
 
 One Android APK for a phone camera and a Google TV mirror. Kotlin, Android Views,
 one `:app` module, Android 8.0+ (API 26). The APK contains no native `.so` libraries
@@ -204,14 +204,19 @@ Date, next alarm, weather, mirror status and seconds have individual saved toggl
 
 **Show UTC time** can be switched off for a local-only clock. Cockpit hides the
 second time line; enabling UTC again restores your saved primary-time preference.
-**Clock size** ranges from 40–100% of the available space (default 90%). Pinch
-with two fingers directly on Clock mode or the screen saver to resize it. The
-size is saved when the gesture finishes and is shared with the settings slider.
-The larger layout fits all content inside the display, with room reserved for
-pixel shifting. On narrow portrait screens, hiding UTC or optional info lines
-can give the main digits more room. Pinching or moving a finger cancels the
-exit hold; use a fresh, stationary two-second hold to exit. The brief exit hint
-no longer resizes or moves the clock.
+**Clock size** ranges from 40–100% of the center area (default 90%). Pinch
+with two fingers on Clock mode or the screen saver to resize it; the saved size
+is shared with the settings slider. The large clock sits at the center, date and
+alarm at upper left, weather at upper right, and the two roster days at lower
+left/right. Information fits independently and cannot shrink the clock.
+
+To move any displayed item, **tap it to select it**, then **hold it briefly and
+drag**. The selection outline disappears after eight seconds. Positions are
+saved for both Clock mode and the screen saver, and stay within the display with
+burn-in movement clearance. You may intentionally overlap items; **Reset layout**
+in settings restores the center/corner arrangement. Disable **Allow tap-and-hold
+layout editing** if you prefer to prevent accidental changes. Pinching cancels
+selection and the exit hold; the brief hint never changes the clock's size.
 
 For automatic use while charging, tap **Set as screen saver**, choose **Mirror
 Clock**, and set **When to start: While charging**. The screen saver's settings
@@ -219,14 +224,17 @@ button opens the same Clock settings. Screen saver activation and secure-keyguar
 behavior depend on your Android ROM; test both on the OnePlus before leaving it
 mounted. Configure a secure PIN/password in Android. The clock never dismisses
 or unlocks the keyguard. Clock mode can remain visible over the locked screen.
-**Hold anywhere for two seconds to exit**; ordinary taps only show a brief hint.
+**Hold empty space for two seconds to exit**. When layout editing is disabled,
+a stationary two-second hold anywhere exits; taps only show a brief hint.
 When the phone is already locked, exiting reveals its normal secure lock screen.
 Mirror notifications redact connection details on the lock screen, and the clock
 never reads or displays notification contents.
 
 Keep **pixel shift**, **hourly reposition**, and **auto brightness** enabled and
 use a low maximum brightness to reduce AMOLED wear. Optional **slow drift** moves
-all content together, including info lines. Black is always pure black. These
+all content together, including info lines. Hourly reposition uses bounded
+vertical offsets to retain the chosen arrangement; pixel shift and drift also
+respect the display edges. Black is always pure black. These
 measures reduce burn-in risk; no always-on OLED display is guaranteed burn-in-free.
 Leave seconds and drift off for minute-only scheduled redraws; enabling either
 uses one redraw per second, with no continuous animation. Preview does not change
@@ -316,7 +324,7 @@ native libraries, uploads the `mirror-apk` artifact, and publishes `mirror.apk`
 in a latest GitHub Release tagged `build-<run_number>`.
 
 The project uses stable AGP 9.3.2, Kotlin 2.4.20 (AGP built-in Kotlin), and Gradle
-9.8.0. Compile and target SDK are 36. Version name `1.6.0` and code `160` are
+9.8.0. Compile and target SDK are 36. Version name `1.6.1` and code `161` are
 defined once in `gradle.properties`. Bump both for future changes.
 
 Both debug and release builds use `keystore/mirror.jks`. Its alias and passwords

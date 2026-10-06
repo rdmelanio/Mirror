@@ -62,7 +62,7 @@ class ClockController(private val context: Context, private val view: ClockView,
     }
     fun stop() {
         if (!running) return
-        running = false; view.saveSize(); calendar.stop(); sensors.unregisterListener(this); handler.removeCallbacksAndMessages(null)
+        running = false; view.saveSize(); view.stopInteraction(); calendar.stop(); sensors.unregisterListener(this); handler.removeCallbacksAndMessages(null)
         ClockSettings.prefs(context).unregisterOnSharedPreferenceChangeListener(preferencesChanged)
         ClockMirrorState.listeners.remove(stateChanged); context.unregisterReceiver(receiver)
     }
