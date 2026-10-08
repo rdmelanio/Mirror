@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.10.0 — Roster Link
+
+- Add phone-only eCrew WebView login, automatic roster capture, manual Print capture, PDF file import and Share to Mirror. Password fields are never inspected; cookies remain private to WebView. Confirmation of scheduling changes remains manual.
+- Add position-based PDF text extraction and column grammar with overnight duties, actual/estimated times, deadhead release estimates, memos, legends and station timezones. Keep the last good roster on failures, private JSON and the latest two captured PDFs.
+- Add constrained 15/30/60-minute WorkManager refresh, refresh before reporting, session-expired notifications, stale state, change summaries, next-duty countdown and the optional clock duty line.
+- Add up to five adjustable roster alarms with PREPARE default 80 minutes, exact alarm-clock scheduling, boot/time/update rescheduling, skip-next, snooze and a lock-screen amber MASTER CAUTION. Synthesize an original alarm chime in code; offer system sound.
+- Add a private 200-step capture log, explicit PDF sharing and clear-data controls. Use an origin-scoped AndroidX WebView message bridge instead of a globally exposed JavascriptInterface. Portal automation remains unverified against a live authenticated account; manual Print and import remain available.
+- Add synthetic non-personal grammar, column, timezone, JSON, diff and alarm-plan regression tests. Correct the supplied 03:10 minus 80-minute expectation to same-day 01:50 and cover actual date rollback separately.
+- Version 1.10.0, code 191, as requested after inspecting main at 1.9.0. No TV roster loading or camera/stream changes.
+
 ## 1.9.0
 
 - Add a phone-only white mirror icon to the clock and screen saver. Tap to wake the paired TV and launch Mirror; hold to select/drag, then pinch to resize the icon independently of the clock. Save position and size, add a size slider, visibility toggle and position reset.

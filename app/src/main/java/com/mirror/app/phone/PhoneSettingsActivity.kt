@@ -13,7 +13,7 @@ import com.mirror.app.core.*
 
 /** Shared settings destination; categories occupy the left pane on wide displays. */
 open class PhoneSettingsActivity : ComponentActivity() {
-    private val categories = linkedMapOf("style" to "Style & layout", "alarms" to "Departure alarms", "calendar" to "Duty & calendar",
+    private val categories = linkedMapOf("style" to "Style & layout", "roster_link" to "Roster Link", "alarms" to "Departure alarms", "calendar" to "Duty & calendar",
         "weather" to "Weather", "info" to "Clock information", "display" to "Display protection", "camera" to "Camera & stream",
         "pairing" to "Pairing & security", "tv_launch" to "TV launch", "setup" to "Android setup", "about" to "About Mirror")
     private var selected: String? = null
@@ -73,6 +73,7 @@ open class PhoneSettingsActivity : ComponentActivity() {
         details.removeAllViews()
         val content = if (id == "alarms" && alarmContent != null) alarmContent!! else LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         when (id) {
+            "roster_link" -> content.addView(action("Open Roster Link") { startActivity(Intent(this, com.mirror.app.phone.roster.RosterActivity::class.java)) })
             "tv_launch" -> tvPanel = TvLaunchPanel(this, content)
             "alarms" -> if (alarmPanel == null) { alarmContent = content; alarmPanel = DepartureSettingsPanel(this, content) }
             "camera", "pairing" -> controls = PhoneControlsPanel(this, content, id)

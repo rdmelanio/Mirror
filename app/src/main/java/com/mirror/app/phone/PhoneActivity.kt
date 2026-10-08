@@ -13,6 +13,7 @@ class PhoneActivity : Activity() {
     private lateinit var controller: ClockController
     private lateinit var start: Button
     private lateinit var status: TextView
+    private lateinit var nextDuty: TextView
     private val handler = Handler(Looper.getMainLooper())
     private val refresh = object : Runnable {
         override fun run() { update(); handler.postDelayed(this, 1000) }
@@ -32,6 +33,9 @@ class PhoneActivity : Activity() {
         controls.addView(start)
         controls.addView(action("CLOCK MODE") { startActivity(Intent(this, ClockActivity::class.java)) })
         controls.addView(action("SETTINGS") { startActivity(Intent(this, PhoneSettingsActivity::class.java)) })
+        controls.addView(action("ROSTER LINK") { startActivity(Intent(this, com.mirror.app.phone.roster.RosterActivity::class.java)) })
+        nextDuty = label("", 17f); controls.addView(nextDuty)
+        controls.addView(action("Skip next PREPARE") { com.mirror.app.phone.roster.RosterAlarms.skipNext(this) })
         status = label("", 15f); controls.addView(status)
         if (wide) {
             body.addView(display, LinearLayout.LayoutParams(0, -1, 1.65f))
@@ -67,6 +71,10 @@ class PhoneActivity : Activity() {
     }
 
     private fun update() {
+        nextDuty.text = "NEXT DUTY\n" + com.mirror.app.phone.roster.RosterDisplay.compact(this) +
+            (com.mirror.app.phone.roster.RosterDisplay.next(this)?.let { "\n" + com.mirror.app.phone.roster.RosterDisplay.legs(it) } ?: "") +
+            (com.mirror.app.phone.roster.RosterStore.stale(this)?.let { "\n" + it.first } ?: "")
+        nextDuty.setTextColor(com.mirror.app.phone.roster.RosterStore.stale(this)?.second ?: PhoneUi.GREEN)
         start.text = if (CameraService.active) "STOP CAMERA" else "START CAMERA"
         val metrics = CameraService.stats
         val live = metrics.clients.get() > 0
@@ -79,6 +87,7 @@ class PhoneActivity : Activity() {
     }
     override fun onResume() {
         super.onResume(); controller.start(); handler.post(refresh)
+        com.mirror.app.phone.roster.RosterWork.onOpen(this)
         if (ClockSettings.load(this).departureEnabled) DepartureAlerts.configure(this)
         if (CameraService.active && CameraService.standbyFallback) startService(Intent(this, CameraService::class.java).setAction(CameraService.RETRY))
     }

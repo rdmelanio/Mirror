@@ -193,6 +193,9 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
                 footerRows += Row("Calendar checked $stamp PHT${if (roster.error != null) " · cached" else if (roster.offline) " · offline" else ""}", 12f, regular, color = s.scheduleColor)
             }
         }
+        if (com.mirror.app.phone.roster.RosterStore.prefs(context).getBoolean("nextDutyLine", true) && com.mirror.app.phone.roster.RosterStore.load(context) != null) {
+            todayRows += Row(com.mirror.app.phone.roster.RosterDisplay.compact(context), 20f, regular, color = s.scheduleColor)
+        }
         val density = resources.displayMetrics.density
         val zones = ClockLayout.zones(width.toFloat(), height.toFloat(), density)
         val minute = now.time / 60_000
@@ -238,6 +241,9 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         canvas.restore()
     }
     private fun drawTvIcon(canvas: Canvas, zones: ClockLayout.Zones, x: Float, y: Float) {
+        if (com.mirror.app.phone.roster.RosterStore.prefs(context).getBoolean("nextDutyLine", true) && com.mirror.app.phone.roster.RosterStore.load(context) != null) {
+            todayRows += Row(com.mirror.app.phone.roster.RosterDisplay.compact(context), 20f, regular, color = s.scheduleColor)
+        }
         val density = resources.displayMetrics.density
         val edge = zones.motionLimit + minOf(16f * density, minOf(width, height) * 0.04f)
         val size = minOf(settings.tvIconSize * density, (minOf(width, height) - 2 * edge).coerceAtLeast(0f))
@@ -333,6 +339,9 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         val lit = !warning || (now - alert.started) / 1000 % 2 == 0L
         val color = if (warning) 0xFFFF2A1A.toInt() else 0xFFFFB000.toInt()
         val green = 0xFF00E040.toInt(); val cyan = 0xFF00E5FF.toInt()
+        if (com.mirror.app.phone.roster.RosterStore.prefs(context).getBoolean("nextDutyLine", true) && com.mirror.app.phone.roster.RosterStore.load(context) != null) {
+            todayRows += Row(com.mirror.app.phone.roster.RosterDisplay.compact(context), 20f, regular, color = s.scheduleColor)
+        }
         val density = resources.displayMetrics.density
         val z = EcamLayout.regions(width.toFloat(), height.toFloat(), density)
         val movement = minOf(4f*density, z.inset/3)
