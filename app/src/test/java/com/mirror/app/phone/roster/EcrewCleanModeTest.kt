@@ -33,6 +33,7 @@ class EcrewCleanModeTest {
         assertEquals("…", EcrewProbePolicy.mask("abc123"))
         assertEquals("[absent]", EcrewProbePolicy.mask(null))
         assertEquals("eCrewTabID", EcrewProbePolicy.name("eCrewTabID"))
+        assertEquals(".AspNet.ApplicationCookie", EcrewProbePolicy.name(".AspNet.ApplicationCookie"))
         assertEquals("[name omitted]", EcrewProbePolicy.name("crew123456"))
         val raw = "<input value='synthetic-secret'><p>DOE 123456 BOOKINGABC</p>" + "Z".repeat(40)
         val sample = EcrewProbePolicy.body(raw)

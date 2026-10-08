@@ -80,7 +80,7 @@ object EcrewProbe {
     }
     internal fun script(prefix: String) = """(function(){
         if(location.origin!=='https://ecrew.cebupacificair.com'||!/^\/eCrew\/Dashboard(?:\/|$)/i.test(location.pathname))return JSON.stringify({error:'not_dashboard'});
-        const name=v=>/^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/.test(v)&&!/[0-9]{6,}|[A-Za-z0-9]{32,}/.test(v)?v:'[name omitted]';
+        const name=v=>/^[A-Za-z_.][A-Za-z0-9_.-]{0,63}$/.test(v)&&!/[0-9]{6,}|[A-Za-z0-9]{32,}/.test(v)?v:'[name omitted]';
         const store=get=>{try{const s=get();return {available:true,length:s.length,keys:Array.from({length:Math.min(s.length,128)},(_,i)=>name(s.key(i)||''))};}catch(e){return {available:false,length:0,keys:[]};}};
         const sample=v=>String(v).slice(0,300).replace(/[A-Za-z0-9]{20,}/g,'…').replace(/(['"])[^'"]*['"]/g,'"…"').replace(/[\p{L}\p{N}_@.+-]+/gu,v=>new Set('html head body title meta div p span input script style form type name content class id error status code message bad request invalid verification token session expired terminated another active currently open under your account this has now been unauthorized forbidden null true false'.split(' ')).has(v.toLowerCase())?v:'…');
         const path=u=>{try{return new URL(u,location.href).pathname.split('/').map(v=>{let d=decodeURIComponent(v);return d.length>24||(d.match(/[0-9]/g)||[]).length>=6||/[?&#=;\\]/.test(d)?'*':d;}).join('/');}catch(e){return '[unavailable]';}};
