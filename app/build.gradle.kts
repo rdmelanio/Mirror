@@ -2,6 +2,10 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins { id("com.android.application") }
 
+val mirrorReleaseVersion = java.util.Properties().apply {
+    rootProject.file("version.properties").inputStream().use { load(it) }
+}
+
 android {
     namespace = "com.mirror.app"
     compileSdk = 36
@@ -9,8 +13,8 @@ android {
         applicationId = "com.mirror.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = providers.gradleProperty("mirrorVersionCode").get().toInt()
-        versionName = providers.gradleProperty("mirrorVersionName").get()
+        versionCode = mirrorReleaseVersion.getProperty("mirrorVersionCode").toInt()
+        versionName = mirrorReleaseVersion.getProperty("mirrorVersionName")
     }
     signingConfigs {
         create("mirror") {

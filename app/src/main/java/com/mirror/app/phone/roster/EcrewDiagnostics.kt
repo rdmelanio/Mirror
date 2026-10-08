@@ -55,6 +55,7 @@ class EcrewDiagnostics(private val c: Context, val instanceId: String, val mode:
     }
     open class Chrome(private val d: EcrewDiagnostics) : WebChromeClient() {
         override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+            if (EcrewProbe.console(message, d.currentUrl())) return true
             val login = EcrewLogRedaction.isLogin(message.sourceId()) || EcrewLogRedaction.isLogin(d.currentUrl())
             d.add("CONSOLE", "${message.messageLevel()} ${EcrewLogRedaction.console(message.message(), login)} line=${message.lineNumber()}", message.sourceId())
             return false
@@ -72,14 +73,16 @@ interface EcrewBrowser {
     fun pauseForLocalClear() {}
 }
 class EcrewPlainBrowser(c: Context, private val web: WebView,
-    private val lease: EcrewSessionCoordinator.Lease, private val lifetime: EcrewBrowserLifetime) : EcrewBrowser {
+    private val lease: EcrewSessionCoordinator.Lease, private val lifetime: EcrewBrowserLifetime,
+    private val browserMode: EcrewBrowserMode = EcrewBrowserMode.PLAIN) : EcrewBrowser {
     override val instanceId = java.util.UUID.randomUUID().toString().take(8)
-    override val mode = "PLAIN"
+    override val mode = browserMode.name
     private val diagnostics = EcrewDiagnostics(c, instanceId, mode, "INTERACTIVE")
     init {
         // Everything else, including UA, requested-with, cache and window support, stays default.
         @Suppress("DEPRECATION")
         web.settings.apply { javaScriptEnabled = true; domStorageEnabled = true; databaseEnabled = true }
+        if (browserMode == EcrewBrowserMode.CLEAN) EcrewCleanSettings.apply(c, web.settings) { diagnostics.add("BROWSER_SETTINGS", it) }
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
         EcrewBrowsers.current = this
@@ -89,7 +92,7 @@ class EcrewPlainBrowser(c: Context, private val web: WebView,
     }
     override fun open() { if (lease.ownsSession() && lifetime.open()) web.loadUrl(RosterFetcher.DASHBOARD) }
     override fun reload() { if (lease.ownsSession()) web.reload() }
-    override fun destroy() { if (EcrewBrowsers.current === this) EcrewBrowsers.current = null; web.stopLoading(); web.destroy() }
+    override fun destroy() { EcrewProbe.cancel(web); if (EcrewBrowsers.current === this) EcrewBrowsers.current = null; web.stopLoading(); web.destroy() }
 }
 
 /** Local-data actions never create a browser, navigate, enqueue logout or contact eCrew. */

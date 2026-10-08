@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.10.5 — eCrew Clean browser, probe and Open with Mirror
+
+- Default the phone browser selector to Clean; retain explicit Normal and Plain choices. Clean shares Plain's passive browser with no automatic scripts, bridge, hooks, fetches or storage/cookie/cache cleanup, while removing embedded-WebView UA tokens and opting out of X-Requested-With before the first navigation when supported. Log header-feature support and show a fresh-login hint once when the mode changes.
+- Add a Dashboard-only, tap-only Run probe in Plain/Clean. Record masked eCrewTabID metadata, storage/cookie names and counts, verification-token count/length, UA/brand names and iframe paths. Make exactly one HomeIndex GET through the page's own XMLHttpRequest, with status, MIME type and a bounded redacted response excerpt. No Login script or body access; no persistent bridge or polling.
+- Log the WebView provider package/version on each eCrew screen open and show it in roster settings.
+- Register Open with Mirror for content PDF intents through the existing phone-gated manifest entry point. Validate the first-page roster title before persistence; imported rosters open the roster screen, other PDFs show “Not an eCrew roster” and offer an external viewer chooser excluding Mirror. Existing grammar/parser, alarms, clock, TV, camera, signing and Normal automation are unchanged.
+- Add tests for browser defaults and mode transitions, Clean's automatic-script/cleanup prohibition, probe masking and routing PDFs without persisting non-rosters.
+
 ## 1.10.3 — eCrew redirect-loop diagnostics
 
 - Add the phone-only “eCrew plain browser (diagnostic)” setting, default off. It uses a separate WebView wrapper with unmodified UA/default networking, cookies, DOM/database storage and passive logging. No fetcher, scripts, bridge, storage cleanup, logout or automatic/background refresh runs in this mode.
