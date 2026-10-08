@@ -48,10 +48,10 @@ class ECrewActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val top = LinearLayout(this)
-        top.addView(action("Back") { if (web.canGoBack()) web.goBack() else finish() })
-        top.addView(action("Refresh") { fetcher.reload() })
-        top.addView(action("Fetch roster now") { fetcher.start() })
-        top.addView(action("Close") { finish() })
+        top.addView(action("Back") { if (web.canGoBack()) web.goBack() else finish() }, LinearLayout.LayoutParams(-2, -2))
+        top.addView(action("Refresh") { fetcher.reload() }, LinearLayout.LayoutParams(-2, -2))
+        top.addView(action("Fetch roster now") { fetcher.start() }, LinearLayout.LayoutParams(-2, -2))
+        top.addView(action("Close") { finish() }, LinearLayout.LayoutParams(-2, -2))
         root.addView(HorizontalScrollView(this).apply { addView(top) })
         web = WebView(this); root.addView(web, LinearLayout.LayoutParams(-1, 0, 1f))
         fetcher = RosterFetcher(this, web) { success -> Toast.makeText(this, if (success) "Roster updated" else "Fetch failed — try Print manually or import a PDF", Toast.LENGTH_LONG).show() }
@@ -138,7 +138,7 @@ class RosterLogActivity : Activity() {
         })
         root.addView(action("Clear data") {
             AlertDialog.Builder(this).setMessage("Delete private roster PDFs, parsed data, capture log and eCrew session?").setNegativeButton("Cancel", null).setPositiveButton("Clear") { _, _ ->
-                RosterStore.clear(this); CookieManager.getInstance().removeAllCookies(null); CookieManager.getInstance().flush(); WebStorage.getInstance().deleteAllData(); log.text = "Data cleared"
+                RosterStore.clear(this); CookieManager.getInstance().removeAllCookies(null); CookieManager.getInstance().flush(); WebStorage.getInstance().deleteAllData(); WebView(this).apply { clearCache(true); destroy() }; log.text = "Data cleared"
             }.show()
         }); root.addView(log); setContentView(ScrollView(this).apply { addView(root) }); insetContent(root, 12)
     }

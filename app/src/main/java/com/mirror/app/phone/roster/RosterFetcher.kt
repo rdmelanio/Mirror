@@ -116,7 +116,7 @@ class RosterFetcher(private val c: Context, val web: WebView, private val backgr
         if (active && SystemClock.elapsedRealtime() - stepSince > 25_000) { finish(false, "step timeout; manual Print or import available"); return }
         // Exact visible labels only; Confirm all changes is deliberately absent from click targets.
         val script = """(function(){
-          if(location.origin !== '$ORIGIN' || /\/Login/i.test(location.pathname)) return 'login';
+          if(location.origin !== '$ORIGIN' || location.pathname.toLowerCase().includes('/login')) return 'login';
           const visible=e=>!!(e.getClientRects().length)&&getComputedStyle(e).visibility!=='hidden';
           const text=e=>(e.innerText||e.textContent||'').trim().toLowerCase();
           const find=s=>Array.from(document.querySelectorAll('button,a,span,div,label,input[type=button]')).find(e=>visible(e)&&((e.tagName==='INPUT'?e.value:text(e)).trim().toLowerCase()===s.toLowerCase()));
@@ -126,7 +126,7 @@ class RosterFetcher(private val c: Context, val web: WebView, private val backgr
           function click(s){if(s==='Confirm all changes')return false;let e=find(s);if(!e)return false;(e.closest('button,a,[role=button]')||e).click();return true;}
           const scan=()=>{document.querySelectorAll('iframe,embed,object').forEach(e=>{const u=e.src||e.data;if(u)window.mirrorCapture(u);});};
           if(!window.mirrorCapture){window.mirrorCapture=function(u){
-            if(location.origin !== '$ORIGIN' || /\/Login/i.test(location.pathname))return;
+            if(location.origin !== '$ORIGIN' || location.pathname.toLowerCase().includes('/login'))return;
             if(u.startsWith('blob:'))fetch(u).then(r=>r.blob()).then(b=>{if(b.size>$LIMIT)return;let f=new FileReader();f.onload=()=>{if(window.MirrorPdf)MirrorPdf.postMessage(f.result);};f.readAsDataURL(b);}).catch(()=>{});
           }; const open=window.open;window.open=function(u,...a){if(u){window.mirrorCapture(String(u));}return open.call(this,u,...a);};}
           const sources=Array.from(document.querySelectorAll('iframe,embed,object')).map(e=>e.src||e.data||'').filter(Boolean);
@@ -204,7 +204,7 @@ class RosterFetcher(private val c: Context, val web: WebView, private val backgr
         handler.post {
             if (dead) return@post
             captured = success
-            eval("(function(){if(location.origin!=='$ORIGIN'||/\/Login/i.test(location.pathname))return;const e=Array.from(document.querySelectorAll('button,a,span')).find(e=>e.getClientRects().length&&(e.innerText||'').trim().toLowerCase()==='exit');if(e)(e.closest('button,a')||e).click();})()") {
+            eval("(function(){if(location.origin!=='$ORIGIN'||location.pathname.toLowerCase().includes('/login'))return;const e=Array.from(document.querySelectorAll('button,a,span')).find(e=>e.getClientRects().length&&(e.innerText||'').trim().toLowerCase()==='exit');if(e)(e.closest('button,a')||e).click();})()") {
                 if (!active) return@eval
                 val roster = RosterStore.load(c)
                 val today = java.time.LocalDate.now(AirportZones.zone("MNL"))

@@ -81,3 +81,16 @@ jobs:
           files: mirror.apk
 
 
+      - name: Verify public latest APK download
+        run: |
+          curl --fail --location --retry 5 --retry-delay 3 --output published-mirror.apk https://github.com/rdmelanio/Mirror/releases/latest/download/mirror.apk
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging published-mirror.apk > published-apk-info.txt
+          python3 - <<'PYTHON'
+          import pathlib, re
+          props = dict(line.split('=', 1) for line in pathlib.Path('gradle.properties').read_text().splitlines() if '=' in line)
+          info = pathlib.Path('published-apk-info.txt').read_text()
+          for key, prop in [('versionName', 'mirrorVersionName'), ('versionCode', 'mirrorVersionCode')]:
+              assert re.search(rf"{key}='([^']+)'", info).group(1) == props[prop]
+          assert pathlib.Path('published-mirror.apk').read_bytes() == pathlib.Path('mirror.apk').read_bytes()
+          print('Public latest download verified:', props['mirrorVersionName'], props['mirrorVersionCode'])
+          PYTHON

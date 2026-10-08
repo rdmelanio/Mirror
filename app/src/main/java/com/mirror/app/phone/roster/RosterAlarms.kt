@@ -46,7 +46,7 @@ object RosterAlarms {
         val default = d.type == DutyType.FLIGHT || d.code == "AS" || (d.type == DutyType.OTHER && d.reportInstant != null)
         return d.reportInstant != null && RosterStore.prefs(c).getBoolean("type-${if (d.type == DutyType.FLIGHT) "FLIGHT" else d.code}", default)
     }
-    private fun intent(c: Context, key: String) = Intent(c, RosterAlarmReceiver::class.java).setAction("com.mirror.app.ROSTER_ALARM").setData(android.net.Uri.parse("mirror-roster://alarm/${android.net.Uri.encode(key)}"))
+    private fun intent(c: Context, key: String) = Intent(c, com.mirror.app.core.RosterDispatchReceiver::class.java).setAction("com.mirror.app.ROSTER_ALARM").setData(android.net.Uri.parse("mirror-roster://alarm/${android.net.Uri.encode(key)}"))
     private fun operation(c: Context, key: String) = PendingIntent.getBroadcast(c, 0, intent(c, key), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     private fun stored(c: Context) = runCatching { JSONObject(RosterStore.prefs(c).getString("scheduled", "{}").orEmpty()) }.getOrDefault(JSONObject())
     fun cancel(c: Context) {

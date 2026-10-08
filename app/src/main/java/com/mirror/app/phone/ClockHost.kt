@@ -49,6 +49,7 @@ class ClockController(private val context: Context, private val view: ClockView,
         override fun onReceive(context: Context?, intent: Intent?) { if (running) { calendar.timeChanged(); render() } }
     }
     fun start() {
+        com.mirror.app.phone.roster.RosterWork.onOpen(context)
         if (running) return
         running = true; policy = ClockLightPolicy(); view.settings = ClockSettings.load(context)
         ClockSettings.prefs(context).registerOnSharedPreferenceChangeListener(preferencesChanged)

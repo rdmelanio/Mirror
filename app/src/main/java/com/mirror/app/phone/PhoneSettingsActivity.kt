@@ -86,6 +86,7 @@ open class PhoneSettingsActivity : ComponentActivity() {
                     content.addView(label("Alarm volume, notification, precise-alarm and full-screen permissions are under Departure alarms."))
                 }
                 if (id == "about") content.addView(action("Change role") {
+                    com.mirror.app.phone.roster.RosterWork.cancel(this); com.mirror.app.phone.roster.RosterAlarms.cancel(this)
                     stopService(Intent(this, CameraService::class.java)); LauncherActivity.changeRole(this)
                 })
             }
