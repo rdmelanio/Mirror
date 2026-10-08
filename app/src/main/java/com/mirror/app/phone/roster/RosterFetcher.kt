@@ -85,9 +85,7 @@ class RosterFetcher(private val c: Context, val web: WebView,
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             setSupportMultipleWindows(false)
         }
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
-            WebSettingsCompat.setRequestedWithHeaderOriginAllowList(web.settings, emptySet())
-        }
+        configureRequestedWithHeader()
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
@@ -162,6 +160,14 @@ class RosterFetcher(private val c: Context, val web: WebView,
                     if (!active && !linkedInDocument) detectLinked()
                 }
             }
+        }
+    }
+    @android.annotation.SuppressLint("RestrictedApi")
+    private fun configureRequestedWithHeader() {
+        // AndroidX 1.12 restricts this legacy feature flag. Older providers still support the
+        // requested opt-out; modern providers may omit the header already. Never call unguarded.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+            WebSettingsCompat.setRequestedWithHeaderOriginAllowList(web.settings, emptySet())
         }
     }
     fun open() { if (allowed() && lifetime.open()) web.loadUrl(DASHBOARD) }
