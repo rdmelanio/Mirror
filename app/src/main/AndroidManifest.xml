@@ -34,7 +34,7 @@
         <activity android:name=".phone.PhoneSettingsActivity" android:exported="false" />
         <activity android:name=".phone.DepartureSettingsActivity" android:exported="false" />
         <activity android:name=".phone.ClockCalendarSettingsActivity" android:exported="false" />
-        <activity android:name=".phone.roster.ECrewActivity" android:launchMode="singleTask" android:exported="false" />
+        <activity android:name=".phone.roster.ECrewActivity" android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|density|uiMode|keyboardHidden" android:launchMode="singleTask" android:exported="false" />
         <activity android:name=".phone.roster.RosterActivity" android:exported="false" />
         <activity android:name=".phone.roster.RosterSettingsActivity" android:exported="false" />
         <activity android:name=".phone.roster.RosterChangesActivity" android:exported="false" />

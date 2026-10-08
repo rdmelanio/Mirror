@@ -46,11 +46,14 @@ object RosterDisplay {
     fun legs(d: Duty) = d.legs.joinToString("\n") { "${if (it.deadhead) "DHC " else ""}5J${it.flightNo} ${it.depApt} ${if (it.depKind == "S") "" else it.depKind}${it.depTime.toLocalTime()} → ${it.arrApt} ${if (it.arrKind == "S") "" else it.arrKind}${it.arrTime.toLocalTime()} ${it.aircraft.orEmpty()}" }
 }
 class ECrewActivity : ComponentActivity() {
+    companion object { const val CLEAR_DATA = "clearEcrewData" }
     private var fetcher: RosterFetcher? = null
     private var web: WebView? = null
     private var lease: EcrewSessionCoordinator.Lease? = null
     private var screen: EcrewSessionCoordinator.Screen? = null
+    private val lifetime = EcrewBrowserLifetime()
     private lateinit var root: LinearLayout
+    private fun lifecycle(event: String) = CaptureLog.add(this, "LIFECYCLE", "ECrewActivity $event ${fetcher?.instanceId.orEmpty()} INTERACTIVE")
     override fun onCreate(state: Bundle?) {
         super.onCreate(state); if (!RosterStore.phone(this)) { finish(); return }
         RosterPrivacy.apply(this)
@@ -64,24 +67,45 @@ class ECrewActivity : ComponentActivity() {
         root.addView(HorizontalScrollView(this).apply { addView(top) })
         setContentView(root); insetContent(root, 0)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) { override fun handleOnBackPressed() { back() } })
+        screen = EcrewSessionLock.coordinator.openScreen()
+        val granted = EcrewSessionLock.coordinator.acquireInteractive()
+        if (granted == null) { lifecycle("create denied: session owned"); Toast.makeText(this, "eCrew is already open", Toast.LENGTH_SHORT).show(); finish(); return }
+        lease = granted
+        if (lifetime.create()) {
+            val browser = WebView(this); web = browser
+            root.addView(browser, LinearLayout.LayoutParams(-1, 0, 1f))
+            fetcher = RosterFetcher(this, browser, granted, lifetime = lifetime) { success ->
+                Toast.makeText(this, if (success) "Roster updated" else "Fetch failed — try Print manually or import a PDF", Toast.LENGTH_LONG).show()
+            }
+            lifecycle("create")
+            if (intent.getBooleanExtra(CLEAR_DATA, false)) fetcher?.requestClearData()
+            fetcher?.open()
+        }
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent); setIntent(intent)
+        if (intent.getBooleanExtra(CLEAR_DATA, false)) fetcher?.requestClearData()
     }
     private fun back() { val browser = web; if (browser?.canGoBack() == true) browser.goBack() else finish() }
     override fun onStart() {
         super.onStart(); if (!::root.isInitialized) return
-        RosterPrivacy.apply(this)
-        screen = EcrewSessionLock.coordinator.openScreen()
-        val granted = EcrewSessionLock.coordinator.acquireInteractive()
-        if (granted == null) { Toast.makeText(this, "eCrew is already open", Toast.LENGTH_SHORT).show(); finish(); return }
-        lease = granted
-        val browser = WebView(this); web = browser
-        root.addView(browser, LinearLayout.LayoutParams(-1, 0, 1f))
-        fetcher = RosterFetcher(this, browser, granted) { success -> Toast.makeText(this, if (success) "Roster updated" else "Fetch failed — try Print manually or import a PDF", Toast.LENGTH_LONG).show() }
-        fetcher?.open()
+        lifetime.start(); lifecycle("start"); RosterPrivacy.apply(this)
     }
     override fun onStop() {
-        web?.let { root.removeView(it) }; fetcher?.destroy(); fetcher = null; web = null
-        lease?.close(); lease = null; screen?.close(); screen = null
+        if (::root.isInitialized) { lifetime.stop(); lifecycle("stop") }
         super.onStop()
+    }
+    override fun onConfigurationChanged(config: android.content.res.Configuration) {
+        super.onConfigurationChanged(config)
+        if (::root.isInitialized) { lifecycle("configChange"); RosterPrivacy.apply(this); insetContent(root, 0) }
+    }
+    override fun onDestroy() {
+        if (::root.isInitialized) lifecycle("destroy")
+        if (lifetime.destroy()) {
+            web?.let { root.removeView(it) }; fetcher?.destroy(); fetcher = null; web = null
+        }
+        lease?.close(); lease = null; screen?.close(); screen = null
+        super.onDestroy()
     }
 }
 class RosterActivity : Activity() {
@@ -161,7 +185,7 @@ class RosterLogActivity : Activity() {
         })
         root.addView(action("Clear data") {
             AlertDialog.Builder(this).setMessage("Delete private roster PDFs, parsed data, capture log and eCrew session?").setNegativeButton("Cancel", null).setPositiveButton("Clear") { _, _ ->
-                RosterStore.clear(this); CookieManager.getInstance().removeAllCookies(null); CookieManager.getInstance().flush(); WebStorage.getInstance().deleteAllData(); WebView(this).apply { clearCache(true); destroy() }; log.text = "Data cleared"
+                startActivity(Intent(this, ECrewActivity::class.java).putExtra(ECrewActivity.CLEAR_DATA, true)); log.text = "Opening eCrew to log out before clearing origin and roster data"
             }.show()
         }); root.addView(log); setContentView(ScrollView(this).apply { addView(root) }); insetContent(root, 12)
     }

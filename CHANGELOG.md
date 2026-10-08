@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.10.2
+
+- Keep one phone eCrew WebView and its session lease for the complete activity lifetime, including stop/start, fold, rotation and other configuration changes. Interactive fetches use the current document; only an explicit Refresh reloads it.
+- Recognize published-until My Schedule labels, sidebar calendar links and avatar/top-bar login indicators. Use the Android browser UA without embedded-WebView tokens and suppress X-Requested-With when supported.
+- Wait for eCrew's Login page before logout cleanup. Clear origin cookies and WebStorage, then use an offline app-owned eCrew-origin cleanup document for sessionStorage, IndexedDB, CacheStorage and service workers; no script runs in Login and no other origin is selected. Capture-log Clear data uses the same ordered logout flow before deleting private roster data.
+- Detect eCrew's another-active-session message without idle evaluateJavascript polling, cancel work without retrying, and add instance/owner, lifecycle, cookie-count and storage diagnostics.
+- Add session matcher, lifecycle, logout ordering, termination and user-agent regression tests. Parser, alarms, clock face, TV, camera, warning audio and signing are unchanged.
+
 ## 1.10.1 — Roster Link login and review fixes
 
 - Give the visible eCrew screen exclusive process-wide session ownership; workers yield and destroy their browser before the activity opens. Delay periodic work by its interval and suppress background fetching for three minutes after interactive login/capture. Automatically perform the first fetch in that same browser after a three-second delay.
