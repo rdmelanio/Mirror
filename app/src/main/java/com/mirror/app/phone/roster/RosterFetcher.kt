@@ -29,6 +29,7 @@ class RosterFetcher(private val c: Context, val web: WebView,
     private val handler = Handler(Looper.getMainLooper())
     private val pool = Executors.newSingleThreadExecutor()
     private val downloading = AtomicBoolean(false)
+    private val attemptedDownloads = mutableSetOf<String>()
     @Volatile private var dead = false
     @Volatile private var connection: HttpURLConnection? = null
     @Volatile private var active = false
@@ -66,7 +67,7 @@ class RosterFetcher(private val c: Context, val web: WebView,
                 val j = runCatching { JSONObject(data) }.getOrNull() ?: return@addWebMessageListener
                 when (j.optString("kind")) {
                     "print" -> if (!background) {
-                        manual = true; active = true; captured = false; nextMonth = false
+                        manual = true; active = true; captured = false; nextMonth = false; attemptedDownloads.clear()
                         handler.removeCallbacks(firstFetch); handler.removeCallbacks(timeout); setStep("CAPTURE_PDF")
                         handler.postDelayed(timeout, 90_000); handler.post(poll)
                     }
@@ -106,7 +107,20 @@ class RosterFetcher(private val c: Context, val web: WebView,
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (request.isForMainFrame) { CaptureLog.add(c, "NAVIGATION", "main frame failed", request.url.toString()); if (active) finish(false, "navigation failed") }
             }
+            override fun doUpdateVisitedHistory(view: WebView, url: String?, reload: Boolean) {
+                if (!allowed()) return
+                if (login(url)) { CaptureLog.add(c, "NAVIGATION", "login page shown", url); expire() }
+                else if (trusted(url) && !active && !linkedInDocument) detectLinked()
+            }
             // No shouldInterceptRequest override: browsing never duplicates authenticated requests.
+        }
+        web.webChromeClient = object : WebChromeClient() {
+            override fun onReceivedTitle(view: WebView, title: String?) {
+                if (allowed() && trusted(view.url) && !login(view.url)) {
+                    CaptureLog.add(c, "NAVIGATION", "title=${title.orEmpty().replace('\n', ' ').replace('\r', ' ').take(120)}", view.url)
+                    if (!active && !linkedInDocument) detectLinked()
+                }
+            }
         }
     }
     fun open() { if (allowed()) web.loadUrl(DASHBOARD) }
@@ -114,7 +128,7 @@ class RosterFetcher(private val c: Context, val web: WebView,
     fun start() {
         if (!allowed() || active) return
         handler.removeCallbacks(firstFetch)
-        active = true; manual = false; captured = false; nextMonth = false
+        active = true; manual = false; captured = false; nextMonth = false; attemptedDownloads.clear()
         handler.postDelayed(timeout, 90_000)
         if (!background && linkedInDocument && !login(web.url)) { eval("if(window.__mirrorRoster)window.__mirrorRoster.opened=false;"); setStep("OPEN_MY_SCHEDULE"); drive() }
         else { setStep("LOAD_DASHBOARD"); web.loadUrl(DASHBOARD) }
@@ -137,6 +151,7 @@ class RosterFetcher(private val c: Context, val web: WebView,
         }
         // Periodic work always starts after its full interval; the activity owns this session meanwhile.
         RosterWork.configure(c)
+        if (fresh) com.mirror.app.phone.DepartureAlerts.configure(c)
     }
     private fun detectLinked() {
         eval(script("DETECT", false)) { if (it == "linked") linked() }
@@ -176,7 +191,8 @@ class RosterFetcher(private val c: Context, val web: WebView,
       if(mode==='CLICK_PRINT')return click('Print')?'printed':'wait';
       if(mode==='NEXT_PERIOD')return click('Next Period')?'next':'wait';
       if(mode==='EXIT'){click('Exit');return 'exit';}
-      const sources=Array.from(document.querySelectorAll('iframe,embed,object')).map(e=>e.src||e.data||'').filter(Boolean);
+      const overlays=Array.from(document.querySelectorAll('[role=dialog],.dx-popup-content,.dx-overlay-content,[class*=dxrd]')).filter(visible);
+      const sources=Array.from(document.querySelectorAll('iframe,embed,object')).filter(e=>visible(e)&&(!!find('Exit')||overlays.some(parent=>parent.contains(e)))).map(e=>e.src||e.data||'').filter(Boolean);
       if(s.capture)sources.filter(u=>u.startsWith('blob:')).forEach(u=>s.obtain(u));
       return JSON.stringify({sources:sources,pending:!!find('Confirm all changes')});
     })()""".trimIndent()
@@ -205,7 +221,8 @@ class RosterFetcher(private val c: Context, val web: WebView,
     private fun obtain(url: String) {
         if (!captureAllowed() || login(web.url) || !trusted(web.url)) return
         if (url.startsWith("blob:")) { eval("if(window.__mirrorRoster&&window.__mirrorRoster.obtain)window.__mirrorRoster.obtain(${JSONObject.quote(url)});"); return }
-        if (!trusted(url) || !downloading.compareAndSet(false, true)) return
+        if (!trusted(url) || url in attemptedDownloads || !downloading.compareAndSet(false, true)) return
+        attemptedDownloads += url
         val ua = WebSettings.getDefaultUserAgent(c); val referer = web.url.orEmpty()
         val cookies = CookieManager.getInstance().getCookie(url).orEmpty()
         CaptureLog.add(c, "CAPTURE_PDF", "browser download candidate", url)
@@ -239,7 +256,7 @@ class RosterFetcher(private val c: Context, val web: WebView,
             eval(script("EXIT", false)) {
                 val roster = RosterStore.load(c); val today = java.time.LocalDate.now(AirportZones.zone("MNL"))
                 if (!manual && success && !nextMonth && roster != null && today >= roster.period.end.minusDays(4) && today <= roster.period.end) {
-                    nextMonth = true; setStep("NEXT_PERIOD"); handler.postDelayed(poll, 1500)
+                    nextMonth = true; attemptedDownloads.clear(); setStep("NEXT_PERIOD"); handler.postDelayed(poll, 1500)
                 } else finish(success, if (success) "success" else "parse failed")
             }
         }
@@ -263,6 +280,7 @@ class RosterFetcher(private val c: Context, val web: WebView,
         loggingOut = true; handler.removeCallbacks(firstFetch)
         finish(false, "manual logout"); RosterWork.cancel(c)
         RosterStore.prefs(c).edit().putBoolean("linked", false).putBoolean("expired", false).apply()
+        com.mirror.app.phone.DepartureAlerts.configure(c)
         val clear = {
             // Cookie names are used only to expire this origin's cookies; names/values are never logged.
             val manager = CookieManager.getInstance()
@@ -274,7 +292,7 @@ class RosterFetcher(private val c: Context, val web: WebView,
             } }; manager.flush(); if (allowed()) web.loadUrl("$ORIGIN/eCrew/Login")
         }
         logoutCleanup = clear
-        if (!login(web.url) && trusted(web.url)) eval("""(function(){const e=Array.from(document.querySelectorAll('button,a,[role=button]')).find(e=>e.getClientRects().length&&(/^(log out|logout|sign out)$/i.test((e.innerText||e.textContent||'').trim())||/^(log out|logout|sign out)$/i.test((e.getAttribute('title')||e.getAttribute('aria-label')||'').trim())||e.querySelector('.fa-power-off,.glyphicon-off,[class*=power-off]')));if(e)e.click();return 'logout';})()""")
+        if (!login(web.url) && trusted(web.url)) eval("""(function(){const e=Array.from(document.querySelectorAll('button,a,[role=button]')).find(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden'&&(/^(log out|logout|sign out)$/i.test((e.innerText||e.textContent||'').trim())||/^(log out|logout|sign out)$/i.test((e.getAttribute('title')||e.getAttribute('aria-label')||'').trim())||e.querySelector('.fa-power-off,.glyphicon-off,[class*=power-off]')));if(e)e.click();return 'logout';})()""")
         handler.postDelayed({ clear() }, 1000)
     }
     fun destroy() {

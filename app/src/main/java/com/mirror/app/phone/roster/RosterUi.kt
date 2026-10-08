@@ -28,7 +28,10 @@ object RosterDisplay {
         val active = duties.filter { it.reportInstant != null && it.reportInstant <= now && it.releaseInstant != null && it.releaseInstant > now }.minByOrNull { it.reportInstant!! }
         if (active != null) return active
         val off = duties.firstOrNull { it.date == today && (it.type == DutyType.OFF || it.type == DutyType.LEAVE) }
-        return off ?: duties.filter { it.reportInstant != null && it.reportInstant > now }.minByOrNull { it.reportInstant!! }
+        if (off != null) return off
+        val upcoming = duties.filter { it.reportInstant != null && it.reportInstant > now }.minByOrNull { it.reportInstant!! }
+        val check = duties.filter { it.code == "CHECK" && it.date >= today }.minByOrNull { it.date }
+        return if (check != null && (upcoming == null || check.date <= upcoming.date)) check else upcoming
     }
     fun compact(c: Context, now: Instant = Instant.now()): String {
         val d = next(c, now) ?: return "Link eCrew or import a roster PDF"

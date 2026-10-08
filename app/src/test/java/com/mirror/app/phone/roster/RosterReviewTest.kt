@@ -70,6 +70,7 @@ class RosterReviewTest {
     @Test fun sourceChangeDoesNotReplaySameStage() {
         val d = ClockRoster.Duty(123, "MNL–TAG–MNL", 20_000_000, 30_000_000, date(8), false)
         val ecrew = d.copy(id = 456, sourceKey = "ecrew:2026-10-08:FLIGHT:621")
+        assertEquals(DeparturePlan.deliveryAlias(d), DeparturePlan.deliveryAlias(ecrew.copy(day = d.day.plusDays(1))))
         val settings = ClockSettings(departureEnabled = true, calendarId = 5)
         val first = DeparturePlan.alerts(listOf(d), settings, 0, emptyMap())
         assertEquals(2, first.size)

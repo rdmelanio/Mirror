@@ -15,7 +15,7 @@ object DeparturePlan {
             (!d.calendarTimes || s.allowCalendarStartAlerts)
     }
     fun occurrence(d: ClockRoster.Duty, s: ClockSettings) = d.sourceKey ?: "${s.calendarId}:${d.id}:${d.day}"
-    fun deliveryAlias(d: ClockRoster.Duty) = "report:${d.day}:${d.start}"
+    fun deliveryAlias(d: ClockRoster.Duty) = "report:${java.time.Instant.ofEpochMilli(d.start).atZone(ClockRoster.zone).toLocalDate()}:${d.start}"
     fun alerts(duties: List<ClockRoster.Duty>, s: ClockSettings, now: Long, delivered: Map<String, Int>): List<Alert> {
         if (!s.departureEnabled) return emptyList()
         return duties.filter { it.start > now && eligible(it, s) }.flatMap { d ->
