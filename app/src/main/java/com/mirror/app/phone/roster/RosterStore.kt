@@ -9,14 +9,22 @@ import java.io.File
 import java.time.*
 
 object CaptureLog {
-    @Synchronized fun add(c: Context, step: String, result: String, url: String? = null) {
+    private fun file(c: Context): File {
         val file = File(RosterStore.dir(c), "capture.log")
-        // Callers use fixed, non-personal result strings. Never include exception messages or page text.
-        val path = url?.let { runCatching { Uri.parse(it).path }.getOrNull() }.orEmpty()
-        val line = "${Instant.now()} $step $result ${path.substringBefore('?').substringBefore('#').replace('\n', ' ').take(200)}"
-        file.writeText((if (file.exists()) file.readLines().takeLast(199) else emptyList()).plus(line).joinToString("\n"))
+        val p = RosterStore.prefs(c)
+        // Earlier logs could contain page titles. Never share legacy unsanitized diagnostics.
+        if (p.getInt("captureLogFormat", 0) != 103) { file.delete(); p.edit().putInt("captureLogFormat", 103).apply() }
+        return file
     }
-    @Synchronized fun read(c: Context) = File(RosterStore.dir(c), "capture.log").let { if (it.exists()) it.readText() else "No capture steps" }
+    @Synchronized fun add(c: Context, step: String, result: String, url: String? = null) {
+        val file = file(c)
+        // Callers use fixed, non-personal result strings. Never include exception messages or page text.
+        val path = if (url == null) "" else EcrewLogRedaction.address(url)
+        val line = "${Instant.now()} $step ${result.replace('\n', ' ').replace('\r', ' ')} $path"
+        file.writeText((if (file.exists()) file.readLines().takeLast(999) else emptyList()).plus(line).joinToString("\n"))
+    }
+    @Synchronized fun read(c: Context) = file(c).let { if (it.exists()) it.readText() else "No capture steps" }
+
 }
 object RosterJson {
     private fun arr(items: List<JSONObject>) = JSONArray().apply { items.forEach { put(it) } }

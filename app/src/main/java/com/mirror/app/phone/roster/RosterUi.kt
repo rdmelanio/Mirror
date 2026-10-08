@@ -46,23 +46,27 @@ object RosterDisplay {
     fun legs(d: Duty) = d.legs.joinToString("\n") { "${if (it.deadhead) "DHC " else ""}5J${it.flightNo} ${it.depApt} ${if (it.depKind == "S") "" else it.depKind}${it.depTime.toLocalTime()} → ${it.arrApt} ${if (it.arrKind == "S") "" else it.arrKind}${it.arrTime.toLocalTime()} ${it.aircraft.orEmpty()}" }
 }
 class ECrewActivity : ComponentActivity() {
-    companion object { const val CLEAR_DATA = "clearEcrewData" }
     private var fetcher: RosterFetcher? = null
+    private var browser: EcrewBrowser? = null
+    private var plain = false
     private var web: WebView? = null
     private var lease: EcrewSessionCoordinator.Lease? = null
     private var screen: EcrewSessionCoordinator.Screen? = null
     private val lifetime = EcrewBrowserLifetime()
     private lateinit var root: LinearLayout
-    private fun lifecycle(event: String) = CaptureLog.add(this, "LIFECYCLE", "ECrewActivity $event ${fetcher?.instanceId.orEmpty()} INTERACTIVE")
+    private fun lifecycle(event: String) = CaptureLog.add(this, "LIFECYCLE", "${browser?.instanceId.orEmpty()} ${if (plain) "PLAIN" else "NORMAL"} INTERACTIVE ECrewActivity $event")
     override fun onCreate(state: Bundle?) {
         super.onCreate(state); if (!RosterStore.phone(this)) { finish(); return }
         RosterPrivacy.apply(this)
+        plain = RosterStore.prefs(this).getBoolean("plainBrowser", false)
         root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val top = LinearLayout(this)
         top.addView(action("Back") { back() }, LinearLayout.LayoutParams(-2, -2))
-        top.addView(action("Refresh") { fetcher?.reload() }, LinearLayout.LayoutParams(-2, -2))
-        top.addView(action("Fetch roster now") { fetcher?.start() }, LinearLayout.LayoutParams(-2, -2))
-        top.addView(action("Log out of eCrew") { fetcher?.logout() }, LinearLayout.LayoutParams(-2, -2))
+        top.addView(action(if (plain) "Reload" else "Refresh") { browser?.reload() }, LinearLayout.LayoutParams(-2, -2))
+        if (!plain) {
+            top.addView(action("Fetch roster now") { fetcher?.start() }, LinearLayout.LayoutParams(-2, -2))
+            top.addView(action("Log out of eCrew") { fetcher?.logoutFromTap() }, LinearLayout.LayoutParams(-2, -2))
+        } else top.addView(action("Copy log") { copyRosterLog() }, LinearLayout.LayoutParams(-2, -2))
         top.addView(action("Close") { finish() }, LinearLayout.LayoutParams(-2, -2))
         root.addView(HorizontalScrollView(this).apply { addView(top) })
         setContentView(root); insetContent(root, 0)
@@ -74,17 +78,18 @@ class ECrewActivity : ComponentActivity() {
         if (lifetime.create()) {
             val browser = WebView(this); web = browser
             root.addView(browser, LinearLayout.LayoutParams(-1, 0, 1f))
-            fetcher = RosterFetcher(this, browser, granted, lifetime = lifetime) { success ->
-                Toast.makeText(this, if (success) "Roster updated" else "Fetch failed — try Print manually or import a PDF", Toast.LENGTH_LONG).show()
+            if (plain) {
+                this.browser = EcrewPlainBrowser(this, browser, granted, lifetime)
+                Toast.makeText(this, "Plain browser mode — Mirror automation disabled", Toast.LENGTH_LONG).show()
+            } else {
+                fetcher = RosterFetcher(this, browser, granted, lifetime = lifetime) { success ->
+                    Toast.makeText(this, if (success) "Roster updated" else "Fetch failed — try Print manually or import a PDF", Toast.LENGTH_LONG).show()
+                }
+                this.browser = fetcher
             }
             lifecycle("create")
-            if (intent.getBooleanExtra(CLEAR_DATA, false)) fetcher?.requestClearData()
-            fetcher?.open()
+            this.browser?.open()
         }
-    }
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent); setIntent(intent)
-        if (intent.getBooleanExtra(CLEAR_DATA, false)) fetcher?.requestClearData()
     }
     private fun back() { val browser = web; if (browser?.canGoBack() == true) browser.goBack() else finish() }
     override fun onStart() {
@@ -102,7 +107,7 @@ class ECrewActivity : ComponentActivity() {
     override fun onDestroy() {
         if (::root.isInitialized) lifecycle("destroy")
         if (lifetime.destroy()) {
-            web?.let { root.removeView(it) }; fetcher?.destroy(); fetcher = null; web = null
+            web?.let { root.removeView(it) }; browser?.destroy(); browser = null; fetcher = null; web = null
         }
         lease?.close(); lease = null; screen?.close(); screen = null
         super.onDestroy()
@@ -173,7 +178,8 @@ class RosterLogActivity : Activity() {
         RosterPrivacy.apply(this)
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(action("Back") { finish() }); val log = label(CaptureLog.read(this), 12f)
-        root.addView(action("Copy log") { getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Mirror capture log", CaptureLog.read(this))) })
+        root.addView(action("Copy log") { copyRosterLog() })
+        root.addView(action("Share log as text file") { shareRosterLog() })
         root.addView(action("Share last PDF") {
             AlertDialog.Builder(this).setMessage("This PDF contains private crew information. Share it only with a recipient you trust.").setNegativeButton("Cancel", null).setPositiveButton("Share") { _, _ ->
                 val file = File(RosterStore.dir(this), "latest.pdf")
@@ -185,7 +191,12 @@ class RosterLogActivity : Activity() {
         })
         root.addView(action("Clear data") {
             AlertDialog.Builder(this).setMessage("Delete private roster PDFs, parsed data, capture log and eCrew session?").setNegativeButton("Cancel", null).setPositiveButton("Clear") { _, _ ->
-                startActivity(Intent(this, ECrewActivity::class.java).putExtra(ECrewActivity.CLEAR_DATA, true)); log.text = "Opening eCrew to log out before clearing origin and roster data"
+                EcrewBrowsers.current?.pauseForLocalClear()
+                val wasPlain = RosterStore.prefs(this).getBoolean("plainBrowser", false)
+                RosterStore.clear(this)
+                RosterStore.prefs(this).edit().putBoolean("plainBrowser", wasPlain).apply()
+                File(cacheDir, "roster-logs").deleteRecursively()
+                EcrewStorage.clearLocal(this) { log.text = CaptureLog.read(this); Toast.makeText(this, "Local eCrew and roster data cleared", Toast.LENGTH_SHORT).show() }
             }.show()
         }); root.addView(log); setContentView(ScrollView(this).apply { addView(root) }); insetContent(root, 12)
     }
@@ -196,6 +207,15 @@ class RosterSettingsActivity : Activity() {
         RosterPrivacy.apply(this)
         val p = RosterStore.prefs(this); val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(action("Back") { finish() }); root.addView(label("ROSTER ALARMS & REFRESH", 24f))
+        root.addView(Switch(this).apply {
+            text = "eCrew plain browser (diagnostic)"; isChecked = p.getBoolean("plainBrowser", false)
+            setOnCheckedChangeListener { _, on ->
+                p.edit().putBoolean("plainBrowser", on).apply()
+                if (on) EcrewBrowsers.current?.pauseForLocalClear()
+                RosterWork.configure(this@RosterSettingsActivity)
+                Toast.makeText(this@RosterSettingsActivity, "Close and reopen eCrew to apply browser mode", Toast.LENGTH_LONG).show()
+            }
+        })
         root.addView(action("Refresh interval: ${p.getInt("interval", 30)} min") {
             AlertDialog.Builder(this).setItems(arrayOf("15 min", "30 min", "60 min")) { _, i -> p.edit().putInt("interval", listOf(15, 30, 60)[i]).apply(); RosterWork.configure(this); show() }.show()
         })
@@ -223,4 +243,16 @@ class RosterSettingsActivity : Activity() {
             RosterAlarms.save(this, values); show()
         }.show()
     }
+}
+
+private fun Context.copyRosterLog() {
+    getSystemService(android.content.ClipboardManager::class.java)
+        .setPrimaryClip(ClipData.newPlainText("Mirror capture log", CaptureLog.read(this)))
+}
+private fun Activity.shareRosterLog() {
+    val directory = File(cacheDir, "roster-logs").apply { mkdirs() }
+    val file = File(directory, "mirror-ecrew-log.txt").apply { writeText(CaptureLog.read(this@shareRosterLog), Charsets.UTF_8) }
+    val uri = FileProvider.getUriForFile(this, "$packageName.rosterfiles", file)
+    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain")
+        .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share eCrew diagnostic log"))
 }

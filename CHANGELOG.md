@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.10.3 — eCrew redirect-loop diagnostics
+
+- Add the phone-only “eCrew plain browser (diagnostic)” setting, default off. It uses a separate WebView wrapper with unmodified UA/default networking, cookies, DOM/database storage and passive logging. No fetcher, scripts, bridge, storage cleanup, logout or automatic/background refresh runs in this mode.
+- Record redacted request paths, override/redirect/gesture/frame flags, all-frame HTTP/network errors, cancelled SSL errors, safe console diagnostics and per-navigation eCrew cookie counts, with browser instance, mode and owner. Observe requests without intercepting responses or making duplicate requests.
+- Detect three root/Dashboard alternations within one minute once per browser. Normal mode pauses hooks, polls, downloads and queued work without retrying. A new browser plus an explicit fetch can resume automation; plain mode continues browsing unchanged.
+- Remove pending logout intents and retries. Portal logout is attempted only once on an eligible explicit tap. Capture-log Clear data clears private roster data and native eCrew cookies/WebStorage locally, with no browser creation or navigation.
+- Keep 1,000 capture lines and allow explicit sharing as a private text-file attachment. Reset legacy logs that could contain titles; redact URL identifiers, query strings, long tokens and page payloads before logging.
+- Add JVM coverage for redaction, request deduplication, loops and explicit-only logout. Parser, alarms, clock face, TV, camera and signing are unchanged.
+
 ## 1.10.2
 
 - Keep one phone eCrew WebView and its session lease for the complete activity lifetime, including stop/start, fold, rotation and other configuration changes. Interactive fetches use the current document; only an explicit Refresh reloads it.

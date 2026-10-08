@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class RosterFetcher(private val c: Context, val web: WebView,
     private val lease: EcrewSessionCoordinator.Lease, private val background: Boolean = false,
     private val lifetime: EcrewBrowserLifetime = EcrewBrowserLifetime().apply { create() },
-    private val completed: (Boolean) -> Unit = {}) {
+    private val completed: (Boolean) -> Unit = {}) : EcrewBrowser {
     companion object {
         const val ORIGIN = "https://ecrew.cebupacificair.com"
         const val DASHBOARD = "$ORIGIN/eCrew/Dashboard/"
@@ -44,25 +44,23 @@ class RosterFetcher(private val c: Context, val web: WebView,
     private var linkedInDocument = false
     private var lastPdfHash = 0
     private var loggingOut = false
-    val instanceId = java.util.UUID.randomUUID().toString().take(8)
+    override val instanceId = java.util.UUID.randomUUID().toString().take(8)
+    override val mode = "NORMAL"
     private val owner = if (background) "WORKER" else "INTERACTIVE"
+    private val diagnostics = EcrewDiagnostics(c, instanceId, mode, owner) { pauseForLoop() }
+    private val logoutGate = EcrewLogoutGate()
+    private var paused = false
     private val logoutOrder = EcrewLogoutOrder()
-    private var clearRosterOnLogout = false
-    private var logoutRequested = false
     private var freshStorageCleared = false
     private var terminated = false
     private var clearingStorage = false
     private val logoutTimeout = Runnable {
         if (logoutOrder.timeout(SystemClock.elapsedRealtime())) {
-            loggingOut = false; logoutRequested = false
-            CaptureLog.add(c, "LOGOUT", "Login was not reached within 10 s; storage retained")
+            loggingOut = false
+            diagnostics.add("LOGOUT", "Login was not reached within 10 s; storage retained")
             Toast.makeText(c, "eCrew logout did not reach Login. Use eCrew’s logout and try again.", Toast.LENGTH_LONG).show()
         }
     }
-    private val storageTimeout = Runnable {
-        if (clearingStorage) storageFinished(false)
-    }
-    private fun navigation(result: String, url: String?) = CaptureLog.add(c, "NAVIGATION", "$instanceId $owner $result", url)
     private fun loginShown(ready: Boolean = false) {
         if (loggingOut) {
             if (ready && logoutOrder.loginShown(true, SystemClock.elapsedRealtime())) clearAfterLogout()
@@ -73,9 +71,9 @@ class RosterFetcher(private val c: Context, val web: WebView,
     }
     private val timeout = Runnable { finish(false, "90 s timeout") }
     private val poll = Runnable { drive() }
-    private val firstFetch = Runnable { if (allowed() && !active && !login(web.url)) start() }
+    private val firstFetch = Runnable { if (allowed() && !active && !login(web.url) && !RosterStore.prefs(c).getBoolean("loopPaused", false)) start() }
     private fun allowed() = !dead && lease.ownsSession() && RosterStore.phone(c)
-    private fun captureAllowed() = allowed() && active && step in listOf("CLICK_PRINT", "CAPTURE_PDF")
+    private fun captureAllowed() = allowed() && !paused && active && step in listOf("CLICK_PRINT", "CAPTURE_PDF")
     init {
         check(Looper.myLooper() == Looper.getMainLooper())
         web.settings.apply {
@@ -90,17 +88,12 @@ class RosterFetcher(private val c: Context, val web: WebView,
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             WebViewCompat.addWebMessageListener(web, "MirrorPdf", setOf(ORIGIN)) { _, message, origin, mainFrame, _ ->
-                if (!allowed() || !mainFrame || !trusted(origin.toString()) || login(web.url) || !trusted(web.url)) return@addWebMessageListener
+                if (!allowed() || paused || !mainFrame || !trusted(origin.toString()) || login(web.url) || !trusted(web.url)) return@addWebMessageListener
                 val data = message.data ?: return@addWebMessageListener
                 if (data.length > LIMIT * 4 / 3 + 256) return@addWebMessageListener
                 val j = runCatching { JSONObject(data) }.getOrNull() ?: return@addWebMessageListener
                 when (j.optString("kind")) {
                     "terminated" -> sessionTerminated()
-                    "storageCleared" -> if (clearingStorage && web.url == EcrewStorage.CLEANUP_URL) {
-                        for (key in listOf("storage", "idb", "workers", "cache"))
-                            CaptureLog.add(c, "STORAGE", "eCrew $key cleared: ${j.optBoolean(key)}")
-                        storageFinished(listOf("storage", "idb", "workers", "cache").all { j.optBoolean(it) })
-                    }
                     "print" -> if (!background && !terminated && !loggingOut && !clearingStorage) {
                         manual = true; active = true; captured = false; nextMonth = false; attemptedDownloads.clear()
                         handler.removeCallbacks(firstFetch); handler.removeCallbacks(timeout); setStep("CAPTURE_PDF")
@@ -112,51 +105,49 @@ class RosterFetcher(private val c: Context, val web: WebView,
                     }
                 }
             }
-        } else CaptureLog.add(c, "CAPTURE_PDF", "origin-scoped blob bridge unavailable; download or import available")
+        } else diagnostics.add("CAPTURE_PDF", "origin-scoped blob bridge unavailable; download or import available")
         web.setDownloadListener { url, _, _, _, _ ->
             // The browser explicitly delivered a download, rather than a guessed report URL.
             handler.post { if (captureAllowed()) obtain(url) }
         }
-        web.webViewClient = object : WebViewClient() {
+        diagnostics.currentUrl = { web.url }
+        EcrewBrowsers.current = this
+        web.webViewClient = object : EcrewDiagnostics.Client(diagnostics) {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                super.shouldOverrideUrlLoading(view, request)
                 val url = request.url.toString()
-                return !allowed() || (!trusted(url) && !url.startsWith("blob:"))
+                val blocked = !allowed() || (!trusted(url) && !url.startsWith("blob:"))
+                if (blocked) diagnostics.add("OVERRIDE", "blocked by NORMAL origin policy", url)
+                return blocked
             }
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                super.onPageStarted(view, url, favicon)
                 linkedInDocument = false
                 if (trusted(url)) lifetime.sawEcrewPage()
-                if (clearingStorage) { navigation("origin cleanup document started", url); return }
-                if (login(url)) {
-                    navigation("login page shown", url)
-                    loginShown()
-                } else navigation("main frame started", url)
+                if ((!paused || loggingOut) && login(url)) loginShown()
             }
             override fun onPageFinished(view: WebView, url: String?) {
-                if (!allowed()) return
-                if (clearingStorage) { navigation("origin cleanup document finished", url); return }
-                if (login(url)) { loginShown(ready = true); if (logoutRequested && !loggingOut) logout(); return } // No evaluation or field access on Login.
+                super.onPageFinished(view, url)
+                if (!allowed() || (paused && !loggingOut) || clearingStorage) return
+                if (login(url)) { loginShown(ready = true); return }
                 if (!trusted(url)) return
-                navigation("main frame finished; HTTP status unavailable; title=${view.title.orEmpty().replace('\n', ' ').replace('\r', ' ').take(120)}", url)
-                if (logoutRequested && !loggingOut) logout() else if (!loggingOut) { if (active) drive() else detectLinked() }
-            }
-            override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
-                if (request.isForMainFrame) navigation(if (login(request.url.toString())) "login page shown; HTTP ${response.statusCode}" else "HTTP ${response.statusCode}", request.url.toString())
+                if (!loggingOut) { if (active) drive() else detectLinked() }
             }
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (request.isForMainFrame) { navigation("main frame failed", request.url.toString()); if (active) finish(false, "navigation failed") }
+                super.onReceivedError(view, request, error)
+                if (request.isForMainFrame && active) finish(false, "navigation failed")
             }
             override fun doUpdateVisitedHistory(view: WebView, url: String?, reload: Boolean) {
-                if (!allowed() || clearingStorage) return
-                navigation(if (login(url)) "login page shown" else "history updated", url)
-                if (login(url)) { loginShown() }
-                else if (trusted(url) && !active && !linkedInDocument) detectLinked()
+                super.doUpdateVisitedHistory(view, url, reload)
+                if (!allowed() || paused || clearingStorage) return
+                if (login(url)) loginShown()
+                else if (trusted(url) && !active && !linkedInDocument && !loggingOut) detectLinked()
             }
-            // No shouldInterceptRequest override: browsing never duplicates authenticated requests.
         }
-        web.webChromeClient = object : WebChromeClient() {
+        web.webChromeClient = object : EcrewDiagnostics.Chrome(diagnostics) {
             override fun onReceivedTitle(view: WebView, title: String?) {
-                if (allowed() && !clearingStorage && !loggingOut && trusted(view.url) && !login(view.url)) {
-                    navigation("title=${title.orEmpty().replace('\n', ' ').replace('\r', ' ').take(120)}", view.url)
+                // Titles may contain account names: don't retain them in a shareable diagnostic log.
+                if (allowed() && !paused && !clearingStorage && !loggingOut && trusted(view.url) && !login(view.url)) {
                     if (!active && !linkedInDocument) detectLinked()
                 }
             }
@@ -170,11 +161,12 @@ class RosterFetcher(private val c: Context, val web: WebView,
             WebSettingsCompat.setRequestedWithHeaderOriginAllowList(web.settings, emptySet())
         }
     }
-    fun open() { if (allowed() && lifetime.open()) web.loadUrl(DASHBOARD) }
-    fun reload() { if (allowed() && !loggingOut && !clearingStorage) web.reload() }
+    override fun open() { if (allowed() && lifetime.open()) web.loadUrl(DASHBOARD) }
+    override fun reload() { if (allowed() && !loggingOut && !clearingStorage) web.reload() }
     fun start() {
-        if (!allowed() || active || loggingOut || clearingStorage || terminated || login(web.url)) return
+        if (!allowed() || active || loggingOut || clearingStorage || paused || terminated || login(web.url)) return
         handler.removeCallbacks(firstFetch)
+        if (!background) RosterStore.prefs(c).edit().putBoolean("loopPaused", false).apply()
         active = true; manual = false; captured = false; nextMonth = false; attemptedDownloads.clear()
         handler.postDelayed(timeout, 90_000)
         if (!background) {
@@ -182,17 +174,17 @@ class RosterFetcher(private val c: Context, val web: WebView,
             setStep("OPEN_MY_SCHEDULE"); drive()
         } else { setStep("LOAD_DASHBOARD"); open() }
     }
-    private fun setStep(value: String) { step = value; since = SystemClock.elapsedRealtime(); CaptureLog.add(c, step, "started") }
+    private fun setStep(value: String) { step = value; since = SystemClock.elapsedRealtime(); diagnostics.add(step, "started") }
     private fun eval(script: String, done: (String) -> Unit = {}) {
-        if (!allowed() || login(web.url) || !trusted(web.url)) return
-        web.evaluateJavascript(script) { if (allowed() && !login(web.url) && trusted(web.url)) done(runCatching { org.json.JSONTokener(it).nextValue()?.toString().orEmpty() }.getOrDefault("")) }
+        if (!allowed() || paused || login(web.url) || !trusted(web.url)) return
+        web.evaluateJavascript(script) { if (allowed() && !paused && !login(web.url) && trusted(web.url)) done(runCatching { org.json.JSONTokener(it).nextValue()?.toString().orEmpty() }.getOrDefault("")) }
     }
     private fun linked() {
-        if (loggingOut || clearingStorage || terminated) return
+        if (paused || loggingOut || clearingStorage || terminated) return
         val firstInDocument = !linkedInDocument
         linkedInDocument = true
         val p = RosterStore.prefs(c); val fresh = !p.getBoolean("linked", false) || p.getBoolean("expired", false)
-        if (firstInDocument) CaptureLog.add(c, "SESSION", "$instanceId $owner eCrew cookie count after login: ${EcrewStorage.cookieCount()}")
+        if (firstInDocument) diagnostics.add("SESSION", "$instanceId $owner eCrew cookie count after login: ${EcrewStorage.cookieCount()}")
         p.edit().putBoolean("linked", true).putBoolean("expired", false).apply(); CookieManager.getInstance().flush()
         if (!background) {
             p.edit().putLong("lastInteractive", System.currentTimeMillis()).apply()
@@ -238,7 +230,7 @@ class RosterFetcher(private val c: Context, val web: WebView,
         s.observer=new MutationObserver(()=>{if(s.watchTimer)clearTimeout(s.watchTimer);s.watchTimer=setTimeout(watch,100);});
         s.observer.observe(document.documentElement,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['class','style','hidden']});watch();
         document.addEventListener('click',e=>{const target=e.target.closest('button,a,[role=button],input[type=button]');if(target&&visible(target)&&(target.tagName==='INPUT'?target.value:text(target)).trim().toLowerCase()==='print'){
-          if(e.isTrusted){s.install();s.capture=true;send({kind:'print'});}
+          if(e.isTrusted&&!s.disabled){s.install();s.capture=true;send({kind:'print'});}
         }},true);
       }
       const s=window.__mirrorRoster,mode='$mode';
@@ -287,7 +279,7 @@ class RosterFetcher(private val c: Context, val web: WebView,
         attemptedDownloads += url
         val ua = web.settings.userAgentString; val referer = web.url.orEmpty()
         val cookies = CookieManager.getInstance().getCookie(url).orEmpty()
-        CaptureLog.add(c, "CAPTURE_PDF", "browser download candidate", url)
+        diagnostics.add("CAPTURE_PDF", "browser download candidate", url)
         pool.execute {
             try {
                 var current = url
@@ -297,19 +289,19 @@ class RosterFetcher(private val c: Context, val web: WebView,
                     request.connectTimeout = 10_000; request.readTimeout = 15_000; request.instanceFollowRedirects = false
                     request.setRequestProperty("Cookie", cookies); request.setRequestProperty("User-Agent", ua); request.setRequestProperty("Referer", referer)
                     try {
-                        val status = request.responseCode; CaptureLog.add(c, "CAPTURE_PDF", "HTTP $status", current)
+                        val status = request.responseCode; diagnostics.add("CAPTURE_PDF", "HTTP $status", current)
                         if (status in 300..399) { current = URL(URL(current), request.getHeaderField("Location") ?: break).toString(); if (login(current)) { handler.post { expire() }; break }; continue }
                         if (status == 200) request.inputStream.use { capture(it.readBytesLimited(LIMIT)) }
                         break
                     } finally { request.disconnect(); connection = null }
                 }
-            } catch (_: Exception) { if (!dead) CaptureLog.add(c, "CAPTURE_PDF", "download failed", url) }
+            } catch (_: Exception) { if (!dead) diagnostics.add("CAPTURE_PDF", "download failed", url) }
             finally { downloading.set(false) }
         }
     }
     private fun capture(bytes: ByteArray) {
         if (!captureAllowed() || bytes.size < 4 || !bytes.copyOfRange(0,4).contentEquals("%PDF".toByteArray()) || bytes.contentHashCode() == lastPdfHash) return
-        lastPdfHash = bytes.contentHashCode(); CaptureLog.add(c, "CAPTURE_PDF", "PDF captured")
+        lastPdfHash = bytes.contentHashCode(); diagnostics.add("CAPTURE_PDF", "PDF captured")
         val success = RosterStore.accept(c, bytes, interactive = !background)
         handler.post {
             if (!allowed() || !active) return@post
@@ -334,60 +326,57 @@ class RosterFetcher(private val c: Context, val web: WebView,
         val wasActive = active; active = false; connection?.disconnect(); connection = null
         handler.removeCallbacks(timeout); handler.removeCallbacks(poll)
         if (allowed() && !login(web.url)) eval(script("STOP", false))
-        CaptureLog.add(c, step, result)
+        diagnostics.add(step, result)
         if (wasActive) completed(success || captured)
     }
     private fun sessionTerminated() {
-        if (terminated || loggingOut || clearingStorage) return
+        if (terminated || loggingOut || clearingStorage || paused) return
         terminated = true; handler.removeCallbacks(firstFetch)
-        CaptureLog.add(c, "SESSION", "$instanceId $owner SESSION_TERMINATED by eCrew")
+        diagnostics.add("SESSION", "$instanceId $owner SESSION_TERMINATED by eCrew")
         RosterStore.prefs(c).edit().putBoolean("expired", true).apply(); RosterWork.cancel(c)
         finish(false, "eCrew terminated session")
         Toast.makeText(c, "eCrew ended this session (another session detected). Log out of the eCrew app/Chrome, then log in again.", Toast.LENGTH_LONG).show()
     }
-    fun requestClearData() {
-        clearRosterOnLogout = true; logoutRequested = true
-        if (trusted(web.url)) logout()
-    }
-    fun logout() {
-        if (!allowed() || loggingOut || clearingStorage) return
-        if (!trusted(web.url)) { logoutRequested = true; return }
-        loggingOut = true; logoutRequested = true; handler.removeCallbacks(firstFetch)
-        finish(false, "manual logout requested; waiting for Login"); RosterWork.cancel(c)
-        logoutOrder.begin(SystemClock.elapsedRealtime()); handler.postDelayed(logoutTimeout, 10_000)
-        if (login(web.url)) { loginShown(ready = web.progress == 100); return }
-        eval("""(function(){const e=Array.from(document.querySelectorAll('button,a,[role=button]')).find(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden'&&(/^(log out|logout|sign out)$/i.test((e.innerText||e.textContent||'').trim())||/^(log out|logout|sign out)$/i.test((e.getAttribute('title')||e.getAttribute('aria-label')||'').trim())||e.querySelector('.fa-power-off,.glyphicon-off,[class*=power-off]')));if(e)e.click();return e?'clicked':'missing';})()""") {
-            CaptureLog.add(c, "LOGOUT", "eCrew logout control $it; awaiting Login")
+    /** The only caller is the screen's explicit logout tap. Ineligible taps are discarded. */
+    fun logoutFromTap() {
+        logoutGate.tap(allowed() && !loggingOut && !clearingStorage && trusted(web.url) && !login(web.url)) {
+            loggingOut = true; handler.removeCallbacks(firstFetch)
+            finish(false, "explicit logout tap; waiting for Login"); RosterWork.cancel(c)
+            logoutOrder.begin(SystemClock.elapsedRealtime()); handler.postDelayed(logoutTimeout, 10_000)
+            web.evaluateJavascript("""(function(){if(location.origin!=='$ORIGIN'||location.pathname.toLowerCase().includes('/login'))return 'blocked';const e=Array.from(document.querySelectorAll('button,a,[role=button]')).find(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden'&&(/^(log out|logout|sign out)$/i.test((e.innerText||e.textContent||'').trim())||/^(log out|logout|sign out)$/i.test((e.getAttribute('title')||e.getAttribute('aria-label')||'').trim())||e.querySelector('.fa-power-off,.glyphicon-off,[class*=power-off]')));if(e)e.click();return e?'clicked':'missing';})()""") { result ->
+                diagnostics.add("LOGOUT", if (result == "\"clicked\"") "eCrew logout control clicked; no deferred retry" else "eCrew logout control unavailable; no deferred retry")
+            }
         }
     }
     private fun clearAfterLogout() {
-        handler.removeCallbacks(logoutTimeout)
-        CaptureLog.add(c, "LOGOUT", "Login reached; origin cleanup begins")
+        handler.removeCallbacks(logoutTimeout); clearingStorage = true
+        diagnostics.add("LOGOUT", "Login reached after explicit tap; local cleanup only")
         RosterStore.prefs(c).edit().putBoolean("linked", false).putBoolean("expired", false).apply()
         com.mirror.app.phone.DepartureAlerts.configure(c)
-        clearingStorage = true
-        EcrewStorage.clear(c, web, ::allowed) {
-            if (!allowed()) return@clear
-            handler.postDelayed(storageTimeout, 10_000)
-            web.loadDataWithBaseURL(EcrewStorage.CLEANUP_URL, EcrewStorage.cleanupDocument, "text/html", "UTF-8", EcrewStorage.CLEANUP_URL)
+        EcrewStorage.clearLocal(c) {
+            clearingStorage = false; loggingOut = false; terminated = false
+            freshStorageCleared = true; autoStarted = false; linkedInDocument = false
+            logoutOrder.complete()
+            diagnostics.add("SESSION", "eCrew cookie count after logout: ${EcrewStorage.cookieCount()}")
         }
     }
-    private fun storageFinished(success: Boolean) {
-        if (!clearingStorage) return
-        handler.removeCallbacks(storageTimeout); clearingStorage = false
-        logoutOrder.complete(); loggingOut = false; logoutRequested = false; terminated = false
-        freshStorageCleared = true; autoStarted = false; linkedInDocument = false
-        if (clearRosterOnLogout) { RosterStore.clear(c); clearRosterOnLogout = false }
-        CaptureLog.add(c, "STORAGE", if (success) "eCrew origin cleanup complete" else "eCrew origin cleanup incomplete; inspect storage steps")
-        CaptureLog.add(c, "SESSION", "$instanceId $owner eCrew cookie count after logout: ${EcrewStorage.cookieCount()}")
-        if (allowed()) {
-            web.loadUrl("$ORIGIN/eCrew/Login")
-            Toast.makeText(c, if (success) "eCrew session cleared" else "Some eCrew storage could not be cleared — see capture log", Toast.LENGTH_LONG).show()
-        }
+    private fun pauseForLoop() { RosterStore.prefs(c).edit().putBoolean("loopPaused", true).apply(); pauseAutomation("eCrew is reloading by itself — automation paused") }
+    override fun pauseForLocalClear() { pauseAutomation(null) }
+    private fun pauseAutomation(toast: String?) {
+        if (paused) return
+        // Restore capture hooks in the existing document only; never click or navigate.
+        if (allowed() && !login(web.url)) eval("if(window.__mirrorRoster){const s=window.__mirrorRoster;s.disabled=true;s.stop();if(s.observer)s.observer.disconnect();if(s.watchTimer)clearTimeout(s.watchTimer);}")
+        paused = true; val wasActive = active; active = false; loggingOut = false
+        handler.removeCallbacksAndMessages(null); connection?.disconnect(); connection = null
+        RosterWork.cancel(c)
+        diagnostics.add("AUTOMATION", "paused for this WebView; no auto-retry")
+        if (toast != null) Toast.makeText(c, toast, Toast.LENGTH_LONG).show()
+        if (wasActive && background) completed(false)
     }
-    fun destroy() {
+    override fun destroy() {
         if (dead) return
-        if (allowed() && !login(web.url)) eval(script("STOP", false))
+        if (allowed() && !paused && !login(web.url)) eval(script("STOP", false))
+        if (EcrewBrowsers.current === this) EcrewBrowsers.current = null
         dead = true; active = false; lifetime.destroy(); handler.removeCallbacksAndMessages(null); connection?.disconnect(); connection = null; pool.shutdownNow()
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) WebViewCompat.removeWebMessageListener(web, "MirrorPdf")
         web.stopLoading(); web.destroy()

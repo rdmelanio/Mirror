@@ -11,7 +11,7 @@ object RosterWork {
     fun configure(c: Context) {
         if (!RosterStore.phone(c)) { cancel(c); return }
         val p = RosterStore.prefs(c)
-        if (!p.getBoolean("linked", false) || p.getBoolean("expired", false)) { cancel(c); return }
+        if (p.getBoolean("plainBrowser", false) || p.getBoolean("loopPaused", false) || !p.getBoolean("linked", false) || p.getBoolean("expired", false)) { cancel(c); return }
         val minutes = EcrewRefreshPolicy.interval(p.getInt("interval", 30))
         val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
         val policy = if (p.getInt("scheduleRevision", 0) != 101 || p.getInt("scheduledInterval", 0) != minutes) ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE else ExistingPeriodicWorkPolicy.UPDATE
@@ -30,7 +30,7 @@ object RosterWork {
     fun onOpen(c: Context) {
         if (!RosterStore.phone(c) || EcrewSessionLock.coordinator.activityOpen()) return
         val p = RosterStore.prefs(c); val now = System.currentTimeMillis()
-        if (p.getBoolean("linked", false) && !p.getBoolean("expired", false) && now - p.getLong("lastSuccess", 0) > 600_000 && EcrewRefreshPolicy.allowed(now, p.getLong("lastInteractive", 0)))
+        if (!p.getBoolean("plainBrowser", false) && !p.getBoolean("loopPaused", false) && p.getBoolean("linked", false) && !p.getBoolean("expired", false) && now - p.getLong("lastSuccess", 0) > 600_000 && EcrewRefreshPolicy.allowed(now, p.getLong("lastInteractive", 0)))
             WorkManager.getInstance(c).enqueueUniqueWork("roster-open", ExistingWorkPolicy.KEEP,
                 OneTimeWorkRequestBuilder<RosterWorker>().setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build())
     }
@@ -46,10 +46,10 @@ class RosterWorker(c: Context, params: WorkerParameters) : Worker(c, params) {
     private fun close() { fetcher?.destroy(); fetcher = null; lease?.close(); lease = null; latch.countDown() }
     override fun doWork(): Result {
         val c = applicationContext; val p = RosterStore.prefs(c)
-        if (!RosterStore.phone(c) || !p.getBoolean("linked", false) || p.getBoolean("expired", false)) return Result.success()
+        if (!RosterStore.phone(c) || p.getBoolean("plainBrowser", false) || p.getBoolean("loopPaused", false) || !p.getBoolean("linked", false) || p.getBoolean("expired", false)) return Result.success()
         val main = Handler(Looper.getMainLooper())
         main.post {
-            if (isStopped) { close(); return@post }
+            if (isStopped || p.getBoolean("plainBrowser", false) || p.getBoolean("loopPaused", false) || !p.getBoolean("linked", false) || p.getBoolean("expired", false)) { close(); return@post }
             val granted = EcrewSessionLock.coordinator.acquireWorker(System.currentTimeMillis(), p.getLong("lastInteractive", 0)) {
                 CaptureLog.add(c, "SESSION", "worker yielded to interactive screen"); close()
             }
