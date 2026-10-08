@@ -32,8 +32,7 @@ class RosterAlarmActivity : Activity() {
             val leg = plan.duty.legs.firstOrNull(); detail.text = "Report ${plan.duty.reportLocal?.toLocalTime()} ${leg?.depApt ?: "MNL"} · ${leg?.let { "5J${it.flightNo} → ${it.arrApt}" } ?: plan.duty.code} · T-${minutes / 60}:${(minutes % 60).toString().padStart(2, '0')}"
             handler.postDelayed(this, 500)
         } }; handler.post(update)
-        if (Build.VERSION.SDK_INT >= 33) registerReceiver(stopped, IntentFilter("com.mirror.app.ROSTER_SOUND_STOPPED"), RECEIVER_NOT_EXPORTED)
-        else { @Suppress("DEPRECATION") registerReceiver(stopped, IntentFilter("com.mirror.app.ROSTER_SOUND_STOPPED")) }
+        androidx.core.content.ContextCompat.registerReceiver(this, stopped, IntentFilter("com.mirror.app.ROSTER_SOUND_STOPPED"), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         setContentView(root)
     }
     private fun acknowledge() { startService(Intent(this, RosterSoundService::class.java).setAction(RosterSoundService.STOP)); finish() }
