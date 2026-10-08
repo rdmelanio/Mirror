@@ -20,7 +20,7 @@ object DepartureAlerts {
     private val main = Handler(Looper.getMainLooper())
     private var generation = 0
     fun prefs(c: Context) = c.getSharedPreferences("mirror_departure_runtime", Context.MODE_PRIVATE)
-    fun configuration(s: ClockSettings) = listOf(s.departureEnabled, s.calendarId, s.cautionEnabled, s.warningEnabled,
+    fun configuration(s: ClockSettings) = listOf(s.departureSource, s.departureEnabled, s.calendarId, s.cautionEnabled, s.warningEnabled,
         s.cautionMinutes, s.warningMinutes, s.warningSeconds, s.excludedDutyCodes, s.allowCalendarStartAlerts, s.cautionSound, s.warningSound)
     fun exactAllowed(c: Context) = Build.VERSION.SDK_INT < 31 || c.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
     fun notificationsAllowed(c: Context): Boolean {
@@ -41,6 +41,9 @@ object DepartureAlerts {
             jobs.cancel(PERIODIC); jobs.cancel(CHANGES); acknowledge(c)
             prefs(c).edit().putString("status", "Departure alerts are off").remove("next").apply(); complete?.invoke(); return
         }
+        if (DepartureRosterSource.select(c, s) == DepartureSourcePolicy.Source.ECREW) {
+            jobs.cancel(PERIODIC); jobs.cancel(CHANGES); refresh(c, complete); return
+        }
         if (!ClockCalendar.hasPermission(c) || s.calendarId < 0) {
             jobs.cancel(PERIODIC); jobs.cancel(CHANGES); acknowledge(c)
             prefs(c).edit().putString("status", "Choose a roster calendar and allow calendar read access").remove("next").apply()
@@ -52,24 +55,25 @@ object DepartureAlerts {
         refresh(c, complete)
     }
     internal fun watchChanges(c: Context) {
-        if (!ClockSettings.load(c).departureEnabled) return
+        if (!ClockSettings.load(c).departureEnabled || DepartureRosterSource.select(c) != DepartureSourcePolicy.Source.CALENDAR) return
         c.getSystemService(JobScheduler::class.java).schedule(JobInfo.Builder(CHANGES, ComponentName(c, DepartureRefreshJob::class.java))
             .addTriggerContentUri(JobInfo.TriggerContentUri(CalendarContract.CONTENT_URI, JobInfo.TriggerContentUri.FLAG_NOTIFY_FOR_DESCENDANTS))
             .setTriggerContentUpdateDelay(1000).setTriggerContentMaxDelay(5000).build())
     }
     fun refresh(context: Context, complete: (() -> Unit)? = null, fireToken: String? = null, sync: Boolean = fireToken == null) {
         val c = context.applicationContext; val s = ClockSettings.load(c); val epoch = generation
+        val source = DepartureRosterSource.select(c, s)
         worker.execute {
-            val result = runCatching { ClockCalendar.readForDeparture(c, s.calendarId, sync) }
+            val result = runCatching { if (source == DepartureSourcePolicy.Source.ECREW) DepartureRosterSource.snapshot(c) else ClockCalendar.readForDeparture(c, s.calendarId, sync) }
             main.post {
                 try {
-                    if (epoch != generation || configuration(s) != configuration(ClockSettings.load(c))) return@post
+                    if (epoch != generation || configuration(s) != configuration(ClockSettings.load(c)) || source != DepartureRosterSource.select(c)) return@post
                     result.fold(onSuccess = { snapshot ->
-                        ClockCalendar.writeCache(c, snapshot)
+                        if (source == DepartureSourcePolicy.Source.CALENDAR) ClockCalendar.writeCache(c, snapshot)
                         accept(c, snapshot, fireToken != null)
                     }, onFailure = {
                         // Never turn a stale, failed provider read into a new departure alarm.
-                        prefs(c).edit().putString("status", "Calendar refresh failed · existing alarms will recheck before sounding").apply()
+                        prefs(c).edit().putString("status", "Roster refresh failed · existing alarms will recheck before sounding").apply()
                     })
                 } finally { complete?.invoke() }
             }
@@ -77,17 +81,30 @@ object DepartureAlerts {
     }
     fun delivered(c: Context): Map<String, Int> = runCatching {
         val j = JSONObject(prefs(c).getString("delivered", "{}")!!)
-        j.keys().asSequence().associateWith { j.optInt(it) }
+        val values = j.keys().asSequence().associateWith { j.optInt(it) }.toMutableMap()
+        val calendarId = ClockSettings.load(c).calendarId
+        // Migrate pre-1.10.1 calendar delivery history using its existing private cache, without a provider read.
+        var migrated = false
+        if (calendarId >= 0) ClockCalendar.readCache(c, calendarId).duties.forEach { duty ->
+            val level = values["$calendarId:${duty.id}:${duty.day}"] ?: return@forEach
+            val alias = DeparturePlan.deliveryAlias(duty)
+            if (level > (values[alias] ?: 0)) { values[alias] = level; migrated = true }
+        }
+        if (migrated) { val merged = JSONObject(); values.forEach { (key, value) -> merged.put(key, value) }; prefs(c).edit().putString("delivered", merged.toString()).apply() }
+        values
     }.getOrDefault(emptyMap())
     private fun mark(c: Context, a: DeparturePlan.Alert) {
         val values = delivered(c).toMutableMap()
         values[a.occurrence] = maxOf(values[a.occurrence] ?: 0, a.kind.level)
+        val alias = DeparturePlan.deliveryAlias(a.duty)
+        values[alias] = maxOf(values[alias] ?: 0, a.kind.level)
         // Bounded history; keys include the recurring occurrence's Philippine date.
         val j = JSONObject(); values.entries.sortedByDescending { it.key.substringAfterLast(':') }.take(500).forEach { j.put(it.key, it.value) }
         prefs(c).edit().putString("delivered", j.toString()).commit()
     }
     fun accept(c: Context, snapshot: ClockCalendar.Snapshot, fromAlarm: Boolean = false) {
-        val s = ClockSettings.load(c)
+        val settings = ClockSettings.load(c)
+        val s = if (DepartureRosterSource.select(c, settings) == DepartureSourcePolicy.Source.ECREW) settings.copy(calendarId = DepartureRosterSource.ECREW_ID) else settings
         if (!s.departureEnabled || snapshot.calendarId != s.calendarId || snapshot.loading) return
         if (snapshot.error != null || snapshot.checkedAt == 0L) return
         val now = System.currentTimeMillis()
@@ -95,7 +112,7 @@ object DepartureAlerts {
         val active = active(c)
         // Remove/revise stale screens when a synced duty is cancelled or moved. Tests are independent.
         if (active != null && !active.test) {
-            val current = snapshot.duties.firstOrNull { "${s.calendarId}:${it.id}:${it.day}" == active.occurrence }
+            val current = snapshot.duties.firstOrNull { DeparturePlan.occurrence(it, s) == active.occurrence }
             if (current == null || !DeparturePlan.eligible(current, s) || current.start != active.reporting ||
                 (active.kind == DeparturePlan.Kind.CAUTION && !s.cautionEnabled) || (active.kind == DeparturePlan.Kind.WARNING && !s.warningEnabled)) acknowledge(c)
             else if (active.kind == DeparturePlan.Kind.CAUTION) {
@@ -138,8 +155,8 @@ object DepartureAlerts {
             }
         }
         val missing = snapshot.duties.count { it.start > now && !it.allDay && it.calendarTimes && !s.allowCalendarStartAlerts }
-        val status = if (overdue != null && !fromAlarm) "Late calendar update · triggering ${overdue.kind.name.lowercase()}" else
-            if (descriptions.isEmpty()) "No upcoming eligible timed duty in the synced calendar" else "Scheduled · calendar checked ${stamp(snapshot.checkedAt)}"
+        val status = if (overdue != null && !fromAlarm) "Late roster update · triggering ${overdue.kind.name.lowercase()}" else
+            if (descriptions.isEmpty()) "No upcoming eligible timed duty in the selected roster" else "Scheduled · roster checked ${stamp(snapshot.checkedAt)}"
         prefs(c).edit().putString("status", status + if (missing > 0) "\n$missing flight duty/duties missing report/debrief times · skipped" else "")
             .putString("next", descriptions.joinToString("\n")).apply()
     }

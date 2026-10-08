@@ -12,11 +12,11 @@ import java.time.format.DateTimeFormatter
 
 object RosterNotices {
     fun open(c: Context) = PendingIntent.getActivity(c, 601, Intent(c, ECrewActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    fun post(c: Context, id: Int, title: String, body: String, fullScreen: PendingIntent? = null) {
+    fun post(c: Context, id: Int, title: String, body: String, fullScreen: PendingIntent? = null, changes: Boolean = false) {
         if (!RosterStore.phone(c)) return
         val manager = c.getSystemService(NotificationManager::class.java)
-        val channel = if (fullScreen == null) "roster-link" else "roster-alarm"
-        manager.createNotificationChannel(NotificationChannel(channel, if (fullScreen == null) "Roster Link" else "Roster alarms", if (fullScreen == null) NotificationManager.IMPORTANCE_DEFAULT else NotificationManager.IMPORTANCE_HIGH).apply { lockscreenVisibility = Notification.VISIBILITY_PRIVATE; if (fullScreen != null) { setSound(null, null); enableVibration(true) } })
+        val channel = if (fullScreen != null) "roster-alarm" else if (changes) "roster-changes" else "roster-link"
+        manager.createNotificationChannel(NotificationChannel(channel, if (fullScreen != null) "Roster alarms" else if (changes) "Roster changes" else "Roster Link", if (fullScreen == null) NotificationManager.IMPORTANCE_DEFAULT else NotificationManager.IMPORTANCE_HIGH).apply { lockscreenVisibility = Notification.VISIBILITY_PRIVATE; if (changes) { enableVibration(true); vibrationPattern = longArrayOf(0, 350, 150, 350) }; if (fullScreen != null) { setSound(null, null); enableVibration(true) } })
         val n = Notification.Builder(c, channel).setSmallIcon(R.drawable.ic_mirror).setContentTitle(title).setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body)).setVisibility(Notification.VISIBILITY_PRIVATE)
             .setPublicVersion(Notification.Builder(c, channel).setSmallIcon(R.drawable.ic_mirror).setContentTitle("Mirror roster notification").build())
@@ -25,9 +25,10 @@ object RosterNotices {
         if (Build.VERSION.SDK_INT < 33 || c.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) manager.notify(id, n.build())
     }
     fun pending(c: Context) {
+        RosterChanges.update(c, pending = true)
         val p = RosterStore.prefs(c)
         if (System.currentTimeMillis() - p.getLong("pendingNotice", 0) > 6 * 3_600_000) {
-            post(c, 603, "Crew scheduling changed your roster — open eCrew to review & confirm", "Confirmation is always your manual action")
+            post(c, 603, "Crew scheduling changed your roster — open eCrew to review & confirm", "Confirmation is always your manual action", changes = true)
             p.edit().putLong("pendingNotice", System.currentTimeMillis()).apply()
         }
         p.edit().putBoolean("pendingChanges", true).apply()

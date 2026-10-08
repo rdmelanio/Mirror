@@ -18,7 +18,8 @@ class RosterAlarmActivity : Activity() {
         if (!RosterStore.phone(this)) { finish(); return }
         if (Build.VERSION.SDK_INT >= 27) { setShowWhenLocked(true); setTurnScreenOn(true) }
         else { @Suppress("DEPRECATION") window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON) }
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or WindowManager.LayoutParams.FLAG_SECURE)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        RosterPrivacy.apply(this)
         val plan = intent.getStringExtra("key")?.let { RosterAlarms.find(this, it) } ?: run { finish(); return }
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setBackgroundColor(Color.BLACK); setPadding(dp(20), dp(20), dp(20), dp(20)) }
         val caution = action("MASTER\nCAUTION") { acknowledge() }.apply { textSize = 40f; setTextColor(0xFFFFB000.toInt()); setBackgroundColor(Color.BLACK) }

@@ -56,9 +56,10 @@ object RosterStore {
         if (cache == null) cache = runCatching { RosterJson.decode(File(dir(c), "roster.json").readText()) }.getOrNull()
         return cache
     }
-    @Synchronized fun accept(c: Context, bytes: ByteArray): Boolean {
+    @Synchronized fun accept(c: Context, bytes: ByteArray, interactive: Boolean = false): Boolean {
         if (!phone(c)) return false
         try {
+            require(bytes.size >= 4 && bytes.copyOfRange(0, 4).contentEquals("%PDF".toByteArray()))
             val last = File(dir(c), "latest.pdf"); val prior = File(dir(c), "previous.pdf")
             prior.delete(); if (last.exists()) last.renameTo(prior); last.writeBytes(bytes)
             CaptureLog.add(c, "PARSE", "started")
@@ -69,8 +70,12 @@ object RosterStore {
             val atomic = AtomicFile(File(dir(c), "roster.json")); val stream = atomic.startWrite()
             try { stream.write(RosterJson.encode(merged).toByteArray()); atomic.finishWrite(stream) } catch (e: Exception) { atomic.failWrite(stream); throw e }
             cache = merged; prefs(c).edit().putLong("lastSuccess", System.currentTimeMillis()).apply()
-            if (old != null && old.crewId == merged.crewId) RosterDiff.summaries(old, merged).takeIf { it.isNotEmpty() }?.let { RosterNotices.post(c, 601, "Roster changed", it.take(3).joinToString(" · ")) }
+            if (interactive) prefs(c).edit().putLong("lastInteractive", System.currentTimeMillis()).apply()
+            val changes = if (old != null && old.crewId == merged.crewId) RosterDiff.summaries(old, merged) else emptyList()
+            RosterChanges.update(c, changes)
+            if (changes.isNotEmpty()) RosterNotices.post(c, 601, "Roster changed", changes.take(3).joinToString(" · "), changes = true)
             RosterAlarms.reschedule(c); RosterWork.configure(c)
+            android.os.Handler(android.os.Looper.getMainLooper()).post { com.mirror.app.phone.DepartureAlerts.configure(c) }
             CaptureLog.add(c, "PARSE", "success"); return true
         } catch (_: Exception) { CaptureLog.add(c, "PARSE", "failed; retained last good roster"); return false }
     }

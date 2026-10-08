@@ -14,11 +14,13 @@ object DeparturePlan {
         return !d.allDay && !Regex("^OFF(?:\\b|$)").containsMatchIn(code) && code !in excluded &&
             (!d.calendarTimes || s.allowCalendarStartAlerts)
     }
+    fun occurrence(d: ClockRoster.Duty, s: ClockSettings) = d.sourceKey ?: "${s.calendarId}:${d.id}:${d.day}"
+    fun deliveryAlias(d: ClockRoster.Duty) = "report:${d.day}:${d.start}"
     fun alerts(duties: List<ClockRoster.Duty>, s: ClockSettings, now: Long, delivered: Map<String, Int>): List<Alert> {
         if (!s.departureEnabled) return emptyList()
         return duties.filter { it.start > now && eligible(it, s) }.flatMap { d ->
-            val occurrence = "${s.calendarId}:${d.id}:${d.day}"
-            val level = delivered[occurrence] ?: 0
+            val occurrence = occurrence(d, s)
+            val level = maxOf(delivered[occurrence] ?: 0, delivered[deliveryAlias(d)] ?: 0)
             buildList {
                 if (s.cautionEnabled && level < 1) add(Alert(occurrence, Kind.CAUTION, d.start - s.cautionMinutes * 60_000L, d))
                 if (s.warningEnabled && level < 2) add(Alert(occurrence, Kind.WARNING, d.start - s.warningMinutes * 60_000L, d))

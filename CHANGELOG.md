@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.10.1 — Roster Link login and review fixes
+
+- Give the visible eCrew screen exclusive process-wide session ownership; workers yield and destroy their browser before the activity opens. Delay periodic work by its interval and suppress background fetching for three minutes after interactive login/capture. Automatically perform the first fetch in that same browser after a three-second delay.
+- Use the real WebView user agent. Remove regex interception/re-downloads; activate fetch/XHR/blob/window capture only for fetching or a manual Print tap, restore hooks afterward, and stop idle polling. Restrict cookie-authenticated downloads to explicit browser downloads or active print-overlay sources with the same UA and current-page Referer.
+- Log sanitized main-frame paths, available HTTP statuses and non-login document titles. Login pages receive no injected script or field/title inspection. Notify session expiry only during a fetch from an already linked session. Add explicit portal logout plus origin cookie expiry and work cancellation.
+- Make screenshot blocking optional, default off, for roster screens. Tolerate up to three unreadable roster days, mark them CHECK without alarms, preserve other dates and show “⚠ check eCrew”. Header/period/column failures and more than three unreadable days still retain the last good roster.
+- Select Calendar or eCrew Roster Link for the existing Leave for duty caution/warning alarms; default to eCrew when linked with parsed data. Keep PREPARE independent and retain source-independent stage delivery history to avoid duplicate firing.
+- Persist an amber ROSTER CHANGED clock/screen-saver banner until its summary is opened; retain newer changes arriving during review. Give roster change notifications a separate channel and vibration pattern.
+- Add session ownership/concurrency, cooldown/delay, partial parsing, source selection/stage replay and banner acknowledgement regressions. Version 1.10.1, code 192. Preserve TV, streaming, launch, signing and bundled warning audio.
+
 ## 1.10.0 — Roster Link
 
 - Add phone-only eCrew WebView login, automatic roster capture, manual Print capture, PDF file import and Share to Mirror. Password fields are never inspected; cookies remain private to WebView. Confirmation of scheduling changes remains manual.

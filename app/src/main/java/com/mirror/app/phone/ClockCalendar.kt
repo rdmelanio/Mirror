@@ -35,7 +35,7 @@ class ClockCalendar(private val context: Context, private val changed: () -> Uni
         }
     }
     fun start(settings: ClockSettings) {
-        if (!settings.schedule && !settings.departureEnabled) { stop(); snapshot = Snapshot(loading = false); return }
+        if (!settings.schedule && (!settings.departureEnabled || DepartureRosterSource.select(context, settings) != DepartureSourcePolicy.Source.CALENDAR)) { stop(); snapshot = Snapshot(loading = false); return }
         if (active && selected == settings.calendarId) return
         stop(); active = true; selected = settings.calendarId
         snapshot = Snapshot(calendarId = selected)
@@ -155,7 +155,7 @@ class ClockCalendar(private val context: Context, private val changed: () -> Uni
                 .put("windowStart", snapshot.windowStart).put("windowEnd", snapshot.windowEnd).put("entries", entries)
             cache(context).edit().putString("snapshot", json.toString()).apply()
         }
-        private fun readCache(context: Context, id: Long): Snapshot = runCatching {
+        internal fun readCache(context: Context, id: Long): Snapshot = runCatching {
             val j = JSONObject(cache(context).getString("snapshot", "{}")!!)
             require(j.getLong("calendarId") == id)
             val entries = j.getJSONArray("entries")

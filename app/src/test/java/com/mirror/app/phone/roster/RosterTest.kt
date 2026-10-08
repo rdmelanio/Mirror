@@ -78,5 +78,5 @@ class RosterTest {
         assertEquals("Australia/Sydney", AirportZones.zone("SYD").id); assertEquals("Asia/Manila", AirportZones.zone("MNL").id)
         var warning = false; assertEquals("Asia/Manila", AirportZones.zone("ZZZ") { warning = true }.id); assertTrue(warning)
     }
-    @Test(expected = IllegalArgumentException::class) fun incompleteLegRejected() { RosterGrammar.parse(mapOf(date(26) to "20:50 2373 21:50 MNL →".split(' '))) }
+    @Test fun incompleteLegFlagged() { assertEquals("CHECK", RosterGrammar.parse(mapOf(date(26) to "20:50 2373 21:50 MNL →".split(' '))).single().code) }
 }

@@ -54,6 +54,7 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
             if (attached) android.widget.Toast.makeText(context, TvLauncher.status, android.widget.Toast.LENGTH_LONG).show()
         }
     }
+    private var bannerTap = false
     private val hitAreas = linkedMapOf<String, ClockLayout.Area>()
     private var selected: String? = null
     private var downItem: String? = null
@@ -221,7 +222,11 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         drawGroup(canvas, dateRows, if (alarmRows.isEmpty()) zones.date else zones.date.copy(bottom = zones.date.top + zones.date.height * 0.55f), -1, "date", x, y)
         drawGroup(canvas, alarmRows, if (dateRows.isEmpty()) zones.date else zones.date.copy(top = zones.date.top + zones.date.height * 0.55f), -1, "alarm", x, y)
         drawGroup(canvas, weatherRows, zones.weather, 1, "weather", x, y)
-        drawGroup(canvas, todayRows, zones.today, -1, "today", x, y, bottom = true)
+        val banner = com.mirror.app.phone.roster.RosterStore.phone(context) && com.mirror.app.phone.roster.RosterChanges.state(context).visible
+        val bannerHeight = minOf(zones.today.height * 0.3f, 32f * density)
+        if (banner) drawGroup(canvas, listOf(Row("ROSTER CHANGED", 20f, if (s.style == "Cockpit") mono else regular, color = 0xFFFFB000.toInt())),
+            zones.today.copy(bottom = zones.today.top + bannerHeight), -1, "roster_changed", x, y, respectNight = false)
+        drawGroup(canvas, todayRows, if (banner) zones.today.copy(top = zones.today.top + bannerHeight) else zones.today, -1, "today", x, y, bottom = true)
         drawGroup(canvas, tomorrowRows, zones.tomorrow, 1, "tomorrow", x, y, bottom = true)
         val footer = zones.footer
         val footerText = footer.copy(right = footer.left + footer.width * 0.64f)
@@ -378,6 +383,20 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         canvas.restore()
     }
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        val bannerArea = hitAreas["roster_changed"]
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && bannerArea != null && event.x in bannerArea.left..bannerArea.right && event.y in bannerArea.top..bannerArea.bottom) {
+            bannerTap = true; downX = event.x; downY = event.y; return true
+        }
+        if (bannerTap) {
+            if (event.actionMasked == MotionEvent.ACTION_MOVE && (kotlin.math.abs(event.x - downX) > touchSlop || kotlin.math.abs(event.y - downY) > touchSlop)) bannerTap = false
+            if (event.actionMasked == MotionEvent.ACTION_UP) {
+                bannerTap = false
+                runCatching { context.startActivity(android.content.Intent(context, com.mirror.app.phone.roster.RosterChangesActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                invalidate(); performClick()
+            }
+            if (event.actionMasked == MotionEvent.ACTION_CANCEL || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) bannerTap = false
+            return true
+        }
         if (exit == null) return true
         if (showDepartureAlerts && DepartureAlerts.active(context) != null) {
             stopInteraction()

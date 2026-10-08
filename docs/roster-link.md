@@ -1,6 +1,6 @@
-# Roster Link (phone role, Mirror 1.10.0)
+# Roster Link (phone role, Mirror 1.10.1)
 
-Open **Roster Link** from Phone home or Settings. Open eCrew and sign in on the portal's own page. Mirror never reads credential fields; Android Autofill remains available. Once the dashboard shows My Schedule, Mirror shows “eCrew linked” and enables background refresh. Use **Fetch roster now** for the first capture.
+Open **Roster Link** from Phone home or Settings. Open eCrew and sign in on the portal's own page. Mirror never reads credential fields; Android Autofill remains available. Once the dashboard shows My Schedule, Mirror shows “eCrew linked” and enables background refresh. Mirror automatically starts the first capture in the same open browser three seconds after linking. **Fetch roster now** uses that browser again without a second dashboard load.
 
 If automatic Print fails, open My Schedule and tap the portal's Print button yourself. The same download/blob/viewer hooks capture the PDF. Alternatively, choose **Import roster PDF**, or share an application/pdf file to **Share to Mirror**. Imported files require a Personal Crew Schedule Report text layer; malformed or incomplete captures keep the last good parsed roster.
 
@@ -16,7 +16,7 @@ Tap the amber MASTER CAUTION button to acknowledge; Snooze delays ten minutes. A
 
 ## Private diagnostics
 
-Capture log keeps the last 200 steps, timestamps, fixed result strings, HTTP statuses, and request paths without queries or fragments. It contains no response bodies, credential fields or cookie values. Copy log for diagnosis. Share last PDF opens an explicit sharing confirmation because the PDF includes other crew members' private information. Clear data deletes PDFs, parsed JSON, alarm/refresh preferences and the WebView session/cache.
+Capture log keeps the last 200 steps, timestamps, fixed result strings, HTTP statuses, and request paths without queries or fragments. It contains no response bodies, credential fields or cookie values. Copy log for diagnosis. Share last PDF opens an explicit sharing confirmation because the PDF includes other crew members' private information. Log out of eCrew uses the portal logout control, expires cookies for the eCrew origin and cancels background refresh. Clear data deletes PDFs, parsed JSON, alarm/refresh preferences and the WebView session/cache.
 
 PDFs and parsed JSON stay in app-private storage with backup disabled. Only latest.pdf and previous.pdf are retained. The last captured PDF remains available even when parsing fails. No analytics, automatic uploads, cloud synchronization or TV roster processing is added. The origin-scoped AndroidX blob bridge rejects foreign origins and messages while the top-level page is /Login; capture scripts are not evaluated there.
 
@@ -27,3 +27,7 @@ Portal selectors and export behavior are defensively implemented from the suppli
 JVM fixtures cover OFF/RVL, multiple duties in a column, actual/estimated times, delays, DHC legs, standby and mid-leg midnight continuation, memo flags, Unicode cleanup, positioned column binning, timezone fallback, JSON round-trip, roster diff summaries and alarm movement/skip plans. No real PDF or personal crew data is checked in.
 
 The supplied 30/10 03:10 report example has PREPARE at **30/10 01:50**. A separate 00:30 report fixture verifies rollback to the previous day at 23:10.
+
+The visible eCrew screen owns the session from onStart to onStop; it destroys its browser when leaving. Background refresh waits at least three minutes after interactive login/capture and periodic work starts after its full selected interval. No guessed report URL is re-requested during browsing. Capture hooks and polling stop outside an active fetch; a manual Print click activates the same capture scope.
+
+Screenshots are allowed by default. Enable **Block screenshots on roster screens** in Roster alarms & refresh if desired. An unreadable day says **⚠ check eCrew** and schedules no alarms, while other days remain available. More than three unreadable dates reject the capture. In **Leave for duty**, choose **Roster source: Calendar | eCrew Roster Link**; the default selects eCrew when linked with parsed data. PREPARE remains independent. Tap the amber **ROSTER CHANGED** clock/screen-saver line to read its summaries and acknowledge that banner; portal confirmation remains manual.

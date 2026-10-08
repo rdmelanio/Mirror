@@ -9,7 +9,7 @@ object ClockRoster {
     val zone: ZoneId = ZoneId.of("Asia/Manila")
     data class Event(val id: Long, val title: String, val description: String, val begin: Long, val end: Long, val allDay: Boolean)
     data class Duty(val id: Long, val text: String, val start: Long, val end: Long, val day: LocalDate,
-                    val allDay: Boolean, val calendarTimes: Boolean = false)
+                    val allDay: Boolean, val calendarTimes: Boolean = false, val sourceKey: String? = null)
     data class Day(val date: LocalDate, val label: String, val duties: List<Duty>)
     private val leg = Regex("(?im)^\\s*\\d+[A-Z]?\\s*[-–—]\\s*([A-Z]{3})\\s*\\([^\\r\\n)]*\\)\\s*[-–—]\\s*([A-Z]{3})\\b")
     private val titleRoute = Regex("\\b[A-Z]{3}(?:\\s*[-–—]\\s*[A-Z]{3})+\\b")

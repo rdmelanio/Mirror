@@ -55,11 +55,17 @@ object RosterGrammar {
     private val aircraft = Regex("^\\[[0-9A-Z]{3}]$")
     private val weekdays = setOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
     private data class Token(val text: String, val day: LocalDate)
-    fun parse(columns: Map<LocalDate, List<String>>, warn: () -> Unit = {}): List<Duty> {
+    fun parse(columns: Map<LocalDate, List<String>>, unreadable: (LocalDate) -> Unit = {}, warn: () -> Unit = {}): List<Duty> {
         // A continuation is one stream; day annotations preserve midnight boundaries, including M.
         val tokens = columns.toSortedMap().flatMap { (day, values) -> values.map { Token(RosterText.clean(it), day) }
             .filter { it.text.isNotEmpty() && it.text !in weekdays && !Regex("^\\d{2}/\\d{2}$").matches(it.text) } }
         val result = mutableListOf<Duty>(); var i = 0
+        val bad = linkedSetOf<LocalDate>()
+        fun check(day: LocalDate) {
+            if (bad.add(day)) unreadable(day)
+            result.removeAll { it.date == day }
+            result += Duty(day, DutyType.OTHER, "CHECK")
+        }
         val memoDays = tokens.filter { it.text == "M" }.map { it.day }.toSet()
         fun peek(offset: Int = 0) = tokens.getOrNull(i + offset)?.text.orEmpty()
         fun skipMarks() { while (peek() in listOf("→", "↓", "M")) i++ }
@@ -67,7 +73,9 @@ object RosterGrammar {
         fun isFlight(s: String) = flight.matches(s)
         while (i < tokens.size) {
             skipMarks(); if (i >= tokens.size) break
-            val first = tokens[i]; var previous: LocalDateTime? = null
+            val first = tokens[i]; val startIndex = i
+            try {
+            var previous: LocalDateTime? = null
             fun readTime(): Pair<LocalDateTime, String> {
                 skipMarks(); val t = tokens.getOrNull(i++) ?: error("Missing time")
                 require(isTime(t.text)) { "Invalid time" }
@@ -114,8 +122,21 @@ object RosterGrammar {
             val finalRelease = release ?: legs.last().arrTime.plusMinutes(30)
             result += Duty(first.day, DutyType.FLIGHT, "FLIGHT", report, report.atZone(AirportZones.zone(legs.first().depApt, warn)).toInstant(),
                 finalRelease, finalRelease.atZone(AirportZones.zone(legs.last().arrApt, warn)).toInstant(), estimated, legs, delay, memoFlag = first.day in memoDays)
+            } catch (_: Exception) {
+                val consumed = tokens.subList(startIndex, minOf(i, tokens.size))
+                val continuation = consumed.any { it.text == "→" }
+                val failedThrough = if (continuation) maxOf(first.day, consumed.lastOrNull()?.day ?: first.day) else first.day
+                (consumed.map { it.day }.filter { it <= failedThrough } + first.day).distinct().forEach { check(it) }
+                i = startIndex
+                while (i < tokens.size && tokens[i].day <= failedThrough) i++
+            }
         }
-        return result
+        columns.forEach { (day, values) ->
+            val content = values.map { RosterText.clean(it) }.filter { it.isNotEmpty() && it !in weekdays && !Regex("^\\d{2}/\\d{2}$").matches(it) }
+            if (content.isNotEmpty() && content.all { it in listOf("→", "↓", "M") }) check(day)
+        }
+        require(bad.size <= 3) { "Too many unreadable days" }
+        return result.sortedWith(compareBy<Duty> { it.date }.thenBy { it.reportInstant })
     }
 }
 

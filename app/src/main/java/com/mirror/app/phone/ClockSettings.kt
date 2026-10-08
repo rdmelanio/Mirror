@@ -24,7 +24,7 @@ data class ClockSettings(
     val autoBrightness: Boolean = true, val maxBrightness: Int = 60,
     val autoNight: Boolean = true, val away: Boolean = true, val awayHours: Int = 8,
     val dimLive: Boolean = true,
-    val departureEnabled: Boolean = false, val cautionEnabled: Boolean = true, val warningEnabled: Boolean = true,
+    val departureSource: String = "Auto", val departureEnabled: Boolean = false, val cautionEnabled: Boolean = true, val warningEnabled: Boolean = true,
     val cautionMinutes: Int = 60, val warningMinutes: Int = 50, val warningSeconds: Int = 10,
     val excludedDutyCodes: String = "HS,HSA", val allowCalendarStartAlerts: Boolean = false,
     val cautionSound: String = "", val warningSound: String = ""
@@ -38,7 +38,7 @@ data class ClockSettings(
         })
         put("scheduleColor", scheduleColor); put("dateColor", dateColor); put("alarmColor", alarmColor); put("weatherColor", weatherColor)
         put("schedule", schedule); put("calendarId", calendarId); put("calendarName", calendarName)
-        put("departureEnabled", departureEnabled); put("cautionEnabled", cautionEnabled); put("warningEnabled", warningEnabled)
+        put("departureSource", departureSource); put("departureEnabled", departureEnabled); put("cautionEnabled", cautionEnabled); put("warningEnabled", warningEnabled)
         put("cautionMinutes", cautionMinutes); put("warningMinutes", warningMinutes); put("warningSeconds", warningSeconds)
         put("excludedDutyCodes", excludedDutyCodes); put("allowCalendarStartAlerts", allowCalendarStartAlerts)
         put("cautionSound", cautionSound); put("warningSound", warningSound)
@@ -94,6 +94,7 @@ data class ClockSettings(
                 autoNight = j.optBoolean("autoNight", d.autoNight), away = j.optBoolean("away", d.away),
                 awayHours = j.optInt("awayHours", d.awayHours).takeIf { it in listOf(4, 8, 12, 24) } ?: 8,
                 dimLive = j.optBoolean("dimLive", d.dimLive),
+                departureSource = choice("departureSource", "Auto", listOf("Auto", "Calendar", "eCrew")),
                 departureEnabled = j.optBoolean("departureEnabled", false),
                 cautionEnabled = j.optBoolean("cautionEnabled", true), warningEnabled = j.optBoolean("warningEnabled", true),
                 cautionMinutes = j.optInt("cautionMinutes", 60).coerceIn(1, 1440),

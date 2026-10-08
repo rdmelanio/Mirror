@@ -83,7 +83,7 @@ object RosterPdf {
                     memos[memoDate!!] = memos[memoDate!!].orEmpty() + "\n" + line.trim()
                 }
             }
-            val duties = RosterGrammar.parse(columns) { CaptureLog.add(context, "PARSE", "unknown airport timezone; using Asia/Manila") }
+            val duties = RosterGrammar.parse(columns, unreadable = { day -> CaptureLog.add(context, "PARSE", "unreadable day ${day.format(DateTimeFormatter.ofPattern("dd/MM"))}") }) { CaptureLog.add(context, "PARSE", "unknown airport timezone; using Asia/Manila") }
                 .map { it.copy(memo = memos[it.date]) }
             require(duties.isNotEmpty()) { "No duties" }
             Roster(period, crew, Instant.now(), duties, memos, legend)
