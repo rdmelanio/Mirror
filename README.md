@@ -1,4 +1,4 @@
-# Mirror 1.11.0
+# Mirror 1.11.1
 
 Mirror uses a phone camera and a Google TV mirror. Kotlin, Android Views, one
 `:app` module, Android 8.0+ (API 26). Camera, clock and TV behavior are shared by both builds.
@@ -436,7 +436,7 @@ and full's arm64 engine, uploads the `mirror-apks` artifact, and publishes both
 Both public latest URLs are downloaded and byte/version checked before Actions succeeds.
 
 The project uses stable AGP 9.3.2, Kotlin 2.4.20 (AGP built-in Kotlin), and Gradle
-9.8.0. Compile SDK is 37.1 (required by GeckoView); target SDK remains 36. Version name `1.11.0` and code `200` are
+9.8.0. Compile SDK is 37.1 (required by GeckoView); target SDK remains 36. Version name `1.11.1` and code `201` are
 defined once in `version.properties`. Bump both for future changes.
 
 Both debug and release builds use `keystore/mirror.jks`. Its alias and passwords

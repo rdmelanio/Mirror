@@ -1,14 +1,37 @@
 {
   "manifest_version": 2,
   "name": "Mirror eCrew roster",
-  "version": "1.11.0",
-  "browser_specific_settings": { "gecko": { "id": "ecrew@mirror.local" } },
-  "permissions": ["nativeMessaging", "nativeMessagingFromContent", "geckoViewAddons"],
-  "content_scripts": [{
-    "matches": ["https://ecrew.cebupacificair.com/eCrew/*"],
-    "exclude_matches": ["https://ecrew.cebupacificair.com/eCrew/Login*", "https://ecrew.cebupacificair.com/eCrew/login*"],
-    "js": ["probe.js", "content.js"],
-    "run_at": "document_idle",
-    "all_frames": false
-  }]
+  "version": "1.11.1",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "ecrew@mirror.local"
+    }
+  },
+  "permissions": [
+    "nativeMessaging",
+    "nativeMessagingFromContent",
+    "geckoViewAddons"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://ecrew.cebupacificair.com/eCrew/*"
+      ],
+      "exclude_matches": [
+        "https://ecrew.cebupacificair.com/eCrew/Login*",
+        "https://ecrew.cebupacificair.com/eCrew/login*"
+      ],
+      "js": [
+        "probe.js",
+        "hooks.js",
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ],
+  "web_accessible_resources": [
+    "hooks.js"
+  ]
 }

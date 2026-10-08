@@ -1,4 +1,5 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <files-path name="roster_share" path="../no_backup/roster/latest.pdf" />
     <cache-path name="roster_log_share" path="roster-logs/" />
+    <files-path name="schedule_data_share" path="../no_backup/roster/captured-schedule-data.zip" />
 </paths>

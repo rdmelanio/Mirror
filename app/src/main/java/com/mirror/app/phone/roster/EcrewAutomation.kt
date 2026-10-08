@@ -6,38 +6,44 @@ import java.net.URI
 /** Only fixed commands cross the native port. Time and responses are injectable for JVM tests. */
 class EcrewAutomation(private val now: () -> Long, private val send: (String, Int) -> Unit,
     private val pending: (Boolean) -> Unit, private val finished: (Boolean, String) -> Unit,
-    private val changed: (String) -> Unit = {}) {
-    enum class Step { IDLE, OPEN_MY_SCHEDULE, CHECK_PENDING_CHANGES, CLICK_PRINT, CAPTURE_PDF, PARSE, EXIT, NEXT_PERIOD }
+    private val changed: (String) -> Unit = {}, private val timedOut: (String) -> Unit = {}) {
+    enum class Step { IDLE, OPEN_MY_SCHEDULE, CHECK_PENDING_CHANGES, CLICK_PRINT, WAIT_PREVIEW, OPEN_EXPORT, CHOOSE_PDF, CAPTURE_PDF, EXIT, PARSE, NEXT_PERIOD }
     var step = Step.IDLE; private set
     var request = 0; private set
     var active = false; private set
-    val captureAllowed get() = active && step in listOf(Step.CLICK_PRINT, Step.CAPTURE_PDF)
+    val captureAllowed get() = active && step in listOf(Step.CLICK_PRINT, Step.WAIT_PREVIEW, Step.OPEN_EXPORT, Step.CHOOSE_PDF, Step.CAPTURE_PDF)
     private var started = 0L
     private var since = 0L
     private var sentAt = Long.MIN_VALUE
     private var next = false
     private var captured = false
     private var parsed = false
+    private var captureStart = 0
+    private var awaitingParse = false
     private var nextAfterExit = false
     fun start(): Boolean {
         if (active) return false
-        active = true; started = now(); next = false; captured = false
+        active = true; started = now(); next = false; captured = false; awaitingParse = false
         move(Step.OPEN_MY_SCHEDULE); return true
     }
     fun manualPrint() {
         if (active && step == Step.PARSE) return
-        active = true; started = now(); next = true; captured = false
-        move(Step.CAPTURE_PDF)
+        active = true; started = now(); next = true; captured = false; awaitingParse = false
+        move(Step.CAPTURE_PDF); captureStart = request
     }
-    private fun move(value: Step) { step = value; since = now(); sentAt = Long.MIN_VALUE; request++; changed(value.name) }
+    private fun move(value: Step) { step = value; since = now(); sentAt = Long.MIN_VALUE; request++; if (value == Step.CLICK_PRINT) captureStart = request; changed(value.name) }
+    fun acceptsPdf(id: Int) = captureAllowed && id in captureStart..request
     fun tick() {
         if (!active) return
-        if (now() - started >= 90_000 || now() - since >= 25_000) { stop(false, "timeout; manual Print or import available"); return }
+        if (now() - started >= 120_000 || now() - since >= 25_000) { timedOut(step.name); stop(false, "timeout; manual Print or import available"); return }
         if (sentAt != Long.MIN_VALUE && now() - sentAt < 1500) return
         val command = when (step) {
             Step.OPEN_MY_SCHEDULE -> "openSchedule"
             Step.CHECK_PENDING_CHANGES -> "checkPending"
             Step.CLICK_PRINT -> "print"
+            Step.WAIT_PREVIEW -> "waitPreview"
+            Step.OPEN_EXPORT -> "openExport"
+            Step.CHOOSE_PDF -> "choosePdf"
             Step.CAPTURE_PDF -> "capture"
             Step.NEXT_PERIOD -> "nextPeriod"
             Step.EXIT -> "exit"
@@ -51,22 +57,26 @@ class EcrewAutomation(private val now: () -> Long, private val send: (String, In
         when (step) {
             Step.OPEN_MY_SCHEDULE -> if (result == "schedule") move(Step.CHECK_PENDING_CHANGES)
             Step.CHECK_PENDING_CHANGES -> if (result in listOf("pending", "clear")) { pending(result == "pending"); move(Step.CLICK_PRINT) }
-            Step.CLICK_PRINT -> if (result == "printed") move(Step.CAPTURE_PDF)
+            Step.CLICK_PRINT -> if (result == "printed") move(Step.WAIT_PREVIEW)
+            Step.WAIT_PREVIEW -> if (result == "preview") move(Step.OPEN_EXPORT)
+            Step.OPEN_EXPORT -> if (result == "export") move(Step.CHOOSE_PDF)
+            Step.CHOOSE_PDF -> if (result == "pdf") move(Step.CAPTURE_PDF)
             Step.CAPTURE_PDF -> if (hasPending) pending(true)
             Step.NEXT_PERIOD -> if (result == "next") move(Step.CLICK_PRINT)
             Step.EXIT -> if (result == "exit") {
-                if (nextAfterExit) { next = true; move(Step.NEXT_PERIOD) }
+                if (awaitingParse) { awaitingParse = false; move(Step.PARSE) }
+                else if (nextAfterExit) { next = true; move(Step.NEXT_PERIOD) }
                 else stop(parsed, if (parsed) "success" else "parse failed")
             }
             else -> Unit
         }
     }
-    fun pdf(): Boolean { if (!captureAllowed) return false; move(Step.PARSE); return true }
+    fun pdf(): Boolean { if (!captureAllowed) return false; awaitingParse = true; move(Step.EXIT); return true }
     fun parsed(success: Boolean, fetchNextPeriod: Boolean) {
         if (!active || step != Step.PARSE) return
         parsed = success; captured = captured || success
         nextAfterExit = success && !next && fetchNextPeriod
-        move(Step.EXIT)
+        if (nextAfterExit) { next = true; move(Step.NEXT_PERIOD) } else stop(parsed, if (parsed) "success" else "parse failed")
     }
     fun stop(success: Boolean = false, reason: String = "stopped") {
         val wasActive = active; active = false; step = Step.IDLE; request++

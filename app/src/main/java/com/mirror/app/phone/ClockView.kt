@@ -224,8 +224,8 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         drawGroup(canvas, weatherRows, zones.weather, 1, "weather", x, y)
         val banner = com.mirror.app.phone.roster.RosterStore.phone(context) && com.mirror.app.phone.roster.RosterChanges.state(context).visible
         val bannerHeight = minOf(zones.today.height * 0.3f, 32f * density)
-        if (banner) drawGroup(canvas, listOf(Row("ROSTER CHANGED", 20f, if (s.style == "Cockpit") mono else regular, color = 0xFFFFB000.toInt())),
-            zones.today.copy(bottom = zones.today.top + bannerHeight), -1, "roster_changed", x, y, respectNight = false)
+        if (banner) drawGroup(canvas, listOf(Row("ROSTER CHANGE", 20f, if (s.style == "Cockpit") mono else regular, color = 0xFFFFB000.toInt())),
+            zones.today.copy(bottom = zones.today.top + bannerHeight), -1, "roster_changed", x, y, respectNight = false, rosterFlash = true)
         drawGroup(canvas, todayRows, if (banner) zones.today.copy(top = zones.today.top + bannerHeight) else zones.today, -1, "today", x, y, bottom = true)
         drawGroup(canvas, tomorrowRows, zones.tomorrow, 1, "tomorrow", x, y, bottom = true)
         val footer = zones.footer
@@ -266,7 +266,7 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
     }
     /** Fits only this region. Corner content cannot reduce the central clock's scale. */
     private fun drawGroup(canvas: Canvas, rows: List<Row>, area: ClockLayout.Area, alignment: Int,
-                          key: String? = null, motionX: Float = 0f, motionY: Float = 0f, clock: Boolean = false, bottom: Boolean = false, respectNight: Boolean = true) {
+                          key: String? = null, motionX: Float = 0f, motionY: Float = 0f, clock: Boolean = false, bottom: Boolean = false, respectNight: Boolean = true, rosterFlash: Boolean = false) {
         if (rows.isEmpty() || area.width <= 0f || area.height <= 0f) return
         fun rowWidth(row: Row): Float {
             paint.typeface = row.face; paint.textSize = row.size
@@ -306,7 +306,7 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
                 canvas.drawText(row.label, left, baseline, paint)
                 left += paint.measureText(row.label) + row.size * 0.25f
             }
-            paint.textSize = row.size; paint.color = color; paint.alpha = if (row.digits) 255 else 180
+            paint.textSize = row.size; paint.color = color; paint.alpha = if (rosterFlash) (if (System.currentTimeMillis() % 1000 < 500) (if (night) 70 else 255) else (if (night) 10 else 30)) else if (row.digits) 255 else 180
             if (row.digits && settings.gradient && !night)
                 paint.shader = LinearGradient(0f, rowTop, 0f, baseline, color, settings.secondColor, Shader.TileMode.CLAMP)
             canvas.drawText(row.text, left, baseline, paint)

@@ -22,6 +22,7 @@ class PhoneActivity : Activity() {
         super.onCreate(savedInstanceState)
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }
         val header = label("MIRROR / PHONE", 23f); root.addView(header)
+        if (com.mirror.app.BuildConfig.ROSTER_ENABLED) root.addView(com.mirror.app.phone.roster.RosterChangeAnnunciator(this))
         val wide = resources.configuration.screenWidthDp >= 600
         val body = LinearLayout(this).apply { orientation = if (wide) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL }
         val preview = ClockView(this)

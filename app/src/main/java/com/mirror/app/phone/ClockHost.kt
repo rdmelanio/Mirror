@@ -42,6 +42,9 @@ class ClockController(private val context: Context, private val view: ClockView,
     private val alertChanged = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (running && !preview && key == "active") { view.stopInteraction(); render() }
     }
+    private val rosterChanged = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (running && key == "changeBanner") render()
+    }
     private val preferencesChanged = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "settings" && running) { view.settings = ClockSettings.load(context); calendar.start(view.settings); render() }
     }
@@ -54,6 +57,7 @@ class ClockController(private val context: Context, private val view: ClockView,
         if (running) return
         running = true; policy = ClockLightPolicy(); view.settings = ClockSettings.load(context)
         ClockSettings.prefs(context).registerOnSharedPreferenceChangeListener(preferencesChanged)
+        com.mirror.app.phone.roster.RosterStore.prefs(context).registerOnSharedPreferenceChangeListener(rosterChanged)
         ClockMirrorState.listeners.add(stateChanged)
         view.showDepartureAlerts = !preview
         if (!preview) {
@@ -76,6 +80,7 @@ class ClockController(private val context: Context, private val view: ClockView,
         running = false; view.saveSize(); view.stopInteraction(); calendar.stop(); sensors.unregisterListener(this); handler.removeCallbacksAndMessages(null)
         ClockSettings.prefs(context).unregisterOnSharedPreferenceChangeListener(preferencesChanged)
         DepartureAlerts.prefs(context).unregisterOnSharedPreferenceChangeListener(alertChanged)
+        com.mirror.app.phone.roster.RosterStore.prefs(context).unregisterOnSharedPreferenceChangeListener(rosterChanged)
         ClockMirrorState.listeners.remove(stateChanged); context.unregisterReceiver(receiver)
     }
     private fun render() {
@@ -85,7 +90,8 @@ class ClockController(private val context: Context, private val view: ClockView,
         applyLight(); view.invalidate()
         ClockWeather.refresh(context, view.settings) { if (running) view.invalidate() }
         val alert = if (!preview) DepartureAlerts.active(context) else null
-        val interval = if (alert?.kind == DeparturePlan.Kind.WARNING || (!view.blank && (view.settings.seconds || view.settings.drift ||
+        val rosterAlert = com.mirror.app.phone.roster.RosterStore.phone(context) && com.mirror.app.phone.roster.RosterChanges.state(context).visible
+        val interval = if (rosterAlert) 500L else if (alert?.kind == DeparturePlan.Kind.WARNING || (!view.blank && (view.settings.seconds || view.settings.drift ||
             (view.settings.status && view.mirrorState == "LIVE")))) 1000L else 60_000L
         handler.postDelayed(tick, interval - System.currentTimeMillis() % interval)
         scheduleDeadline()

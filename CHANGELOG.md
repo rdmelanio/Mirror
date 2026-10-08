@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.11.1 — eCrew iframe automation and roster change caution
+
+- Run Firefox roster automation in same-origin eCrew frames, including Webix HomeIndex and nested print viewers. Aggregate up to eight content ports, retain the top-frame-only probe/logout, and detect schedule readiness with Period and Print.
+- Click Webix calendar items with mouse events. Run the mobile DevExpress export sequence: wait for a rendered page, reveal the floating toolbar (up to three center taps), open Save/Export, choose exactly PDF, capture bytes, exit, then parse. Bound steps to 25 seconds and the fetch to 120 seconds. Never click Confirm all changes.
+- Capture PDF downloads, export popup sessions (closed within 20 seconds), page-world fetch/XHR responses, same-origin export forms, download anchors and viewer/blob sources. Record the winning capture path and redacted per-frame snapshots on timeout.
+- Record schedule/duty-detail JSON privately (under 2 MB per response, latest per endpoint, at most 20 endpoints). Log endpoint metadata and key names only. Add explicit sharing from Capture log with a private crew information warning; captured JSON is not parsed or used for alarms.
+- Flash an amber ROSTER CHANGE caution on the phone home, roster, clock and screen saver. Tapping shows the change summary and pending confirmation status. Pending-only cautions clear on a later successful fetch without pending changes; parsed differences clear when tapped.
+- Use a high-importance Roster changes notification with three short vibration pulses. Report terminated eCrew sessions without automatic retry and retain the last good roster and alarms.
+- Add frame aggregation, export controls/capture hooks, private JSON recording, sub-frame confirmation guards, snapshot redaction and independent pending/diff acknowledgement coverage. Version code 201; both release APKs are version 1.11.1.
+
 ## 1.11.0 — Firefox roster engine and phone APK
 
 - Add full (arm64-v8a GeckoView stable 157.0.20261005135250) and lite (universal, no Gecko/native libraries) flavors with the same application ID and existing signing. Publish mirror.apk for TV and mirror-phone.apk for Roster Link; verify both public latest downloads, versions, signing and flavor contents in CI. Version code 200. Compile SDK 37.1 meets GeckoView’s requirement; target SDK 36 and minimum SDK 26 are unchanged.

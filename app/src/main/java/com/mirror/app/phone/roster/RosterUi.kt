@@ -139,7 +139,7 @@ class RosterActivity : Activity() {
     override fun onResume() { super.onResume(); RosterPrivacy.apply(this); if (::root.isInitialized) { handler.post(redraw); RosterWork.onOpen(this) } }
     override fun onPause() { handler.removeCallbacks(redraw); super.onPause() }
     private fun show() {
-        root.removeAllViews(); root.addView(action("Back") { finish() }); root.addView(label("ROSTER LINK", 26f))
+        root.removeAllViews(); root.addView(RosterChangeAnnunciator(this)); root.addView(action("Back") { finish() }); root.addView(label("ROSTER LINK", 26f))
         root.addView(label("NEXT DUTY", 18f)); root.addView(label(RosterDisplay.compact(this), 22f))
         RosterDisplay.next(this)?.let { root.addView(label(RosterDisplay.legs(it), 17f)) }
         root.addView(action("Skip next PREPARE") { RosterAlarms.skipNext(this); Toast.makeText(this, "Next PREPARE skipped", Toast.LENGTH_SHORT).show() })
@@ -236,6 +236,17 @@ class RosterLogActivity : Activity() {
                     startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/pdf").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share roster PDF"))
                 }
             }.show()
+        })
+        if (com.mirror.app.BuildConfig.ROSTER_ENABLED) root.addView(action("Share captured schedule data") {
+            AlertDialog.Builder(this).setMessage("Captured schedule data contains private crew information, including duty details. Share it only with a recipient you trust.")
+                .setNegativeButton("Cancel", null).setPositiveButton("Share") { _, _ ->
+                    val file = EcrewScheduleData.archive(this)
+                    if (file == null) Toast.makeText(this, "No schedule data captured yet", Toast.LENGTH_LONG).show()
+                    else {
+                        val uri = FileProvider.getUriForFile(this, "$packageName.rosterfiles", file)
+                        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/zip").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share captured schedule data"))
+                    }
+                }.show()
         })
         root.addView(action("Clear data") {
             AlertDialog.Builder(this).setMessage("Delete private roster PDFs, parsed data, capture log and eCrew session?").setNegativeButton("Cancel", null).setPositiveButton("Clear") { _, _ ->

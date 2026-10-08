@@ -16,29 +16,29 @@ class EcrewAutomationTest {
             { notices += it }, { success, reason -> results += success to reason }, { states += it })
         fun reply(result: String) { machine.tick(); machine.response(commands.last().second, result) }
         fun toCapture(pending: Boolean = false) {
-            assertTrue(machine.start()); reply("schedule"); reply(if (pending) "pending" else "clear"); reply("printed")
+            assertTrue(machine.start()); reply("schedule"); reply(if (pending) "pending" else "clear"); reply("printed"); reply("preview"); reply("export"); reply("pdf")
         }
     }
     @Test fun pendingChangesAreReportedButNeverConfirmed() {
         val p = FakePort(); p.toCapture(true)
-        assertEquals(listOf("openSchedule", "checkPending", "print"), p.commands.map { it.first })
+        assertEquals(listOf("openSchedule", "checkPending", "print", "waitPreview", "openExport", "choosePdf"), p.commands.map { it.first })
         assertEquals(listOf(true), p.notices)
-        assertTrue(p.machine.pdf()); p.machine.parsed(true, false); p.reply("exit")
-        assertEquals(listOf("OPEN_MY_SCHEDULE", "CHECK_PENDING_CHANGES", "CLICK_PRINT", "CAPTURE_PDF", "PARSE", "EXIT"), p.states)
+        assertTrue(p.machine.pdf()); p.reply("exit"); p.machine.parsed(true, false)
+        assertEquals(listOf("OPEN_MY_SCHEDULE", "CHECK_PENDING_CHANGES", "CLICK_PRINT", "WAIT_PREVIEW", "OPEN_EXPORT", "CHOOSE_PDF", "CAPTURE_PDF", "EXIT", "PARSE"), p.states)
         assertEquals(listOf(true to "success"), p.results)
         assertFalse(p.commands.any { it.first.contains("confirm", true) })
     }
     @Test fun nextPeriodRunsOnceAfterExitAndUsesSameMachine() {
-        val p = FakePort(); p.toCapture(); assertTrue(p.machine.pdf()); p.machine.parsed(true, true)
-        p.reply("exit"); p.reply("next"); p.reply("printed")
-        assertTrue(p.machine.pdf()); p.machine.parsed(true, true); p.reply("exit")
-        assertEquals(listOf("openSchedule", "checkPending", "print", "exit", "nextPeriod", "print", "exit"), p.commands.map { it.first })
+        val p = FakePort(); p.toCapture(); assertTrue(p.machine.pdf()); p.reply("exit"); p.machine.parsed(true, true)
+        p.reply("next"); p.reply("printed"); p.reply("preview"); p.reply("export"); p.reply("pdf")
+        assertTrue(p.machine.pdf()); p.reply("exit"); p.machine.parsed(true, true)
+        assertEquals(listOf("openSchedule", "checkPending", "print", "waitPreview", "openExport", "choosePdf", "exit", "nextPeriod", "print", "waitPreview", "openExport", "choosePdf", "exit"), p.commands.map { it.first })
         assertEquals(1, p.results.size); assertTrue(p.results.single().first)
     }
     @Test fun manualPrintDoesNotOpenScheduleOrFetchAnotherPeriod() {
         val p = FakePort(); p.machine.manualPrint(); p.machine.tick()
         assertEquals("capture", p.commands.single().first)
-        assertTrue(p.machine.pdf()); p.machine.parsed(true, true); p.reply("exit")
+        assertTrue(p.machine.pdf()); p.reply("exit"); p.machine.parsed(true, true)
         assertFalse(p.commands.any { it.first == "nextPeriod" })
     }
     @Test fun trustedManualPrintCanTakeOverAnAutomaticScheduleStep() {
@@ -46,7 +46,7 @@ class EcrewAutomationTest {
         val opening = p.commands.single().second
         p.machine.manualPrint(); p.machine.response(opening, "schedule")
         assertEquals(EcrewAutomation.Step.CAPTURE_PDF, p.machine.step)
-        assertTrue(p.machine.pdf()); p.machine.parsed(true, false); p.reply("exit")
+        assertTrue(p.machine.pdf()); p.reply("exit"); p.machine.parsed(true, false)
         assertTrue(p.results.single().first)
     }
     @Test fun stepAndTotalTimeoutsAreBoundedAndDoNotRetrySession() {
@@ -57,7 +57,8 @@ class EcrewAutomationTest {
         total.now = 24_000; total.reply("schedule")
         total.now = 48_000; total.reply("clear")
         total.now = 72_000; total.reply("printed")
-        total.now = 90_000; total.machine.tick()
+        total.now = 96_000; total.reply("preview")
+        total.now = 120_000; total.machine.tick()
         assertFalse(total.machine.active); assertFalse(total.results.single().first)
     }
     @Test fun staleMessagesAndLatePdfCannotAdvanceNewRun() {
@@ -66,6 +67,17 @@ class EcrewAutomationTest {
         assertEquals(EcrewAutomation.Step.OPEN_MY_SCHEDULE, p.machine.step)
         assertFalse(p.machine.pdf()); assertFalse(p.machine.start())
         p.reply("terminated"); assertFalse(p.machine.active); assertFalse(p.machine.pdf())
+    }
+    @Test fun exportPdfCanArriveBeforeCaptureAcknowledgementInEitherPeriod() {
+        val p = FakePort(); p.toCapture()
+        val first = p.commands.last().second
+        assertTrue(p.machine.acceptsPdf(first)); assertTrue(p.machine.pdf())
+        assertEquals(EcrewAutomation.Step.EXIT, p.machine.step)
+        p.reply("exit"); assertEquals(EcrewAutomation.Step.PARSE, p.machine.step); p.machine.parsed(true, true)
+        p.reply("next"); p.reply("printed"); p.reply("preview"); p.reply("export")
+        p.machine.tick(); val choosing = p.commands.last().second
+        p.machine.response(choosing, "pdf")
+        assertTrue(p.machine.acceptsPdf(choosing)); assertFalse(p.machine.acceptsPdf(first))
     }
     @Test fun readsMagicAndEnforcesLimitEvenWithoutContentLength() {
         val bytes = "%PDF-fake".toByteArray(); var closed = false
