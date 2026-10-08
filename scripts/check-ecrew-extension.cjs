@@ -251,3 +251,8 @@ test('PDF response headers over 20 MB prevent export buffering', async () => {
   p.page.response = url => {const r = new Response('%PDF-small', {headers: {'content-type': 'application/pdf', 'content-length': String(20 * 1024 * 1024 + 1)}}); Object.defineProperty(r, 'url', {value: url}); return r;};
   await p.page.fetch('https://ecrew.cebupacificair.com/eCrew/Export'); await settle(); assert(!p.messages.some(m => m.type === 'pdf'));
 });
+
+test('SVG export icons use their class attribute rather than SVGAnimatedString', () => {
+  const p = page(); p.element('', {className: {baseVal: 'dxrd-svg-export'}, getAttribute: name => name === 'class' ? 'dxrd-svg-export' : null});
+  p.run(); p.command('openExport'); assert(p.messages.some(m => m.result === 'export')); assert.equal(p.clicks.length, 1);
+});

@@ -39,14 +39,14 @@
     return matches.find(e => e.matches('button,a,[role=button],input[type=button],input[type=submit]')) || matches[0];
   };
   const menu = () => Array.from(document.querySelectorAll('.webix_sidebar,.webix_tree,.webix_list,[view_id],[webix_tm_id],[webix_l_id],nav a,aside a,.sidebar a')).filter(visible);
-  const iconText = e => [typeof e.className === 'string' ? e.className : '', e.getAttribute('aria-label') || '', e.getAttribute('title') || ''].join(' ');
+  const iconText = e => [e.getAttribute('class') || (typeof e.className === 'string' ? e.className : ''), e.getAttribute('aria-label') || '', e.getAttribute('title') || ''].join(' ');
   const calendar = () => !top ? null : menu().flatMap(e => [e, ...e.querySelectorAll('[class],[aria-label],[title]')]).find(e => visible(e) && /calendar/i.test(iconText(e)));
   const ready = () => !!find('Period') && !!find('Print');
   const redact = value => value.replace(/\d{5,}/g, '…').slice(0, 30);
   const snapshot = () => ({kind: 'snapshot', top, path: address().pathname,
     texts: Array.from(document.querySelectorAll('button,a,[role=button],[webix_tm_id],[webix_l_id],.webix_tree_item,.webix_list_item')).filter(visible).map(e => redact((e.innerText || e.textContent || '').trim())).filter(Boolean).slice(0, 40),
     period: !!find('Period'), print: !!find('Print'), exit: !!find('Exit'), nextPeriod: !!find('Next Period'),
-    sidebarCount: menu().length, icons: [...new Set(menu().flatMap(e => [e, ...e.querySelectorAll('[class]')]).flatMap(e => (typeof e.className === 'string' ? e.className : '').split(/\s+/)).filter(c => /^(fa[-_]|fa[srlbd]?$|glyphicon|mdi[-_]|icon[-_]|wxi[-_]|webix_icon$|material-icons$)/.test(c)))].slice(0, 80)});
+    sidebarCount: menu().length, icons: [...new Set(menu().flatMap(e => [e, ...e.querySelectorAll('[class]')]).flatMap(e => (e.getAttribute('class') || (typeof e.className === 'string' ? e.className : '')).split(/\s+/)).filter(c => /^(fa[-_]|fa[srlbd]?$|glyphicon|mdi[-_]|icon[-_]|wxi[-_]|webix_icon$|material-icons$)/.test(c)))].slice(0, 80)});
   const pending = () => !!find('Confirm all changes');
   const terminated = () => nodes().some(e => text(e).toLowerCase().includes('another active session'));
   const send = value => { if (!stopped && safe()) { try { port.postMessage(value); } catch (_) {} } };
