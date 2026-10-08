@@ -39,7 +39,7 @@ object RosterWork {
 class RosterWorker(c: Context, params: WorkerParameters) : Worker(c, params) {
     private var fetcher: RosterFetcher? = null
     override fun doWork(): Result {
-        if (!RosterStore.phone(applicationContext) || RosterStore.prefs(applicationContext).getBoolean("expired", false)) return Result.success()
+        if (!RosterStore.phone(applicationContext) || !RosterStore.prefs(applicationContext).getBoolean("linked", false) || RosterStore.prefs(applicationContext).getBoolean("expired", false)) return Result.success()
         val latch = CountDownLatch(1); val main = Handler(Looper.getMainLooper())
         main.post {
             if (isStopped) { latch.countDown(); return@post }

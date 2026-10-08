@@ -74,7 +74,7 @@ object RosterGrammar {
                 val kind = if (t.text.startsWith("A") || t.text.startsWith("E")) t.text.take(1) else "S"
                 val value = LocalTime.parse(t.text.takeLast(5))
                 var local = maxOf(first.day, t.day, previous?.toLocalDate() ?: first.day).atTime(value)
-                if (previous != null && local < previous) local = local.plusDays(1)
+                if (previous != null && local < previous!!) local = local.plusDays(1)
                 previous = local; return local to kind
             }
             if (!isTime(first.text)) {

@@ -150,7 +150,7 @@ class RosterFetcher(private val c: Context, val web: WebView, private val backgr
                     RosterWork.configure(c); if (active) setStep("OPEN_MY_SCHEDULE") else setStep("CAPTURE_PDF")
                 }
                 "OPEN_MY_SCHEDULE" -> if (value == "schedule") setStep("CHECK_PENDING_CHANGES")
-                "CHECK_PENDING_CHANGES" -> { pending = value == "pending"; if (pending) RosterNotices.pending(c); setStep("CLICK_PRINT") }
+                "CHECK_PENDING_CHANGES" -> { pending = value == "pending"; RosterStore.prefs(c).edit().putBoolean("pendingChanges", pending).apply(); if (pending) RosterNotices.pending(c); setStep("CLICK_PRINT") }
                 "CLICK_PRINT" -> if (value == "printed") setStep("CAPTURE_PDF")
                 "NEXT_PERIOD" -> if (value == "next") setStep("CLICK_PRINT")
                 "CAPTURE_PDF" -> {

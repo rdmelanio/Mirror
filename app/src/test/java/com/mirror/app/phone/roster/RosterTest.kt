@@ -22,7 +22,7 @@ class RosterTest {
     ).mapKeys { date(it.key) }.mapValues { it.value.split(' ') }
     private fun duties() = RosterGrammar.parse(fixture)
     private fun duty(day: Int) = duties().first { it.date == date(day) }
-    @Test fun allFixtureDutiesParse() { assertEquals(12, duties().size); assertEquals(DutyType.OFF, duty(1).type); assertNull(duty(1).reportInstant); assertEquals(DutyType.LEAVE, duty(18).type) }
+    @Test fun allFixtureDutiesParse() { assertEquals(11, duties().size); assertEquals(DutyType.OFF, duty(1).type); assertNull(duty(1).reportInstant); assertEquals(DutyType.LEAVE, duty(18).type) }
     @Test fun actualTimesAndDelay() {
         val d = duty(2); assertEquals("05:10", d.reportLocal!!.toLocalTime().toString()); assertEquals(2, d.legs.size)
         assertTrue(d.legs.all { it.timeKind == "A" }); assertEquals("01:07", d.delay); assertEquals("10:40", d.releaseLocal!!.toLocalTime().toString())

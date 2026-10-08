@@ -47,7 +47,12 @@ dependencies {
     implementation("org.bouncycastle:bctls-jdk18on:1.81")
     implementation("androidx.work:work-runtime-ktx:2.10.1")
     implementation("androidx.webkit:webkit:1.12.1")
-    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0") {
+        // Use Mirror's existing BC family; PDFBox otherwise bundles duplicate legacy classes.
+        exclude(group = "org.bouncycastle", module = "bcprov-jdk15to18")
+        exclude(group = "org.bouncycastle", module = "bcpkix-jdk15to18")
+        exclude(group = "org.bouncycastle", module = "bcutil-jdk15to18")
+    }
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
 }

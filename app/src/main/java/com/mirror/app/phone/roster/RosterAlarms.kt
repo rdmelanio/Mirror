@@ -51,7 +51,7 @@ object RosterAlarms {
     private fun stored(c: Context) = runCatching { JSONObject(RosterStore.prefs(c).getString("scheduled", "{}").orEmpty()) }.getOrDefault(JSONObject())
     fun cancel(c: Context) {
         val m = c.getSystemService(AlarmManager::class.java); val old = stored(c)
-        old.keys().forEach { val pi = operation(c, it); m.cancel(pi); pi.cancel() }
+        old.keys().forEach { key -> val pi = operation(c, key); m.cancel(pi); pi.cancel(); val snooze = PendingIntent.getBroadcast(c, 1, intent(c, key), PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE); if (snooze != null) { m.cancel(snooze); snooze.cancel() } }
         RosterStore.prefs(c).edit().remove("scheduled").apply()
     }
     @Synchronized fun reschedule(c: Context) {
