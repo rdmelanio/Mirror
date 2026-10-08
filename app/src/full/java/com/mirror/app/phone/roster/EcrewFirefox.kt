@@ -168,7 +168,8 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
         check(Looper.myLooper() == Looper.getMainLooper())
         session.navigationDelegate = object : GeckoSession.NavigationDelegate {
             override fun onLoadRequest(s: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny> {
-                val trusted = RosterFetcher.trusted(request.uri) || (request.uri.startsWith("blob:https://ecrew.cebupacificair.com/") && machine.captureAllowed)
+                val popup = request.target == GeckoSession.NavigationDelegate.TARGET_WINDOW_NEW
+                val trusted = RosterFetcher.trusted(request.uri) || (machine.captureAllowed && EcrewPortPolicy.exportPage(request.uri, allowBlank = popup))
                 val ok = allowed() && trusted
                 log("NAVIGATION", if (ok) "load allowed" else "load blocked", request.uri)
                 if (request.target == GeckoSession.NavigationDelegate.TARGET_WINDOW_NEW && !machine.captureAllowed) return GeckoResult.fromValue(AllowOrDeny.DENY)
@@ -422,7 +423,7 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
             capture(bytes, j.optString("via", "overlay").takeIf { it in setOf("overlay", "fetch", "xhr", "export-form", "window.open", "download-anchor", "popup-url") } ?: "in-page")
         }
     }
-    private fun exportAddress(address: String?) = address == "about:blank" || EcrewPortPolicy.page(address) || address?.startsWith("blob:https://ecrew.cebupacificair.com/") == true
+    private fun exportAddress(address: String?) = EcrewPortPolicy.exportPage(address, allowBlank = true)
     private fun externalPdf(response: WebResponse, via: String) {
         if (!page() || !machine.captureAllowed || !exportAddress(response.uri) || response.uri == "about:blank") { response.body?.close(); return }
         val id = machine.request; response.setReadTimeoutMillis(15_000); body = response.body

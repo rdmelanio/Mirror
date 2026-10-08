@@ -89,6 +89,8 @@ object EcrewPortPolicy {
         u.scheme == "https" && u.host == "ecrew.cebupacificair.com" && u.port in listOf(-1, 443) &&
             u.rawUserInfo == null && u.path.startsWith("/eCrew/", true) && !u.path.contains("/Login", true)
     }.getOrDefault(false)
+    fun exportPage(url: String?, allowBlank: Boolean = false) = page(url) || url?.startsWith("blob:https://ecrew.cebupacificair.com/") == true ||
+        (allowBlank && url in listOf("", "about:blank"))
     fun clickAllowed(text: String) = !text.trim().startsWith("Confirm all changes", true)
 }
 object EcrewPdfBytes {

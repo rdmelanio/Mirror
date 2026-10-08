@@ -31,6 +31,15 @@ class EcrewFramesTest {
         assertTrue(f.pending); assertTrue(f.linked); assertTrue(f.terminated)
         f.disconnect(2); assertFalse(f.pending); assertFalse(f.linked); assertFalse(f.terminated)
     }
+    @Test fun blankPopupBootstrapIsScopedToExports() {
+        for (url in listOf("", "about:blank")) {
+            assertFalse(EcrewPortPolicy.exportPage(url)); assertTrue(EcrewPortPolicy.exportPage(url, allowBlank = true))
+        }
+        assertFalse(EcrewPortPolicy.exportPage("https://other.test/Export", true))
+        assertFalse(EcrewPortPolicy.exportPage("https://ecrew.cebupacificair.com/eCrew/Login", true))
+        assertTrue(EcrewPortPolicy.exportPage("blob:https://ecrew.cebupacificair.com/export"))
+        assertFalse(EcrewPortPolicy.exportPage("blob:https://other.test/export", true))
+    }
     @Test fun snapshotRedactsAndBounds() {
         assertEquals("Crew …", EcrewSnapshot.text("Crew 12345678"))
         assertEquals(30, EcrewSnapshot.text("x".repeat(50)).length)
