@@ -60,6 +60,7 @@ class RosterFetcher(private val c: Context, val web: WebView, private val backgr
                 }
             }
         }
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) CaptureLog.add(c, "CAPTURE_PDF", "origin-scoped blob bridge unavailable; use download or import")
         web.setDownloadListener { url, ua, _, _, _ ->
             handler.post { if (!login(web.url) && trusted(web.url)) obtain(url, ua) }
         }
@@ -125,9 +126,15 @@ class RosterFetcher(private val c: Context, val web: WebView, private val backgr
           const pending=!!find('Confirm all changes');
           function click(s){if(s==='Confirm all changes')return false;let e=find(s);if(!e)return false;(e.closest('button,a,[role=button]')||e).click();return true;}
           const scan=()=>{document.querySelectorAll('iframe,embed,object').forEach(e=>{const u=e.src||e.data;if(u)window.mirrorCapture(u);});};
-          if(!window.mirrorCapture){window.mirrorCapture=function(u){
+          if(!window.mirrorCapture){
+            const deliver=b=>{if(b.size>$LIMIT)return;let f=new FileReader();f.onload=()=>{if(window.MirrorPdf && location.origin==='$ORIGIN' && !location.pathname.toLowerCase().includes('/login'))MirrorPdf.postMessage(f.result);};f.readAsDataURL(b);};
+            const nativeFetch=window.fetch.bind(window);
+            window.fetch=(...args)=>nativeFetch(...args).then(r=>{if((r.headers.get('content-type')||'').toLowerCase().includes('application/pdf'))r.clone().blob().then(deliver).catch(()=>{});return r;});
+            const send=XMLHttpRequest.prototype.send;
+            XMLHttpRequest.prototype.send=function(...args){this.addEventListener('load',()=>{try{if((this.getResponseHeader('content-type')||'').toLowerCase().includes('application/pdf')){if(this.response instanceof Blob)deliver(this.response);else if(this.response instanceof ArrayBuffer)deliver(new Blob([this.response],{type:'application/pdf'}));}}catch(e){}});return send.apply(this,args);};
+            window.mirrorCapture=function(u){
             if(location.origin !== '$ORIGIN' || location.pathname.toLowerCase().includes('/login'))return;
-            if(u.startsWith('blob:'))fetch(u).then(r=>r.blob()).then(b=>{if(b.size>$LIMIT)return;let f=new FileReader();f.onload=()=>{if(window.MirrorPdf)MirrorPdf.postMessage(f.result);};f.readAsDataURL(b);}).catch(()=>{});
+            if(u.startsWith('blob:'))nativeFetch(u).then(r=>r.blob()).then(deliver).catch(()=>{});
           }; const open=window.open;window.open=function(u,...a){if(u){window.mirrorCapture(String(u));}return open.call(this,u,...a);};}
           const sources=Array.from(document.querySelectorAll('iframe,embed,object')).map(e=>e.src||e.data||'').filter(Boolean);
           sources.forEach(u=>window.mirrorCapture(u));

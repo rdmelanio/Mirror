@@ -44,7 +44,9 @@ class RosterWorker(c: Context, params: WorkerParameters) : Worker(c, params) {
         main.post {
             if (isStopped) { latch.countDown(); return@post }
             try {
-                fetcher = RosterFetcher(applicationContext, WebView(applicationContext), true) { _ ->
+                val web = WebView(applicationContext)
+                web.layout(0, 0, 1280, 800)
+                fetcher = RosterFetcher(applicationContext, web, true) { _ ->
                     fetcher?.destroy(); fetcher = null; latch.countDown()
                 }.also { it.start() }
             } catch (_: Exception) { CaptureLog.add(applicationContext, "LOAD_DASHBOARD", "WebView unavailable"); latch.countDown() }
