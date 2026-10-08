@@ -30,6 +30,9 @@ class LauncherActivity : Activity() {
     }
     private fun choose(role: String) { mirrorPreferences().edit().putString("role", role).apply(); launch(role) }
     private fun launch(role: String) {
+        packageManager.setComponentEnabledSetting(android.content.ComponentName(this, "com.mirror.app.core.RosterShareActivity"),
+            if (role == "phone") PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+            PackageManager.DONT_KILL_APP)
         startActivity(Intent(this, if (role == "tv") TvActivity::class.java else PhoneActivity::class.java))
         finish()
     }

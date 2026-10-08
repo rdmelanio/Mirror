@@ -58,6 +58,6 @@ class RosterSoundService : Service() {
     }
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null); audio?.stop(); audio?.release(); ringtone?.stop(); vibrator?.cancel()
-        getSystemService(NotificationManager::class.java).cancel(640); super.onDestroy()
+        getSystemService(NotificationManager::class.java).cancel(640); key?.let { RosterAlarms.find(this, it) }?.let { getSystemService(NotificationManager::class.java).cancel(630 + it.alarm.id) }; super.onDestroy()
     }
 }

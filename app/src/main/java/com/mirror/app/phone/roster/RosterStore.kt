@@ -76,8 +76,9 @@ object RosterStore {
     }
     fun stale(c: Context): Pair<String, Int>? {
         val last = prefs(c).getLong("lastSuccess", 0); if (last == 0L) return null
-        val hours = (System.currentTimeMillis() - last) / 3_600_000
-        return if (hours > 6) "ROSTER STALE ${hours}h" to if (hours > 24) 0xFFFF4444.toInt() else 0xFFFFB000.toInt() else null
+        val age = System.currentTimeMillis() - last
+        val hours = age / 3_600_000
+        return if (age > 6 * 3_600_000L) "ROSTER STALE ${hours}h" to if (age > 24 * 3_600_000L) 0xFFFF4444.toInt() else 0xFFFFB000.toInt() else null
     }
     @Synchronized fun clear(c: Context) {
         RosterWork.cancel(c); RosterAlarms.cancel(c); cache = null

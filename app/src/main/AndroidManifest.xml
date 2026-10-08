@@ -40,7 +40,7 @@
         <activity android:name=".phone.roster.RosterLogActivity" android:exported="false" />
         <activity android:name=".phone.roster.RosterAlarmActivity" android:exported="false" android:excludeFromRecents="true" />
         <activity android:name=".phone.roster.RosterImportActivity" android:exported="false" />
-        <activity android:name=".core.RosterShareActivity" android:exported="true" android:label="Share to Mirror">
+        <activity android:name=".core.RosterShareActivity" android:enabled="false" android:exported="true" android:label="Share to Mirror">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />

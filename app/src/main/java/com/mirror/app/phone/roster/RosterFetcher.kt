@@ -49,7 +49,7 @@ class RosterFetcher(private val c: Context, val web: WebView, private val backgr
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
         // Unlike addJavascriptInterface (which exposes Java to EVERY iframe), this bridge is origin-scoped.
-        // It is never injected/used on the login page and has no field/cookie APIs.
+        // Capture scripts are never evaluated on the login page; bridge messages there are rejected.
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             WebViewCompat.addWebMessageListener(web, "MirrorPdf", setOf(ORIGIN)) { _, message, origin, _, _ ->
                 if (dead || !trusted(origin.toString()) || login(web.url) || !trusted(web.url)) return@addWebMessageListener
@@ -74,7 +74,7 @@ class RosterFetcher(private val c: Context, val web: WebView, private val backgr
             }
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                 val url = request.url.toString()
-                if (request.method == "GET" && trusted(url) && Regex("pdf|export|dxxrd|report|print", RegexOption.IGNORE_CASE).containsMatchIn(request.url.path.orEmpty())) {
+                if (request.method == "GET" && trusted(url) && Regex("pdf|export|dxxrd|report|print", RegexOption.IGNORE_CASE).containsMatchIn(url)) {
                     handler.post { if (!login(web.url) && trusted(web.url)) obtain(url, web.settings.userAgentString) }
                 }
                 return null
@@ -133,7 +133,7 @@ class RosterFetcher(private val c: Context, val web: WebView, private val backgr
           sources.forEach(u=>window.mirrorCapture(u));
           const mode='$step';
           if(mode==='LOAD_DASHBOARD')return schedule?'linked':'wait';
-          if(mode==='OPEN_MY_SCHEDULE'){if(schedule&&period)return 'schedule';click('My Schedule');return 'wait';}
+          if(mode==='OPEN_MY_SCHEDULE'){if(schedule&&period)return 'schedule';if(!window.__mirrorOpened && click('My Schedule'))window.__mirrorOpened=true;return 'wait';}
           if(mode==='CHECK_PENDING_CHANGES')return pending?'pending':'clear';
           if(mode==='CLICK_PRINT')return click('Print')?'printed':'wait';
           if(mode==='NEXT_PERIOD')return click('Next Period')?'next':'wait';
@@ -182,6 +182,7 @@ class RosterFetcher(private val c: Context, val web: WebView, private val backgr
                     connection.setRequestProperty("Cookie", cookies); connection.setRequestProperty("User-Agent", ua)
                     try {
                         val status = connection.responseCode
+                        CaptureLog.add(c, "CAPTURE_PDF", "HTTP $status", current)
                         if (status in 300..399) {
                             current = URL(URL(current), connection.getHeaderField("Location") ?: break).toString()
                             if (login(current)) { handler.post { expire() }; break }; continue

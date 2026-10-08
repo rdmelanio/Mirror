@@ -157,7 +157,7 @@ class RosterSettingsActivity : Activity() {
         RosterStore.load(this)?.duties?.filter { it.type == DutyType.OTHER && it.reportInstant != null }?.map { it.code }?.distinct()?.forEach { toggle("Timed duty $it", "type-$it", true) }
         val alarms = RosterAlarms.definitions(this)
         alarms.forEach { alarm ->
-            root.addView(Switch(this).apply { text = "${alarm.label} · ${alarm.offset / 60}:${(alarm.offset % 60).toString().padStart(2, '0')} before report"; isChecked = alarm.enabled; setOnCheckedChangeListener { _, on -> RosterAlarms.save(this@RosterSettingsActivity, alarms.map { if (it.id == alarm.id) it.copy(enabled = on) else it }) } })
+            root.addView(Switch(this).apply { text = "${alarm.label} · ${alarm.offset / 60}:${(alarm.offset % 60).toString().padStart(2, '0')} before report"; isChecked = alarm.enabled; setOnCheckedChangeListener { _, on -> RosterAlarms.save(this@RosterSettingsActivity, RosterAlarms.definitions(this@RosterSettingsActivity).map { if (it.id == alarm.id) it.copy(enabled = on) else it }) } })
             root.addView(action("Edit ${alarm.label}") { edit(alarm) })
             if (alarm.id != 1) root.addView(action("Remove ${alarm.label}") { RosterAlarms.save(this, RosterAlarms.definitions(this).filter { it.id != alarm.id }); show() })
         }
