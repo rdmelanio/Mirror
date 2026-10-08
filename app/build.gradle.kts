@@ -1,8 +1,9 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins { id("com.android.application") }
 
-val mirrorReleaseVersion = java.util.Properties().apply {
+val mirrorReleaseVersion = Properties().apply {
     rootProject.file("version.properties").inputStream().use { load(it) }
 }
 
