@@ -24,14 +24,16 @@ jobs:
       - name: Install Android SDK
         run: |
           sdkmanager --list | awk '/platforms;android-[0-9]+[[:space:]]/ {print $1}' | sort -Vu
-          sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+          sdkmanager 'platforms;android-37.1' 'build-tools;36.0.0'
       - uses: gradle/actions/setup-gradle@v4
       - name: Bundle verified official B612 fonts
         run: python3 scripts/fetch-clock-fonts.py
       - name: Verify supplied warning loop
         run: python3 scripts/check-warning-loop.py
       - name: Build and check
-        run: ./gradlew :app:assembleRelease :app:testDebugUnitTest :app:lintRelease
+        run: |
+          node --test scripts/check-ecrew-extension.cjs
+          ./gradlew :app:assembleLiteRelease :app:assembleFullRelease :app:testLiteDebugUnitTest :app:testFullDebugUnitTest :app:lintLiteRelease :app:lintFullRelease
       - name: Show failed unit test details
         if: failure()
         run: |
@@ -45,52 +47,39 @@ jobs:
           PYTHON
       - name: Show lint details on failure
         if: failure()
+        run: find app/build/intermediates/lint_intermediate_text_report -name '*.txt' -exec cat {} +
+      - name: Prepare and verify both APKs
         run: |
-          report=app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt
-          if [ -f "$report" ]; then cat "$report"; fi
-      - name: Prepare and verify universal APK
-        run: |
-          cp app/build/outputs/apk/release/app-release.apk mirror.apk
-          if unzip -Z1 mirror.apk | grep -E '\.so$'; then
-            echo 'Native libraries must not be packaged'
-            exit 1
-          fi
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose mirror.apk
+          cp app/build/outputs/apk/lite/release/app-lite-release.apk mirror.apk
+          cp app/build/outputs/apk/full/release/app-full-release.apk mirror-phone.apk
+          python3 scripts/check-apk-flavors.py mirror.apk mirror-phone.apk
+          for apk in mirror.apk mirror-phone.apk; do
+            "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk" > "$apk-signature.txt"
+            "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" > "$apk-info.txt"
+          done
+          python3 scripts/check-release-apks.py
       - uses: actions/upload-artifact@v4
         with:
-          name: mirror-apk
-          path: mirror.apk
-      - name: Verify APK version
-        run: |
-          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging mirror.apk > apk-info.txt
-          python3 - <<'PYTHON'
-          import pathlib, re
-          props = dict(line.split('=', 1) for line in pathlib.Path('version.properties').read_text().splitlines() if '=' in line)
-          badging = pathlib.Path('apk-info.txt').read_text()
-          for key, prop in [('versionName', 'mirrorVersionName'), ('versionCode', 'mirrorVersionCode')]:
-              value = re.search(rf"{key}='([^']+)'", badging).group(1)
-              assert value == props[prop], (key, value, props[prop])
-          print('Verified APK version:', props['mirrorVersionName'], props['mirrorVersionCode'])
-          PYTHON
+          name: mirror-apks
+          path: |
+            mirror.apk
+            mirror-phone.apk
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Mirror build ${{ github.run_number }}
+          name: Mirror 1.11.0 — build ${{ github.run_number }}
           target_commitish: ${{ github.sha }}
           make_latest: true
-          files: mirror.apk
+          files: |
+            mirror.apk
+            mirror-phone.apk
 
 
-      - name: Verify public latest APK download
+      - name: Verify both public latest APK downloads
         run: |
-          curl --fail --location --retry 5 --retry-delay 3 --output published-mirror.apk https://github.com/rdmelanio/Mirror/releases/latest/download/mirror.apk
-          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging published-mirror.apk > published-apk-info.txt
-          python3 - <<'PYTHON'
-          import pathlib, re
-          props = dict(line.split('=', 1) for line in pathlib.Path('version.properties').read_text().splitlines() if '=' in line)
-          info = pathlib.Path('published-apk-info.txt').read_text()
-          for key, prop in [('versionName', 'mirrorVersionName'), ('versionCode', 'mirrorVersionCode')]:
-              assert re.search(rf"{key}='([^']+)'", info).group(1) == props[prop]
-          assert pathlib.Path('published-mirror.apk').read_bytes() == pathlib.Path('mirror.apk').read_bytes()
-          print('Public latest download verified:', props['mirrorVersionName'], props['mirrorVersionCode'])
-          PYTHON
+          for apk in mirror.apk mirror-phone.apk; do
+            curl --fail --location --retry 5 --retry-delay 3 --output "published-$apk" "https://github.com/rdmelanio/Mirror/releases/latest/download/$apk"
+            cmp "$apk" "published-$apk"
+            "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "published-$apk" > "$apk-info.txt"
+          done
+          python3 scripts/check-release-apks.py

@@ -44,7 +44,7 @@ class DepartureSettingsPanel(private val activity: ComponentActivity, private va
             })
         }
         sourceButton = activity.action("") {
-            AlertDialog.Builder(activity).setTitle("Roster source").setItems(arrayOf("Calendar", "eCrew Roster Link")) { _, which ->
+            AlertDialog.Builder(activity).setTitle("Roster source").setItems(if (com.mirror.app.BuildConfig.ROSTER_ENABLED) arrayOf("Calendar", "eCrew Roster Link") else arrayOf("Calendar")) { _, which ->
                 ClockSettings.load(activity).copy(departureSource = if (which == 0) "Calendar" else "eCrew").save(activity); updateStatus()
             }.show()
         }

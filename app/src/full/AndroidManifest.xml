@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <!-- Crash reporting is disabled before startup; do not bind Mozilla's helper service. -->
+        <service android:name="org.mozilla.gecko.crashhelper.CrashHelper" tools:node="remove" />
+    </application>
+</manifest>

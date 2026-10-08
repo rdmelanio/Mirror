@@ -56,7 +56,7 @@ object RosterJson {
 }
 object RosterStore {
     @Volatile private var cache: Roster? = null
-    fun phone(c: Context) = c.mirrorPreferences().getString("role", null) == "phone"
+    fun phone(c: Context) = com.mirror.app.BuildConfig.ROSTER_ENABLED && c.mirrorPreferences().getString("role", null) == "phone"
     fun prefs(c: Context) = c.getSharedPreferences("roster_link", Context.MODE_PRIVATE)
     fun dir(c: Context) = File(c.noBackupFilesDir, "roster").apply { mkdirs() }
     @Synchronized fun load(c: Context): Roster? {
@@ -88,6 +88,7 @@ object RosterStore {
         } catch (_: Exception) { CaptureLog.add(c, "PARSE", "failed; retained last good roster"); return false }
     }
     fun stale(c: Context): Pair<String, Int>? {
+        if (!phone(c)) return null
         val last = prefs(c).getLong("lastSuccess", 0); if (last == 0L) return null
         val age = System.currentTimeMillis() - last
         val hours = age / 3_600_000

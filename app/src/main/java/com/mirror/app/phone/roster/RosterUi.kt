@@ -46,7 +46,7 @@ object RosterDisplay {
     fun legs(d: Duty) = d.legs.joinToString("\n") { "${if (it.deadhead) "DHC " else ""}5J${it.flightNo} ${it.depApt} ${if (it.depKind == "S") "" else it.depKind}${it.depTime.toLocalTime()} → ${it.arrApt} ${if (it.arrKind == "S") "" else it.arrKind}${it.arrTime.toLocalTime()} ${it.aircraft.orEmpty()}" }
 }
 class ECrewActivity : ComponentActivity() {
-    private var fetcher: RosterFetcher? = null
+    private var firefox: EcrewEngineBrowser? = null
     private var browser: EcrewBrowser? = null
     private var browserMode = EcrewBrowserMode.CLEAN
     private var web: WebView? = null
@@ -54,21 +54,26 @@ class ECrewActivity : ComponentActivity() {
     private var screen: EcrewSessionCoordinator.Screen? = null
     private val lifetime = EcrewBrowserLifetime()
     private lateinit var root: LinearLayout
-    private fun lifecycle(event: String) = CaptureLog.add(this, "LIFECYCLE", "${browser?.instanceId.orEmpty()} ${browserMode.name} INTERACTIVE ECrewActivity $event")
+    private fun lifecycle(event: String) = CaptureLog.add(this, "LIFECYCLE", "${browser?.instanceId.orEmpty()} ${browser?.mode ?: browserMode.name} INTERACTIVE ECrewActivity $event")
     override fun onCreate(state: Bundle?) {
         super.onCreate(state); if (!RosterStore.phone(this)) { finish(); return }
         RosterPrivacy.apply(this)
-        browserMode = EcrewBrowserModes.selected(this)
+        val useFirefox = EcrewEngine.selected(this) == EcrewEngine.FIREFOX
+        browserMode = EcrewBrowserMode.CLEAN
         root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val top = LinearLayout(this)
         top.addView(action("Back") { back() }, LinearLayout.LayoutParams(-2, -2))
-        top.addView(action(if (browserMode.automaticScripts) "Refresh" else "Reload") { browser?.reload() }, LinearLayout.LayoutParams(-2, -2))
-        if (browserMode.automaticScripts) {
-            top.addView(action("Fetch roster now") { fetcher?.start() }, LinearLayout.LayoutParams(-2, -2))
-            top.addView(action("Log out of eCrew") { fetcher?.logoutFromTap() }, LinearLayout.LayoutParams(-2, -2))
+        top.addView(action("Reload") { browser?.reload() }, LinearLayout.LayoutParams(-2, -2))
+        if (useFirefox) {
+            top.addView(action("Fetch roster now") { firefox?.start() }, LinearLayout.LayoutParams(-2, -2))
+            top.addView(action("Log out of eCrew") { firefox?.logoutFromTap() }, LinearLayout.LayoutParams(-2, -2))
         } else {
             top.addView(action("Run probe") { web?.let { EcrewProbe.runFromTap(this, it, browser?.instanceId.orEmpty(), browserMode.name) } }, LinearLayout.LayoutParams(-2, -2))
             top.addView(action("Copy log") { copyRosterLog() }, LinearLayout.LayoutParams(-2, -2))
+        }
+        if (useFirefox) {
+            top.addView(action("Run probe") { firefox?.probeFromTap() })
+            top.addView(action("Copy log") { copyRosterLog() })
         }
         top.addView(action("Close") { finish() }, LinearLayout.LayoutParams(-2, -2))
         root.addView(HorizontalScrollView(this).apply { addView(top) })
@@ -79,28 +84,29 @@ class ECrewActivity : ComponentActivity() {
         if (granted == null) { lifecycle("create denied: session owned"); Toast.makeText(this, "eCrew is already open", Toast.LENGTH_SHORT).show(); finish(); return }
         lease = granted
         if (lifetime.create()) {
-            val modeChanged = EcrewBrowserModes.opened(this, browserMode)
-            val browser = WebView(this); web = browser
-            root.addView(browser, LinearLayout.LayoutParams(-1, 0, 1f))
-            if (!browserMode.automaticScripts) {
-                this.browser = EcrewPlainBrowser(this, browser, granted, lifetime, browserMode)
-                Toast.makeText(this, "${browserMode.label} browser mode — Mirror automation disabled", Toast.LENGTH_LONG).show()
-            } else {
-                fetcher = RosterFetcher(this, browser, granted, lifetime = lifetime) { success ->
+            if (useFirefox) {
+                firefox = EcrewFirefox.create(this, granted) { success ->
                     Toast.makeText(this, if (success) "Roster updated" else "Fetch failed — try Print manually or import a PDF", Toast.LENGTH_LONG).show()
                 }
-                this.browser = fetcher
+                browser = firefox
+                firefox?.view?.let { root.addView(it, LinearLayout.LayoutParams(-1, 0, 1f)) }
+            } else {
+                val modeChanged = EcrewBrowserModes.opened(this, browserMode)
+                val fallback = WebView(this); web = fallback
+                root.addView(fallback, LinearLayout.LayoutParams(-1, 0, 1f))
+                browser = EcrewPlainBrowser(this, fallback, granted, lifetime, EcrewBrowserMode.CLEAN)
+                Toast.makeText(this, "Clean browser mode — use manual Print or import a PDF", Toast.LENGTH_LONG).show()
+                if (modeChanged) Toast.makeText(this, "Tip: Capture log → Clear data, then log in fresh", Toast.LENGTH_LONG).show()
             }
             lifecycle("create")
-            if (modeChanged) Toast.makeText(this, "Tip: Capture log → Clear data, then log in fresh", Toast.LENGTH_LONG).show()
             this.browser?.open()
         }
     }
-    private fun back() { val browser = web; if (browser?.canGoBack() == true) browser.goBack() else finish() }
+    private fun back() { if (firefox?.back() == true) return; val browser = web; if (browser?.canGoBack() == true) browser.goBack() else finish() }
     override fun onStart() {
         super.onStart(); if (!::root.isInitialized) return
         lifetime.start(); lifecycle("start"); RosterPrivacy.apply(this)
-        CaptureLog.add(this, "WEBVIEW", "${browser?.instanceId.orEmpty()} ${browserMode.name} ${EcrewWebViewInfo.text(this)}")
+        if (firefox == null) CaptureLog.add(this, "WEBVIEW", "${browser?.instanceId.orEmpty()} ${browserMode.name} ${EcrewWebViewInfo.text(this)}")
     }
     override fun onStop() {
         if (::root.isInitialized) { lifetime.stop(); lifecycle("stop") }
@@ -113,7 +119,7 @@ class ECrewActivity : ComponentActivity() {
     override fun onDestroy() {
         if (::root.isInitialized) lifecycle("destroy")
         if (lifetime.destroy()) {
-            web?.let { root.removeView(it) }; browser?.destroy(); browser = null; fetcher = null; web = null
+            web?.let { root.removeView(it) }; browser?.destroy(); browser = null; firefox = null; web = null
         }
         lease?.close(); lease = null; screen?.close(); screen = null
         super.onDestroy()
@@ -235,10 +241,12 @@ class RosterLogActivity : Activity() {
             AlertDialog.Builder(this).setMessage("Delete private roster PDFs, parsed data, capture log and eCrew session?").setNegativeButton("Cancel", null).setPositiveButton("Clear") { _, _ ->
                 EcrewBrowsers.current?.pauseForLocalClear()
                 val savedMode = EcrewBrowserModes.selected(this)
+                val savedEngine = EcrewEngine.selected(this)
                 RosterStore.clear(this)
                 EcrewBrowserModes.save(this, savedMode)
+                RosterStore.prefs(this).edit().putString("engine", savedEngine.name).apply()
                 File(cacheDir, "roster-logs").deleteRecursively()
-                EcrewStorage.clearLocal(this) { log.text = CaptureLog.read(this); Toast.makeText(this, "Local eCrew and roster data cleared", Toast.LENGTH_SHORT).show() }
+                EcrewFirefox.clearLocal(this) { EcrewStorage.clearLocal(this) { log.text = CaptureLog.read(this); Toast.makeText(this, "Local eCrew and roster data cleared", Toast.LENGTH_SHORT).show() } }
             }.show()
         }); root.addView(log); setContentView(ScrollView(this).apply { addView(root) }); insetContent(root, 12)
     }
@@ -250,13 +258,14 @@ class RosterSettingsActivity : Activity() {
         val p = RosterStore.prefs(this); val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(action("Back") { finish() }); root.addView(label("ROSTER ALARMS & REFRESH", 24f))
         root.addView(label(EcrewWebViewInfo.text(this), 14f))
-        val selectedMode = EcrewBrowserModes.selected(this)
-        root.addView(action("eCrew browser mode: ${selectedMode.label}") {
-            AlertDialog.Builder(this).setSingleChoiceItems(EcrewBrowserMode.entries.map { it.label }.toTypedArray(), selectedMode.ordinal) { dialog, index ->
-                val mode = EcrewBrowserMode.entries[index]; EcrewBrowserModes.save(this, mode)
-                if (!mode.automaticScripts) EcrewBrowsers.current?.pauseForLocalClear()
+        val selectedEngine = EcrewEngine.selected(this)
+        root.addView(action("Roster engine: ${selectedEngine.label}") {
+            AlertDialog.Builder(this).setSingleChoiceItems(EcrewEngine.entries.map { it.label }.toTypedArray(), selectedEngine.ordinal) { dialog, index ->
+                EcrewBrowsers.current?.pauseForLocalClear()
+                RosterStore.prefs(this).edit().putString("engine", EcrewEngine.entries[index].name).apply()
+                EcrewBrowserModes.save(this, EcrewBrowserMode.CLEAN)
                 RosterWork.configure(this)
-                Toast.makeText(this, "Close and reopen eCrew to apply browser mode", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Close and reopen eCrew to apply the engine", Toast.LENGTH_LONG).show()
                 dialog.dismiss(); show()
             }.show()
         })

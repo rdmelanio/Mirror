@@ -34,13 +34,13 @@
         <activity android:name=".phone.PhoneSettingsActivity" android:exported="false" />
         <activity android:name=".phone.DepartureSettingsActivity" android:exported="false" />
         <activity android:name=".phone.ClockCalendarSettingsActivity" android:exported="false" />
-        <activity android:name=".phone.roster.ECrewActivity" android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|density|uiMode|keyboardHidden" android:launchMode="singleTask" android:exported="false" />
-        <activity android:name=".phone.roster.RosterActivity" android:exported="false" />
-        <activity android:name=".phone.roster.RosterSettingsActivity" android:exported="false" />
-        <activity android:name=".phone.roster.RosterChangesActivity" android:exported="false" />
-        <activity android:name=".phone.roster.RosterLogActivity" android:exported="false" />
-        <activity android:name=".phone.roster.RosterAlarmActivity" android:exported="false" android:excludeFromRecents="true" />
-        <activity android:name=".phone.roster.RosterImportActivity" android:exported="false" />
+        <activity android:name=".phone.roster.ECrewActivity" android:enabled="@bool/roster_enabled" android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|density|uiMode|keyboardHidden" android:launchMode="singleTask" android:exported="false" />
+        <activity android:name=".phone.roster.RosterActivity" android:enabled="@bool/roster_enabled" android:exported="false" />
+        <activity android:name=".phone.roster.RosterSettingsActivity" android:enabled="@bool/roster_enabled" android:exported="false" />
+        <activity android:name=".phone.roster.RosterChangesActivity" android:enabled="@bool/roster_enabled" android:exported="false" />
+        <activity android:name=".phone.roster.RosterLogActivity" android:enabled="@bool/roster_enabled" android:exported="false" />
+        <activity android:name=".phone.roster.RosterAlarmActivity" android:enabled="@bool/roster_enabled" android:exported="false" android:excludeFromRecents="true" />
+        <activity android:name=".phone.roster.RosterImportActivity" android:enabled="@bool/roster_enabled" android:exported="false" />
         <activity android:name=".core.RosterShareActivity" android:enabled="false" android:exported="true" android:label="Share to Mirror">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -57,8 +57,8 @@
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.rosterfiles" android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/roster_paths" />
         </provider>
-        <service android:name=".phone.roster.RosterSoundService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
-        <receiver android:name=".core.RosterDispatchReceiver" android:exported="false">
+        <service android:name=".phone.roster.RosterSoundService" android:enabled="@bool/roster_enabled" android:exported="false" android:foregroundServiceType="mediaPlayback" />
+        <receiver android:enabled="@bool/roster_enabled" android:name=".core.RosterDispatchReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />

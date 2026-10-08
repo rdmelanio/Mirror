@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.11.0 — Firefox roster engine and phone APK
+
+- Add full (arm64-v8a GeckoView stable 157.0.20261005135250) and lite (universal, no Gecko/native libraries) flavors with the same application ID and existing signing. Publish mirror.apk for TV and mirror-phone.apk for Roster Link; verify both public latest downloads, versions, signing and flavor contents in CI. Version code 200. Compile SDK 37.1 meets GeckoView’s requirement; target SDK 36 and minimum SDK 26 are unchanged.
+- Default phone Roster Link to Firefox with one shared runtime, a private persistent profile and disabled telemetry, crash reporting and Mozilla services. Retain Android WebView Clean as an explicit fallback, diagnostic probes, capture log and Open with Mirror PDF import. Lite gates roster entry points and shows the phone-APK installation instruction.
+- Install a built-in eCrew-only extension with no Login script, password access, cookie-value logs or automatic confirmation. Use an origin/session/top-frame-checked native port for the schedule → pending changes → Print → PDF → parser steps, 25-second step limits, a 90-second total limit, three-second linked auto-start, Exit and month-end Next Period.
+- Capture bounded PDF bytes from Gecko external responses or print-overlay sources fetched in-page, with chunked base64 delivery and PDF magic validation. Reuse the existing private RosterStore, parser, diff, alarms and clock paths.
+- Keep the single-owner lease and worker-to-screen yield rules. WorkManager creates active headless sessions; if no script response or linked-page signal arrives before timeout, persist and log foreground-only refresh and use a hidden 1×1 view while Mirror/clock/screen saver is open.
+- Add fake-port step-machine tests, fake WebResponse capture tests, extension click/confirmation/privacy tests and actual-APK flavor checks. Camera, TV, clock features and signing are unchanged.
+
 ## 1.10.5 — eCrew Clean browser, probe and Open with Mirror
 
 - Default the phone browser selector to Clean; retain explicit Normal and Plain choices. Clean shares Plain's passive browser with no automatic scripts, bridge, hooks, fetches or storage/cookie/cache cleanup, while removing embedded-WebView UA tokens and opting out of X-Requested-With before the first navigation when supported. Log header-feature support and show a fresh-login hint once when the mode changes.

@@ -49,6 +49,7 @@ class ClockController(private val context: Context, private val view: ClockView,
         override fun onReceive(context: Context?, intent: Intent?) { if (running) { calendar.timeChanged(); render() } }
     }
     fun start() {
+        com.mirror.app.phone.roster.EcrewFirefox.foregroundOpened(context, view)
         com.mirror.app.phone.roster.RosterWork.onOpen(context)
         if (running) return
         running = true; policy = ClockLightPolicy(); view.settings = ClockSettings.load(context)
@@ -71,6 +72,7 @@ class ClockController(private val context: Context, private val view: ClockView,
     }
     fun stop() {
         if (!running) return
+        com.mirror.app.phone.roster.EcrewFirefox.foregroundClosed(view)
         running = false; view.saveSize(); view.stopInteraction(); calendar.stop(); sensors.unregisterListener(this); handler.removeCallbacksAndMessages(null)
         ClockSettings.prefs(context).unregisterOnSharedPreferenceChangeListener(preferencesChanged)
         DepartureAlerts.prefs(context).unregisterOnSharedPreferenceChangeListener(alertChanged)

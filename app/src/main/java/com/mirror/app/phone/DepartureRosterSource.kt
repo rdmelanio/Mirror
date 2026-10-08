@@ -13,7 +13,7 @@ object DepartureSourcePolicy {
 }
 object DepartureRosterSource {
     const val ECREW_ID = -2L
-    fun select(c: Context, s: ClockSettings = ClockSettings.load(c)) = DepartureSourcePolicy.select(s.departureSource,
+    fun select(c: Context, s: ClockSettings = ClockSettings.load(c)) = DepartureSourcePolicy.select(if (RosterStore.phone(c)) s.departureSource else "Calendar",
         RosterStore.phone(c) && RosterStore.prefs(c).getBoolean("linked", false), RosterStore.phone(c) && RosterStore.load(c) != null)
     fun snapshot(c: Context): ClockCalendar.Snapshot {
         val roster = RosterStore.load(c) ?: return ClockCalendar.Snapshot(calendarId = ECREW_ID, loading = false, error = "Import or fetch an eCrew roster")

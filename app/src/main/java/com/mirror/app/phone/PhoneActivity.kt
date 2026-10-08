@@ -33,9 +33,9 @@ class PhoneActivity : Activity() {
         controls.addView(start)
         controls.addView(action("CLOCK MODE") { startActivity(Intent(this, ClockActivity::class.java)) })
         controls.addView(action("SETTINGS") { startActivity(Intent(this, PhoneSettingsActivity::class.java)) })
-        controls.addView(action("ROSTER LINK") { startActivity(Intent(this, com.mirror.app.phone.roster.RosterActivity::class.java)) })
+        controls.addView(action(if (com.mirror.app.BuildConfig.ROSTER_ENABLED) "ROSTER LINK" else "Install mirror-phone.apk for Roster Link") { com.mirror.app.phone.roster.RosterEntry.open(this) })
         nextDuty = label("", 17f); controls.addView(nextDuty)
-        controls.addView(action("Skip next PREPARE") { com.mirror.app.phone.roster.RosterAlarms.skipNext(this) })
+        if (com.mirror.app.BuildConfig.ROSTER_ENABLED) controls.addView(action("Skip next PREPARE") { com.mirror.app.phone.roster.RosterAlarms.skipNext(this) })
         status = label("", 15f); controls.addView(status)
         if (wide) {
             body.addView(display, LinearLayout.LayoutParams(0, -1, 1.65f))
@@ -71,6 +71,7 @@ class PhoneActivity : Activity() {
     }
 
     private fun update() {
+        nextDuty.visibility = if (com.mirror.app.BuildConfig.ROSTER_ENABLED) android.view.View.VISIBLE else android.view.View.GONE
         nextDuty.text = "NEXT DUTY\n" + com.mirror.app.phone.roster.RosterDisplay.compact(this) +
             (com.mirror.app.phone.roster.RosterDisplay.next(this)?.let { "\n" + com.mirror.app.phone.roster.RosterDisplay.legs(it) } ?: "") +
             (com.mirror.app.phone.roster.RosterStore.stale(this)?.let { "\n" + it.first } ?: "")

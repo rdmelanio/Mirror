@@ -1,21 +1,48 @@
-# Mirror 1.8.0
+# Mirror 1.11.0
 
-One Android APK for a phone camera and a Google TV mirror. Kotlin, Android Views,
-one `:app` module, Android 8.0+ (API 26). The APK contains no native `.so` libraries
-and works on both 32-bit armeabi-v7a and 64-bit Android devices.
+Mirror uses a phone camera and a Google TV mirror. Kotlin, Android Views, one
+`:app` module, Android 8.0+ (API 26). Camera, clock and TV behavior are shared by both builds.
 
 ## Install without a PC
 
-Download the latest signed APK:
+- **Google TV / 32-bit devices:** [mirror.apk](https://github.com/rdmelanio/Mirror/releases/latest/download/mirror.apk)
+  is the universal **lite** build with no native libraries or GeckoView. The TV's download URL is unchanged.
+  Use Downloader on the TV to download and install it.
+- **64-bit ARM phone with Roster Link:** [mirror-phone.apk](https://github.com/rdmelanio/Mirror/releases/latest/download/mirror-phone.apk)
+  is the **full**, arm64-v8a build, including Firefox's GeckoView engine.
+  Download it in your phone browser, allow unknown-app installation when prompted, and install it.
+- Both APKs use the same `com.mirror.app` application ID and existing signing key.
+  Install over the old version to keep settings and roster data. Full and lite replace each other;
+  they do not install as separate apps. Lite shows **Install mirror-phone.apk for Roster Link**.
 
-**https://github.com/rdmelanio/Mirror/releases/latest/download/mirror.apk**
+## Roster Link on Firefox
 
-- **Phone:** open that URL in your browser, download `mirror.apk`, allow the browser
-  to install unknown apps if prompted, and install.
-- **Google TV:** install the **Downloader** app, allow it to install unknown apps,
-  and enter the same URL. Download and install `mirror.apk`.
-- Install the same APK on both devices. Future releases use the same signing key
-  and install over this version. Keep the committed keystore when updating.
+The full phone build defaults to **Roster engine: Firefox (recommended)**. Log in manually at
+`https://ecrew.cebupacificair.com/eCrew/Dashboard/`. Mirror never reads passwords or scripts Login.
+A private persistent Gecko profile keeps the eCrew session across restarts. Gecko telemetry,
+crash reporting, Mozilla account, push, remote-settings and other service requests are disabled.
+
+The eCrew toolbar has Back, Reload, Fetch roster now, Log out of eCrew and Close, plus the
+explicit diagnostic probe and Copy log. Sign-in does not trigger a reload. Three seconds after
+the first linked-page signal, Mirror opens My Schedule, checks pending changes, clicks Print,
+captures the PDF, feeds it to the existing parser and clicks Exit. It never clicks **Confirm all changes**.
+Each step has a 25-second limit and the complete fetch has a 90-second limit. Near month end,
+it fetches Next Period after closing the first print overlay.
+
+A built-in extension runs only on eCrew pages outside Login, using an origin-checked native
+port. PDF downloads are read directly from Gecko's external-response body; visible print
+iframe/embed/object/blob sources also have a bounded in-page capture fallback (20 MB maximum).
+PDFs and parsed data remain private. Open with Mirror PDF import, capture logs and alarms remain available.
+
+WorkManager refreshes use a viewless active session on the shared runtime. The interactive
+screen owns the session and workers yield before it opens. If a headless fetch receives no
+script response or linked-page signal before timing out, Mirror logs **background refresh limited: foreground only**
+and thereafter refreshes through a hidden 1×1 GeckoView only while Mirror's UI, clock or screen saver
+is open. No two eCrew sessions run together; the interactive cooldown remains three minutes.
+
+**Roster alarms & refresh → Roster engine → Android WebView** retains the Clean fallback with
+manual browsing, Run probe and PDF import. Akamai rejects System WebView on the tested phone;
+Firefox is recommended. Each engine keeps its own cookies; sign in when switching engines.
 
 ## Choose a role and connect
 
@@ -401,14 +428,16 @@ wake lock is used. No TV controls, overlays or TV-side roster display are added.
 ## Builds and signing
 
 Push to `main` or run **Actions → Build Mirror → Run workflow**. GitHub Actions
-uses Ubuntu and JDK 17, installs the SDK, runs `./gradlew :app:assembleRelease`,
-transport unit tests, and Android lint. It verifies APK signing and absence of
-native libraries, uploads the `mirror-apk` artifact, and publishes `mirror.apk`
-in a latest GitHub Release tagged `build-<run_number>`.
+uses Ubuntu and JDK 17, installs the SDK, builds `assembleLiteRelease` and
+`assembleFullRelease`, runs both flavors' unit tests, extension tests and Android lint.
+It verifies matching APK signing/version/application ID, lite's absence of native/Gecko code
+and full's arm64 engine, uploads the `mirror-apks` artifact, and publishes both
+`mirror.apk` and `mirror-phone.apk` in a latest GitHub Release tagged `build-<run_number>`.
+Both public latest URLs are downloaded and byte/version checked before Actions succeeds.
 
 The project uses stable AGP 9.3.2, Kotlin 2.4.20 (AGP built-in Kotlin), and Gradle
-9.8.0. Compile and target SDK are 36. Version name `1.8.0` and code `180` are
-defined once in `gradle.properties`. Bump both for future changes.
+9.8.0. Compile SDK is 37.1 (required by GeckoView); target SDK remains 36. Version name `1.11.0` and code `200` are
+defined once in `version.properties`. Bump both for future changes.
 
 Both debug and release builds use `keystore/mirror.jks`. Its alias and passwords
 are deliberately committed in `gradle.properties` for this personal project.

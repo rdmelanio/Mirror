@@ -73,7 +73,7 @@ open class PhoneSettingsActivity : ComponentActivity() {
         details.removeAllViews()
         val content = if (id == "alarms" && alarmContent != null) alarmContent!! else LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         when (id) {
-            "roster_link" -> content.addView(action("Open Roster Link") { startActivity(Intent(this, com.mirror.app.phone.roster.RosterActivity::class.java)) })
+            "roster_link" -> content.addView(action(if (com.mirror.app.BuildConfig.ROSTER_ENABLED) "Open Roster Link" else "Install mirror-phone.apk for Roster Link") { com.mirror.app.phone.roster.RosterEntry.open(this) })
             "tv_launch" -> tvPanel = TvLaunchPanel(this, content)
             "alarms" -> if (alarmPanel == null) { alarmContent = content; alarmPanel = DepartureSettingsPanel(this, content) }
             "camera", "pairing" -> controls = PhoneControlsPanel(this, content, id)

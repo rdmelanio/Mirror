@@ -9,13 +9,26 @@ val mirrorReleaseVersion = Properties().apply {
 
 android {
     namespace = "com.mirror.app"
-    compileSdk = 36
+    compileSdk = 37
+    compileSdkMinor = 1
     defaultConfig {
         applicationId = "com.mirror.app"
         minSdk = 26
         targetSdk = 36
         versionCode = mirrorReleaseVersion.getProperty("mirrorVersionCode").toInt()
         versionName = mirrorReleaseVersion.getProperty("mirrorVersionName")
+    }
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("lite") {
+            dimension = "distribution"
+            buildConfigField("boolean", "ROSTER_ENABLED", "false")
+        }
+        create("full") {
+            dimension = "distribution"
+            buildConfigField("boolean", "ROSTER_ENABLED", "true")
+            ndk { abiFilters += "arm64-v8a" }
+        }
     }
     signingConfigs {
         create("mirror") {
@@ -39,10 +52,17 @@ android {
     }
     // CameraX's optional native conversion is disabled in CameraService. We use
     // our stride-aware YUV converter and framework JPEG APIs instead.
-    packaging { jniLibs.excludes += "**/*.so" }
+    packaging { jniLibs.excludes += "**/libimage_processing_util_jni.so" }
 }
 kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
+// The universal TV APK must never resolve or package GeckoView or native libraries.
+androidComponents {
+    onVariants(selector().withFlavor("distribution" to "lite")) {
+        it.packaging.jniLibs.excludes.add("**/*.so")
+    }
+}
 dependencies {
+    "fullImplementation"("org.mozilla.geckoview:geckoview-arm64-v8a:157.0.20261005135250")
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("androidx.camera:camera-camera2:1.4.2")
     implementation("androidx.camera:camera-lifecycle:1.4.2")
