@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- The flashing ECAM annunciator intentionally keeps its platform TextView,
+         manual B612 typography and alarm colors. Material applies only to menus. -->
+    <issue id="AppCompatCustomView">
+        <ignore path="src/main/java/com/mirror/app/phone/roster/RosterChanges.kt" />
+    </issue>
+</lint>
