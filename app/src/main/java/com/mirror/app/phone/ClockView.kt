@@ -291,7 +291,7 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         paint.style = Paint.Style.FILL
         recordHit(canvas, "tv_launch", area, x, y)
     }
-    private data class ClockLabel(val text: String, val face: Typeface, val size: Float, val color: Int, val area: ClockLayout.Area)
+    private data class ClockLabel(val text: String, val face: Typeface, val size: Float, val color: Int, val area: ClockLayout.Area, val alpha: Int = 140)
     private val clockLabels = linkedMapOf<String, ClockLabel>()
     private fun drawClockLabel(canvas: Canvas, key: String, label: ClockLabel, x: Float, y: Float) {
         val density = resources.displayMetrics.density
@@ -302,7 +302,7 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         val fit = minOf(1f, (width - 2 * edge).coerceAtLeast(0f) / paint.measureText(label.text).coerceAtLeast(1f), (height - 2 * edge).coerceAtLeast(0f) / size.coerceAtLeast(1f))
         paint.textSize = size * fit
         val area = ClockLayout.place(width.toFloat(), height.toFloat(), edge, paint.measureText(label.text), paint.textSize * 1.2f, position)
-        paint.shader = null; paint.color = if (night) 0xFFFF2A1A.toInt() else label.color; paint.alpha = 140
+        paint.shader = null; paint.color = if (night) 0xFFFF2A1A.toInt() else label.color; paint.alpha = label.alpha
         canvas.drawText(label.text, area.left, area.top + paint.textSize * .9f, paint)
         recordHit(canvas, key, area, x, y)
     }
@@ -353,9 +353,14 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
                 }
                 if (placement == "Beside") textLeft += labelWidth + row.size * .25f
             }
-            digitAreas += ClockLayout.Area(anchor + textLeft * scale, placed.top + (rowTop + extra) * scale,
+            val standaloneLabel = clock && !row.digits && row.text in setOf("LOC", "UTC")
+            val digitArea = ClockLayout.Area(anchor + textLeft * scale, placed.top + (rowTop + extra) * scale,
                 anchor + (textLeft + textWidth(row)) * scale, placed.top + (rowTop + extra + row.size * leading) * scale)
-            if (!measureOnly) {
+            if (standaloneLabel && measureOnly) {
+                val size = if (placement == "Above") minOf(row.size * scale, 14f * resources.displayMetrics.density) else row.size * scale
+                clockLabels["label_${row.text.lowercase(Locale.ENGLISH)}"] = ClockLabel(row.text, row.face, size, row.color ?: settings.color, digitArea, 180)
+            } else if (!standaloneLabel) digitAreas += digitArea
+            if (!measureOnly && !standaloneLabel) {
                 paint.typeface = row.face; paint.textSize = row.size; paint.shader = null; paint.color = color
                 paint.alpha = if (rosterFlash) (if (System.currentTimeMillis() % 1000 < 500) (if (night) 70 else 255) else (if (night) 10 else 30)) else if (row.digits) 255 else 180
                 if (row.digits && settings.gradient && !night) paint.shader = LinearGradient(0f, rowTop + extra, 0f, baseline, color, settings.secondColor, Shader.TileMode.CLAMP)

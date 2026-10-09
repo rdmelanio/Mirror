@@ -171,10 +171,11 @@ class RosterActivity : Activity() {
         root.addView(RosterChangeAnnunciator(this))
         val hero = PhoneTheme.card(this)
         hero.addView(label("NEXT DUTY", 12f).apply { setTextColor(PhoneTheme.secondary(this@RosterActivity)); letterSpacing = .08f })
-        val duty = RosterDisplay.next(this)
+        val duty = RosterStore.load(this)?.duties.orEmpty().filter { it.reportInstant != null && it.reportInstant > Instant.now() }.minByOrNull { it.reportInstant!! } ?: RosterDisplay.next(this)
         hero.addView(label(duty?.reportLocal?.format(DateTimeFormatter.ofPattern("HH:mm")) ?: duty?.code ?: "Link eCrew", 32f).apply { typeface = resources.getFont(com.mirror.app.R.font.inter_semibold) })
         val countdown = com.mirror.app.phone.ClockEcrewRoster.countdown(RosterStore.load(this), Instant.now())
         hero.addView(label(countdown ?: RosterDisplay.compact(this), 16f))
+        duty?.let { hero.addView(label("${it.date.format(DateTimeFormatter.ofPattern("EEE dd MMM"))} · ${it.code}", 14f).apply { setTextColor(PhoneTheme.secondary(this@RosterActivity)) }) }
         duty?.let { if (it.legs.isNotEmpty()) hero.addView(label(RosterDisplay.legs(it), 16f)) }
         root.addView(hero)
         val actions = listOf<Pair<String, () -> Unit>>(
