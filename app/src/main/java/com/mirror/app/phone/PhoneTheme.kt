@@ -122,12 +122,14 @@ object PhoneTheme {
         return TopBar(row) { heading.text = it }
     }
     fun row(c: Context, title: String, subtitle: String, value: String = "", click: () -> Unit): LinearLayout = LinearLayout(c).apply {
-        orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL; minimumHeight = c.dp(56)
+        val largeText = c.resources.configuration.fontScale > 1.25f
+        orientation = if (largeText) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+        gravity = android.view.Gravity.CENTER_VERTICAL; minimumHeight = c.dp(56)
         setPadding(c.dp(12), c.dp(6), c.dp(12), c.dp(6)); isClickable = true; isFocusable = true
         val words = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS }
         words.addView(label(c, title, 16f).apply { setPadding(0, 0, 0, 0) })
         words.addView(label(c, subtitle, 13f).apply { setTextColor(secondary(c)); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(0, 0, 0, 0) })
-        addView(words, LinearLayout.LayoutParams(0, -2, 1f)); addView(label(c, "$value  ›", 16f).apply { setTextColor(secondary(c)); importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO })
+        addView(words, if (largeText) LinearLayout.LayoutParams(-1, -2) else LinearLayout.LayoutParams(0, -2, 1f)); addView(label(c, "$value  ›", 16f).apply { setTextColor(secondary(c)); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO })
         background = RippleDrawable(ColorStateList.valueOf(c.getColor(R.color.glass_pressed)), null, GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = c.dp(12).toFloat() })
         contentDescription = listOf(title, subtitle, value).filter { it.isNotBlank() }.joinToString(", ")
         setOnClickListener { click() }
