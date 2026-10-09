@@ -140,6 +140,10 @@ object PhoneTheme {
         val c = view.context
         val shape = GradientDrawable().apply { setColor(if (selected) c.getColor(R.color.glass_disabled) else Color.TRANSPARENT); cornerRadius = c.dp(12).toFloat() }
         view.background = RippleDrawable(ColorStateList.valueOf(c.getColor(R.color.glass_pressed)), shape, null)
+        val valueColor = if (selected) primary(c) else secondary(c)
+        val row = view as? ViewGroup
+        ((row?.getChildAt(0) as? ViewGroup)?.getChildAt(1) as? TextView)?.setTextColor(valueColor)
+        (row?.getChildAt(1) as? TextView)?.setTextColor(valueColor)
     }
     fun groupSettings(content: LinearLayout) {
         if (classic(content.context) || content.tag == "glass-grouped") return

@@ -31,6 +31,9 @@ for background in ('background_start', 'background_end'):
         for behind in (bg, surface):
             ratio = contrast(rgb(expected[foreground]), behind)
             assert ratio >= 4.5, (foreground, background, ratio)
+selected = tuple((1 / 3) * a + (2 / 3) * b for a, b in zip(rgb(expected['accent']), rgb('#172238')))
+assert contrast(rgb(expected['primary']), selected) >= 4.5
+assert 'val valueColor = if (selected) primary(c) else secondary(c)' in read(phone + 'PhoneTheme.kt')
 for button in ('accent', 'pressed'):
     assert contrast(rgb(expected['on_accent']), rgb(expected[button])) >= 4.5
 
