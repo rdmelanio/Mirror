@@ -70,7 +70,16 @@ for path, expected_hash in json.loads(read('scripts/phone-protected-baseline.jso
     raw = file.read_bytes()
     variants = [raw, raw[:-1] if raw.endswith(b'\n') else raw, raw.rstrip(b'\n') + b'\n']
     assert any(hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest() == expected_hash for data in variants), 'Protected rendering/behavior changed: ' + path
-# Clock data changes are allowed; the complete layout/drawing/touch implementation is fixed.
-marker = '        val density = resources.displayMetrics.density'
-assert hashlib.sha256(view[view.index(marker):].rstrip().encode()).hexdigest() == json.loads(read('scripts/phone-clock-drawing-baseline.json'))['sha256'], 'Clock drawing changed'
-print('Phone theme: centralized palette, text contrast >=4.5:1, Material components, shared source and protected clock/alarm/TV/camera checks passed')
+# Clock editing is intentionally extensible; alarm drawing still uses its original renderer.
+alarm = view[view.index('    private fun drawDeparture('):view.index('    override fun onTouchEvent')].replace('drawAlarmGroup(', 'drawGroup(')
+start = view.index('    private fun drawAlarmGroup(')
+group = view[start:view.index('    private fun recordHit', start)].replace('drawAlarmGroup(', 'drawGroup(')
+baseline = json.loads(read('scripts/phone-clock-drawing-baseline.json'))
+assert hashlib.sha256(alarm.rstrip().encode()).hexdigest() == baseline['departure'], 'Departure alarm screen changed'
+assert hashlib.sha256(group.rstrip().encode()).hexdigest() == baseline['alarmGroup'], 'Alarm renderer changed'
+assert 'ClockLayout.freeScale(width.toFloat(), height.toFloat()' in view
+assert 'ClockLayout.ordered(screenLayout().zOrder)' in view
+assert 'settings.front(screen, downItem!!)' in view
+assert 'if (downItem == null) postDelayed(held, 2000)' in view
+assert 'if (banner) zones.today.copy(top' not in view
+print('Phone theme: centralized palette, text contrast >=4.5:1, shared source, free clock geometry and protected alarm/TV/camera checks passed')

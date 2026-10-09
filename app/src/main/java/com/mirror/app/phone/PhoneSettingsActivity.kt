@@ -46,7 +46,7 @@ open class PhoneSettingsActivity : ComponentActivity() {
         }
         navigation = ScrollView(this).apply { addView(menu) }
         details = ScrollView(this).apply { isFillViewport = true }
-        separator = View(this).apply { setBackgroundColor(PhoneTheme.divider(this)) }
+        separator = View(this).apply { setBackgroundColor(PhoneTheme.divider(this@PhoneSettingsActivity)) }
         if (wide) {
             body.addView(navigation, LinearLayout.LayoutParams(dp(248), -1))
             body.addView(separator, LinearLayout.LayoutParams(dp(1), -1).apply { setMargins(dp(12), 0, dp(12), 0) })

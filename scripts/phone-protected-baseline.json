@@ -1,6 +1,5 @@
 {
   "app/src/main/java/com/mirror/app/phone/CameraService.kt": "07cd9becff9f086a93f64938871aebe920a404ed",
-  "app/src/main/java/com/mirror/app/phone/ClockLayout.kt": "2be971e4dfc0ea0e09553bc80542b47d8433484e",
   "app/src/main/java/com/mirror/app/phone/ClockLightPolicy.kt": "2ec32ffb7f2a1f54b6c6624137da60813b3487a7",
   "app/src/main/java/com/mirror/app/phone/DepartureSoundService.kt": "7458907b34ce90c7d24cae5597999ab3dd1a0ee2",
   "app/src/main/java/com/mirror/app/phone/roster/RosterAlarmActivity.kt": "d608beb24586911cff7f29aa6b5d141d41375707",

@@ -41,10 +41,12 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
     private var gestureCancelled = false
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var gestureSize = settings.sizePercent.toFloat()
-    private var sizeChanged = false
     private var layoutChanged = false
     private var iconSizeChanged = false
-    private var resizingIcon = false
+    private var resizingKey: String? = null
+    private var editingScreen: String? = null
+    private fun screenKey() = ClockLayout.screenKey(resources.configuration.screenWidthDp, resources.configuration.screenHeightDp)
+    private fun screenLayout() = settings.layoutFor(screenKey())
     private var launchRequested = false
     private var attached = false
     private val tvChanged: () -> Unit = {
@@ -72,33 +74,36 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
     private fun finishSelection() { removeCallbacks(clearSelectionTask); postDelayed(clearSelectionTask, 8000) }
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
-            cancelHold(); removeCallbacks(armDrag); resizingIcon = selected == "tv_launch"
-            multiplePointers = true; hint = false
-            gestureSize = (if (resizingIcon) settings.tvIconSize else settings.sizePercent).toFloat()
+            val key = selected ?: return false
+            if (!settings.layoutEditing || key == "roster_changed") return false
+            cancelHold(); removeCallbacks(armDrag); removeCallbacks(clearSelectionTask)
+            multiplePointers = true; hint = false; resizingKey = key; editingScreen = screenKey()
+            gestureSize = when (key) { "clock" -> screenLayout().sizePercent; "tv_launch" -> settings.tvIconSize; else -> screenLayout().itemSizes[key] ?: 100 }.toFloat()
             return true
         }
         override fun onScale(detector: ScaleGestureDetector): Boolean {
-            gestureSize = (gestureSize * detector.scaleFactor).coerceIn(if (resizingIcon) 24f else 40f, if (resizingIcon) 96f else 100f)
+            val key = resizingKey ?: return false
+            gestureSize = (gestureSize * detector.scaleFactor).coerceIn(1f, if (key == "clock") 100f else if (key == "tv_launch") 96f else 400f)
             val percent = gestureSize.roundToInt()
-            if (resizingIcon) {
-                if (percent != settings.tvIconSize) { settings = settings.copy(tvIconSize = percent); iconSizeChanged = true }
-            } else if (percent != settings.sizePercent) {
-                settings = settings.copy(sizePercent = percent); sizeChanged = true
+            if (key == "tv_launch") { settings = settings.copy(tvIconSize = percent.coerceAtLeast(24)); iconSizeChanged = true }
+            else {
+                val screen = editingScreen ?: screenKey()
+                settings = if (key == "clock") settings.resized(screen, percent) else settings.withLayout(screen, settings.layoutFor(screen).let { it.copy(itemSizes = it.itemSizes + (key to percent)) })
+                layoutChanged = true
             }
             return true
         }
-        override fun onScaleEnd(detector: ScaleGestureDetector) { saveSize() }
+        override fun onScaleEnd(detector: ScaleGestureDetector) { resizingKey = null; saveSize(); finishSelection() }
     }).apply { isQuickScaleEnabled = false }
     private fun cancelExitOnly() { removeCallbacks(held) }
     private fun cancelHold() { holding = false; removeCallbacks(held) }
     internal fun stopInteraction() { cancelHold(); clearSelection(); hint = false; removeCallbacks(hideHint) }
     internal fun saveSize() {
-        if (sizeChanged || layoutChanged || iconSizeChanged) {
-            val fresh = ClockSettings.load(context)
-            fresh.copy(sizePercent = if (sizeChanged) settings.sizePercent else fresh.sizePercent,
-                positions = if (layoutChanged) settings.positions else fresh.positions,
+        if (layoutChanged || iconSizeChanged) {
+            val fresh = ClockSettings.load(context); val screen = editingScreen ?: screenKey()
+            fresh.copy(screenLayouts = if (layoutChanged) fresh.screenLayouts + (screen to settings.layoutFor(screen)) else fresh.screenLayouts,
                 tvIconSize = if (iconSizeChanged) settings.tvIconSize else fresh.tvIconSize).save(context)
-            sizeChanged = false; layoutChanged = false; iconSizeChanged = false
+            layoutChanged = false; iconSizeChanged = false; editingScreen = null
         }
     }
     private val hideHint = Runnable { hint = false; invalidate() }
@@ -145,13 +150,15 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
             }
             else -> rows += Row(primary, 112f, if (s.minimalFont == "B612") regular else thin, digits = true)
         }
-        val clockRows = rows.toList()
+        val plainLabels = rows.filter { !it.digits && it.text in setOf("LOC", "UTC") }
+        val clockRows = when (s.timeLabel) { "Hidden" -> rows - plainLabels.toSet(); "Above" -> plainLabels + (rows - plainLabels.toSet()); else -> rows.toList() }
         val dateRows = mutableListOf<Row>()
         val alarmRows = mutableListOf<Row>()
         val weatherRows = mutableListOf<Row>()
         val todayRows = mutableListOf<Row>()
         val tomorrowRows = mutableListOf<Row>()
         val footerRows = mutableListOf<Row>()
+        val nextDutyRows = mutableListOf<Row>()
         if (s.date) dateRows += Row(format("EEE dd MMM", now, s.usesUtc).uppercase(Locale.ENGLISH), 23f, regular, color = s.dateColor)
         if (s.alarm) context.getSystemService(AlarmManager::class.java).nextAlarmClock?.let {
             alarmRows += Row(format(if (use24) "HH:mm" else "h:mm a", Date(it.triggerTime)), 20f, regular, "ALARM", color = s.alarmColor)
@@ -204,7 +211,7 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         }
         if (com.mirror.app.phone.roster.RosterStore.prefs(context).getBoolean("nextDutyLine", true) && com.mirror.app.phone.roster.RosterStore.load(context) != null) {
             val line = if (DepartureRosterSource.select(context, s) == DepartureSourcePolicy.Source.ECREW) ClockEcrewRoster.countdown(com.mirror.app.phone.roster.RosterStore.load(context), java.time.Instant.ofEpochMilli(now.time)) else com.mirror.app.phone.roster.RosterDisplay.compact(context)
-            if (line != null) todayRows += Row(line, 20f, regular, color = s.scheduleColor)
+            if (line != null) nextDutyRows += Row(line, 20f, regular, color = s.scheduleColor)
         }
         val density = resources.displayMetrics.density
         val zones = ClockLayout.zones(width.toFloat(), height.toFloat(), density)
@@ -227,31 +234,40 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         // Every zone shares the same bounded burn-in transform, including corner information.
         motionX = x; motionY = y
         canvas.save(); canvas.translate(x, y)
-        drawGroup(canvas, clockRows, zones.clock, 0, "clock", x, y, clock = true)
-        drawGroup(canvas, dateRows, if (alarmRows.isEmpty()) zones.date else zones.date.copy(bottom = zones.date.top + zones.date.height * 0.55f), -1, "date", x, y)
-        drawGroup(canvas, alarmRows, if (dateRows.isEmpty()) zones.date else zones.date.copy(top = zones.date.top + zones.date.height * 0.55f), -1, "alarm", x, y)
-        drawGroup(canvas, weatherRows, zones.weather, 1, "weather", x, y)
-        val banner = com.mirror.app.phone.roster.RosterStore.phone(context) && com.mirror.app.phone.roster.RosterChanges.state(context).visible
-        val bannerHeight = minOf(zones.today.height * 0.3f, 32f * density)
-        if (banner) drawGroup(canvas, listOf(Row("ROSTER CHANGE", 20f, if (s.style == "Cockpit") mono else regular, color = 0xFFFFB000.toInt())),
-            zones.today.copy(bottom = zones.today.top + bannerHeight), -1, "roster_changed", x, y, respectNight = false, rosterFlash = true)
-        drawGroup(canvas, todayRows, if (banner) zones.today.copy(top = zones.today.top + bannerHeight) else zones.today, -1, "today", x, y, bottom = true)
-        drawGroup(canvas, tomorrowRows, zones.tomorrow, 1, "tomorrow", x, y, bottom = true)
+        val drawing = linkedMapOf<String, () -> Unit>()
+        clockLabels.clear()
+        drawGroup(canvas, clockRows, zones.clock, 0, "clock", x, y, clock = true, measureOnly = true)
+        drawing["clock"] = { drawGroup(canvas, clockRows, zones.clock, 0, "clock", x, y, clock = true) }
+        clockLabels.forEach { (key, label) -> drawing[key] = { drawClockLabel(canvas, key, label, x, y) } }
+        drawing["date"] = { drawGroup(canvas, dateRows, zones.date, -1, "date", x, y) }
+        drawing["alarm"] = { drawGroup(canvas, alarmRows, zones.date.copy(top = zones.date.top + 42f * density), -1, "alarm", x, y) }
+        drawing["weather"] = { drawGroup(canvas, weatherRows, zones.weather, 1, "weather", x, y) }
+        drawing["today"] = { drawGroup(canvas, todayRows, zones.today, -1, "today", x, y, bottom = true) }
+        drawing["tomorrow"] = { drawGroup(canvas, tomorrowRows, zones.tomorrow, 1, "tomorrow", x, y, bottom = true) }
+        drawing["next_duty"] = { drawGroup(canvas, nextDutyRows, zones.footer.copy(right = zones.footer.centerX), -1, "next_duty", x, y, bottom = true) }
         val footer = zones.footer
-        val footerText = footer.copy(right = footer.left + footer.width * 0.64f)
-        drawGroup(canvas, footerRows, footerText, -1, "calendar_checked", x, y, bottom = true)
-        val hintArea = footer.copy(left = footer.left + footer.width * 0.66f, right = footer.right - 20f * density)
-        if (hint || selected != null) drawGroup(canvas, listOf(Row(if (selected != null) "Hold + drag to move" else "Hold to exit", 14f, regular)), hintArea, 1, bottom = true)
-        if (s.status) {
-            val radius = minOf(5f * density, footer.height * 0.25f)
-            val location = s.positions["status"]
-            val limit = zones.motionLimit + minOf(16f * density, minOf(width, height) * 0.04f)
-            val cx = location?.let { (it.x * width).coerceIn(limit + radius, maxOf(limit + radius, width - limit - radius)) } ?: (footer.right - 6f * density)
-            val cy = location?.let { (it.y * height).coerceIn(limit + radius, maxOf(limit + radius, height - limit - radius)) } ?: footer.centerY
-            drawIndicator(canvas, cx, cy, radius, now.time)
-            recordHit(canvas, "status", ClockLayout.Area(cx - radius, cy - radius, cx + radius, cy + radius), x, y)
+        drawing["calendar_checked"] = { drawGroup(canvas, footerRows, footer.copy(right = footer.left + footer.width * .64f), -1, "calendar_checked", x, y, bottom = true) }
+        drawing["status"] = {
+            if (s.status) {
+                val radius = minOf(5f * density, footer.height * .25f) * (screenLayout().itemSizes["status"] ?: 100) / 100f
+                val position = screenLayout().positions["status"] ?: ClockPosition((footer.right - 6f * density) / width, footer.centerY / height)
+                val edge = ClockLayout.safeInset(width.toFloat(), height.toFloat(), density)
+                val area = ClockLayout.place(width.toFloat(), height.toFloat(), edge, radius * 2, radius * 2, position)
+                drawIndicator(canvas, area.centerX, area.centerY, radius, now.time)
+                recordHit(canvas, "status", area, x, y)
+            }
         }
-        if (s.tvIcon) drawTvIcon(canvas, zones, x, y)
+        drawing["tv_launch"] = { if (s.tvIcon) drawTvIcon(canvas, zones, x, y) }
+        val banner = com.mirror.app.phone.roster.RosterStore.phone(context) && com.mirror.app.phone.roster.RosterChanges.state(context).visible
+        drawing["roster_changed"] = {
+            if (banner) drawGroup(canvas, listOf(Row("ROSTER CHANGE", 20f, if (s.style == "Cockpit") mono else regular, color = 0xFFFFB000.toInt())),
+                zones.today.copy(bottom = zones.today.top + minOf(zones.today.height * .3f, 32f * density)), -1, "roster_changed", x, y, respectNight = false, rosterFlash = true)
+        }
+        // Order drives drawing and hit testing. Annunciators are always the final layer.
+        ClockLayout.ordered(screenLayout().zOrder).filter { it != "roster_changed" }.forEach { drawing[it]?.invoke() }
+        if (hint || selected != null) drawGroup(canvas, listOf(Row(if (selected != null) "Pinch · hold + drag" else "Hold empty space to exit", 14f, regular)),
+            footer.copy(left = footer.left + footer.width * .66f, right = footer.right - 20f * density), 1, bottom = true)
+        drawing["roster_changed"]?.invoke()
         canvas.restore()
     }
     private fun drawTvIcon(canvas: Canvas, zones: ClockLayout.Zones, x: Float, y: Float) {
@@ -259,7 +275,7 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         val edge = zones.motionLimit + minOf(16f * density, minOf(width, height) * 0.04f)
         val size = minOf(settings.tvIconSize * density, (minOf(width, height) - 2 * edge).coerceAtLeast(0f))
         if (size <= 0f) return
-        val position = settings.positions["tv_launch"] ?: ClockPosition(0.5f, 0.91f)
+        val position = screenLayout().positions["tv_launch"] ?: ClockPosition(0.5f, 0.91f)
         val area = ClockLayout.place(width.toFloat(), height.toFloat(), edge, size, size, position)
         paint.shader = null; paint.color = Color.WHITE; paint.alpha = if (night) 100 else 210
         paint.style = Paint.Style.STROKE; paint.strokeWidth = maxOf(1f, size * 0.035f)
@@ -273,8 +289,87 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         paint.style = Paint.Style.FILL
         recordHit(canvas, "tv_launch", area, x, y)
     }
-    /** Fits only this region. Corner content cannot reduce the central clock's scale. */
+    private data class ClockLabel(val text: String, val face: Typeface, val size: Float, val color: Int, val area: ClockLayout.Area)
+    private val clockLabels = linkedMapOf<String, ClockLabel>()
+    private fun drawClockLabel(canvas: Canvas, key: String, label: ClockLabel, x: Float, y: Float) {
+        val density = resources.displayMetrics.density
+        val size = label.size * (screenLayout().itemSizes[key] ?: 100) / 100f
+        paint.typeface = label.face; paint.textSize = size
+        val edge = ClockLayout.safeInset(width.toFloat(), height.toFloat(), density)
+        val position = screenLayout().positions[key] ?: ClockPosition(label.area.centerX / width, label.area.centerY / height)
+        val fit = minOf(1f, (width - 2 * edge).coerceAtLeast(0f) / paint.measureText(label.text).coerceAtLeast(1f), (height - 2 * edge).coerceAtLeast(0f) / size.coerceAtLeast(1f))
+        paint.textSize = size * fit
+        val area = ClockLayout.place(width.toFloat(), height.toFloat(), edge, paint.measureText(label.text), paint.textSize * 1.2f, position)
+        paint.shader = null; paint.color = if (night) 0xFFFF2A1A.toInt() else label.color; paint.alpha = 140
+        canvas.drawText(label.text, area.left, area.top + paint.textSize * .9f, paint)
+        recordHit(canvas, key, area, x, y)
+    }
+    /** Each item fits the screen independently. Neighbouring items never affect its size or position. */
     private fun drawGroup(canvas: Canvas, rows: List<Row>, area: ClockLayout.Area, alignment: Int,
+                          key: String? = null, motionX: Float = 0f, motionY: Float = 0f, clock: Boolean = false, bottom: Boolean = false,
+                          respectNight: Boolean = true, rosterFlash: Boolean = false, measureOnly: Boolean = false) {
+        if (rows.isEmpty() || area.width <= 0f || area.height <= 0f) return
+        val placement = if (clock) settings.timeLabel else "Beside"
+        fun textWidth(row: Row): Float { paint.typeface = row.face; paint.textSize = row.size; return paint.measureText(row.text) }
+        fun labelWidth(row: Row): Float { paint.typeface = row.face; paint.textSize = row.size * .38f; return if (row.label.isEmpty()) 0f else paint.measureText(row.label) }
+        fun rowWidth(row: Row) = ClockLayout.rowWidth(textWidth(row), labelWidth(row), row.size, placement)
+        val leading = if (clock) 1.18f else 1.32f
+        val blockWidth = rows.maxOf(::rowWidth)
+        val blockHeight = rows.sumOf { ClockLayout.rowHeight(it.size, leading, it.label.isNotEmpty(), placement).toDouble() }.toFloat()
+        val layout = screenLayout()
+        val percent = if (clock) layout.sizePercent else key?.let { layout.itemSizes[it] } ?: 100
+        val scale = ClockLayout.freeScale(width.toFloat(), height.toFloat(), resources.displayMetrics.density, blockWidth, blockHeight, percent, clock)
+        if (scale <= 0f) return
+        val actualHeight = blockHeight * scale; val actualWidth = blockWidth * scale
+        val top = if (clock) area.centerY - actualHeight / 2 else if (bottom) area.bottom - actualHeight else area.top
+        val left = if (alignment < 0) area.left else if (alignment > 0) area.right - actualWidth else area.centerX - actualWidth / 2
+        val position = key?.let { layout.positions[it] } ?: ClockPosition((left + actualWidth / 2) / width, (top + actualHeight / 2) / height)
+        val edge = ClockLayout.safeInset(width.toFloat(), height.toFloat(), resources.displayMetrics.density)
+        val placed = ClockLayout.place(width.toFloat(), height.toFloat(), edge, actualWidth, actualHeight, position)
+        val anchor = if (alignment < 0) placed.left else if (alignment > 0) placed.right else placed.centerX
+        if (!measureOnly) { canvas.save(); canvas.translate(anchor, placed.top); canvas.scale(scale, scale) }
+        var rowTop = 0f
+        val digitAreas = mutableListOf<ClockLayout.Area>()
+        rows.forEach { row ->
+            val rowWidth = rowWidth(row)
+            var textLeft = if (alignment < 0) 0f else if (alignment > 0) -rowWidth else -rowWidth / 2
+            val extra = 0f
+            val baseline = rowTop + extra + row.size * .9f
+            val color = if (night && respectNight) 0xFFFF2A1A.toInt() else row.color ?: settings.color
+            if (row.label.isNotEmpty() && placement != "Hidden") {
+                val labelWidth = labelWidth(row)
+                val labelLeft = if (placement == "Above") textLeft + (rowWidth - labelWidth) / 2 else textLeft
+                val labelBaseline = if (placement == "Above") rowTop - row.size * .08f else baseline
+                if (clock && measureOnly) {
+                    val labelSize = if (placement == "Above") minOf(row.size * .38f * scale, 14f * resources.displayMetrics.density) else row.size * .38f * scale
+                    val labelArea = ClockLayout.Area(anchor + labelLeft * scale, placed.top + labelBaseline * scale - labelSize * .9f,
+                        anchor + (labelLeft + labelWidth) * scale, placed.top + labelBaseline * scale + labelSize * .3f)
+                    clockLabels["label_${row.label.lowercase(Locale.ENGLISH)}"] = ClockLabel(row.label, row.face, labelSize, row.color ?: settings.color, labelArea)
+                } else if (!clock && !measureOnly) {
+                    paint.typeface = row.face; paint.textSize = row.size * .38f; paint.shader = null; paint.color = color; paint.alpha = 140
+                    canvas.drawText(row.label, labelLeft, labelBaseline, paint)
+                }
+                if (placement == "Beside") textLeft += labelWidth + row.size * .25f
+            }
+            digitAreas += ClockLayout.Area(anchor + textLeft * scale, placed.top + (rowTop + extra) * scale,
+                anchor + (textLeft + textWidth(row)) * scale, placed.top + (rowTop + extra + row.size * leading) * scale)
+            if (!measureOnly) {
+                paint.typeface = row.face; paint.textSize = row.size; paint.shader = null; paint.color = color
+                paint.alpha = if (rosterFlash) (if (System.currentTimeMillis() % 1000 < 500) (if (night) 70 else 255) else (if (night) 10 else 30)) else if (row.digits) 255 else 180
+                if (row.digits && settings.gradient && !night) paint.shader = LinearGradient(0f, rowTop + extra, 0f, baseline, color, settings.secondColor, Shader.TileMode.CLAMP)
+                canvas.drawText(row.text, textLeft, baseline, paint); paint.shader = null
+            }
+            rowTop += ClockLayout.rowHeight(row.size, leading, row.label.isNotEmpty(), placement)
+        }
+        if (!measureOnly) {
+            canvas.restore()
+            val hit = if (clock) ClockLayout.Area(digitAreas.minOf { it.left }, digitAreas.minOf { it.top }, digitAreas.maxOf { it.right }, digitAreas.maxOf { it.bottom }) else placed
+            if (key != null) recordHit(canvas, key, hit, motionX, motionY)
+        }
+    }
+
+    /** Fits only this region. Corner content cannot reduce the central clock's scale. */
+    private fun drawAlarmGroup(canvas: Canvas, rows: List<Row>, area: ClockLayout.Area, alignment: Int,
                           key: String? = null, motionX: Float = 0f, motionY: Float = 0f, clock: Boolean = false, bottom: Boolean = false, respectNight: Boolean = true, rosterFlash: Boolean = false) {
         if (rows.isEmpty() || area.width <= 0f || area.height <= 0f) return
         fun rowWidth(row: Row): Float {
@@ -359,11 +454,11 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         paint.shader = null; paint.alpha = 255; paint.color = color; paint.style = Paint.Style.STROKE; paint.strokeWidth = density
         if (lit) canvas.drawRect(z.header.left, z.header.top, z.header.right, z.header.bottom, paint)
         paint.style = Paint.Style.FILL
-        if (lit) drawGroup(canvas, listOf(Row(if (alert.test) "TEST / MASTER ${alert.kind.name}" else "MASTER ${alert.kind.name}", 46f, bold, color = color)),
+        if (lit) drawAlarmGroup(canvas, listOf(Row(if (alert.test) "TEST / MASTER ${alert.kind.name}" else "MASTER ${alert.kind.name}", 46f, bold, color = color)),
             z.header.copy(left = z.header.left+z.gap, top = z.header.top+z.gap/2), -1, respectNight = false)
         paint.color = Color.GRAY; paint.alpha = 140
         canvas.drawLine(z.duty.left, z.duty.bottom+z.gap/2, z.duty.right, z.duty.bottom+z.gap/2, paint)
-        drawGroup(canvas, listOf(
+        drawAlarmGroup(canvas, listOf(
             Row("DUTY / DEPARTURE", 22f, regular, color = Color.WHITE),
             Row(alert.duty, 32f, mono, color = green),
             Row("REPORT  ${DepartureAlerts.stamp(alert.reporting)}", 24f, regular, color = Color.WHITE)), z.duty, -1, respectNight = false)
@@ -378,7 +473,7 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
             Row("PREPARE TO LEAVE", 28f, bold, color = cyan),
             Row("$remaining MIN TO ${if (settings.warningEnabled) "FINAL ALERT" else "REPORT"}", 24f, regular, color = color),
             Row("AT $finalTime", 22f, regular, color = cyan))
-        drawGroup(canvas, actionRows, z.action, -1, respectNight = false)
+        drawAlarmGroup(canvas, actionRows, z.action, -1, respectNight = false)
         val button = RectF(z.stop.left, z.stop.top, z.stop.right, z.stop.bottom)
         paint.shader = null; paint.alpha = 255; paint.color = color; paint.style = Paint.Style.STROKE; paint.strokeWidth = 2*density
         canvas.drawRect(button, paint); paint.style = Paint.Style.FILL
@@ -386,7 +481,7 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         val text = if (warning) "STOP / ACKNOWLEDGE" else "ACKNOWLEDGE"
         paint.textSize = minOf(paint.textSize, paint.textSize*(button.width()-2*z.gap)/paint.measureText(text))
         canvas.drawText(text, button.centerX()-paint.measureText(text)/2, button.centerY()-(paint.ascent()+paint.descent())/2, paint)
-        drawGroup(canvas, listOf(Row(if (warning) "AUTO CLEAR / 10 MIN" else "AMBER / ACKNOWLEDGE WHEN READY", 14f, regular, color = Color.WHITE)),
+        drawAlarmGroup(canvas, listOf(Row(if (warning) "AUTO CLEAR / 10 MIN" else "AMBER / ACKNOWLEDGE WHEN READY", 14f, regular, color = Color.WHITE)),
             z.footer, -1, respectNight = false)
         alertStop = RectF(button.left+dx, button.top+dy, button.right+dx, button.bottom+dy)
         canvas.restore()
@@ -430,7 +525,7 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
                 }?.key?.takeIf { settings.layoutEditing || it == "tv_launch" }
                 holding = true; hint = true; invalidate()
                 removeCallbacks(hideHint); postDelayed(hideHint, 2500)
-                removeCallbacks(held); postDelayed(held, 2000)
+                removeCallbacks(held); if (downItem == null) postDelayed(held, 2000)
                 removeCallbacks(armDrag)
                 if (downItem != null && settings.layoutEditing && (downItem == selected || downItem == "tv_launch")) {
                     if (downItem == "tv_launch") selected = downItem
@@ -445,8 +540,8 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
                     if (key != null && original != null) {
                         val centerX = original.centerX + event.x - downX - motionX
                         val centerY = original.centerY + event.y - downY - motionY
-                        settings = settings.copy(positions = settings.positions + (key to ClockPosition(
-                            (centerX / width).coerceIn(0f, 1f), (centerY / height).coerceIn(0f, 1f))))
+                        val screen = editingScreen ?: screenKey().also { editingScreen = it }
+                        settings = settings.moved(screen, key, ClockPosition((centerX / width).coerceIn(0f, 1f), (centerY / height).coerceIn(0f, 1f)))
                         layoutChanged = true
                     }
                 } else if (kotlin.math.abs(event.x - downX) > touchSlop || kotlin.math.abs(event.y - downY) > touchSlop) {
@@ -456,6 +551,10 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
             MotionEvent.ACTION_UP -> {
                 val tap = !multiplePointers && !dragging && kotlin.math.abs(event.x - downX) <= touchSlop && kotlin.math.abs(event.y - downY) <= touchSlop
                 cancelHold(); removeCallbacks(armDrag)
+                if (tap && downItem != null && settings.layoutEditing) {
+                    val screen = screenKey(); editingScreen = screen
+                    settings = settings.front(screen, downItem!!); layoutChanged = true
+                }
                 if (tap && downItem == "tv_launch" && !gestureCancelled && SystemClock.uptimeMillis() - downAt < 450) {
                     clearSelection()
                     if (!TvLauncher.running) {
@@ -467,7 +566,7 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
                 dragging = false; saveSize(); if (selected != null) finishSelection(); invalidate(); performClick()
             }
             MotionEvent.ACTION_CANCEL -> { cancelHold(); clearSelection(); saveSize(); invalidate() }
-            MotionEvent.ACTION_POINTER_DOWN -> { cancelHold(); removeCallbacks(armDrag); if (selected != "tv_launch") clearSelection(); multiplePointers = true; hint = false; invalidate() }
+            MotionEvent.ACTION_POINTER_DOWN -> { cancelHold(); removeCallbacks(armDrag); multiplePointers = true; hint = false; invalidate() }
         }
         return true
     }

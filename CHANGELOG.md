@@ -6,7 +6,8 @@
 - Open an existing My Schedule flyout first across all accessible frames, or follow the first sidebar tap within one second. Preserve navigation limits, Firefox PDF capture/export windows, privacy rules and the page-hook guard.
 - Split PDF legend columns even when whitespace collapses. OFF is Day off, M is Day Memo, and the AS/RVL descriptions remain separate.
 - Introduce phone-only Glass cockpit menus: one centralized gradient/cyan palette, bundled official Inter Regular/Medium/SemiBold with SIL OFL in About, rounded settings/day cards, Material 3 switches, accessible rows, pill actions and back-arrow app bars. Preserve wide settings panes, camera behavior, clock/alarm screens, annunciators and TV UI. Diagnostics can enable the hidden Classic ECAM menus switch.
-- Add printed-roster/source/legend tests, rapid flyout regressions, palette contrast and protected-screen checks. Version code 204; both APKs are version 1.11.4.
+- Allow clock and info-item overlap, tap-to-front saved layers and selected-item pinch/hold-drag editing. Clock digits fit the full burn-in safe screen instead of the center zone. Save clock scale, item positions and layers independently per screen size/orientation (folded and unfolded); keep the size slider synchronized. Add Beside/Above/Hidden time labels, leave flashing annunciators on top, and reset sizes/layers/labels with Reset layout. Alarm drawing remains unchanged.
+- Add printed-roster/source/legend tests, rapid flyout regressions, palette contrast, per-screen resizing/layer/label/reset regressions and protected alarm/TV/camera checks. Version code 204; both APKs are version 1.11.4.
 
 ## 1.11.3 — My Schedule data and real DevExpress export routes
 

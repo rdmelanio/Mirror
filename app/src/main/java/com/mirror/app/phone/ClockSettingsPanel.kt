@@ -43,11 +43,13 @@ class ClockSettingsPanel(private val activity: Activity, private val content: Li
         choice("Style", listOf("Cockpit", "Minimal", "Stacked", "Word clock"), { settings.style }) { save(settings.copy(style = it)) }
         toggle("Show UTC time", { settings.showUtc }) { save(settings.copy(showUtc = it)) }
         content.addView(activity.label("Turn UTC off for local time only. Cockpit hides its second line; your primary-time preference is kept for when UTC is enabled again."))
-        slider(content, "Clock size (% of center space)", { settings.sizePercent }, 40, 100) { save(settings.copy(sizePercent = it)) }
-        content.addView(activity.label("Pinch with two fingers on the clock screen to resize. The size is saved for Clock mode and the screen saver. At 100%, the clock fills its center area. Corner information keeps its own size, with space reserved for pixel shifting."))
+        fun screen() = ClockLayout.screenKey(activity.resources.configuration.screenWidthDp, activity.resources.configuration.screenHeightDp)
+        slider(content, "Clock size (% of safe screen)", { settings.layoutFor(screen()).sizePercent }, 1, 100) { save(settings.resized(screen(), it)) }
+        choice("Time label", listOf("Beside", "Above", "Hidden"), { settings.timeLabel }) { save(settings.copy(timeLabel = it)) }
+        content.addView(activity.label("Tap the clock to select it, then pinch freely or hold and drag. Size, position and layers are saved separately for each screen size and orientation, including folded and unfolded screens. At 100%, only the screen edge and burn-in margins limit the digits. Items may overlap."))
         toggle("Allow tap-and-hold layout editing", { settings.layoutEditing }) { save(settings.copy(layoutEditing = it)) }
-        content.addView(activity.label("Tap the clock, date, alarm, weather or a duty block to select it. Hold the selected item briefly, then drag. Hold empty space for 2 seconds to exit. Positions are saved and kept inside the screen."))
-        content.addView(activity.action("Reset layout · center clock and corner info") { save(settings.copy(positions = emptyMap())) })
+        content.addView(activity.label("Tap the clock, date, alarm, weather or a duty block to select it. Hold the selected item briefly, then drag. Hold empty space for 2 seconds to exit. Tapping brings an item to the front; flashing cautions always stay on top. Positions stay inside the burn-in safe screen. Reset layout also resets sizes, layers and time labels."))
+        content.addView(activity.action("Reset layout · center clock and corner info") { save(settings.resetLayout()) })
         choice("Primary time", listOf("Local", "UTC"), { if (settings.primaryUtc) "UTC" else "Local" }) { save(settings.copy(primaryUtc = it == "UTC")) }
         choice("12/24-hour", listOf("System", "12-hour", "24-hour"), { settings.hourFormat }) { save(settings.copy(hourFormat = it)) }
         content.addView(activity.label("UTC uses aviation 24-hour Z notation. The format override applies to local time."))

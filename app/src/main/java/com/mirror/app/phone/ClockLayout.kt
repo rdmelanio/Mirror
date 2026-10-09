@@ -2,6 +2,25 @@ package com.mirror.app.phone
 
 /** Independent display zones: info content never participates in sizing the central clock. */
 object ClockLayout {
+    val items = listOf("clock", "label_loc", "label_utc", "label_sec", "date", "alarm", "weather", "today", "tomorrow", "next_duty", "calendar_checked", "status", "tv_launch", "roster_changed")
+    fun screenKey(widthDp: Int, heightDp: Int) = "${if (widthDp > heightDp) "landscape" else "portrait"}-${widthDp}x${heightDp}"
+    fun bringToFront(order: List<String>, key: String) = (ordered(order).filter { it != key } + key).filter { it in items }
+    fun ordered(saved: List<String>): List<String> {
+        val normal = (items.filter { it !in saved } + saved).filter { it in items && it != "roster_changed" }.distinct()
+        return normal + "roster_changed"
+    }
+    fun rowWidth(digits: Float, label: Float, size: Float, placement: String): Float = when (placement) {
+        "Beside" -> digits + if (label > 0) label + size * .25f else 0f
+        "Above" -> maxOf(digits, label)
+        else -> digits
+    }
+    @Suppress("UNUSED_PARAMETER")
+    fun rowHeight(size: Float, leading: Float, hasLabel: Boolean, placement: String) = size * leading
+    fun safeInset(width: Float, height: Float, density: Float) = zones(width, height, density).motionLimit + minOf(16f * density, minOf(width, height) * .04f)
+    fun freeScale(width: Float, height: Float, density: Float, blockWidth: Float, blockHeight: Float, percent: Int, clock: Boolean): Float {
+        val fit = scale(width, height, safeInset(width, height, density), blockWidth, blockHeight, 100)
+        return if (clock) fit * percent.coerceIn(1, 100) / 100f else minOf(fit, density * percent.coerceIn(1, 400) / 100f)
+    }
     data class Area(val left: Float, val top: Float, val right: Float, val bottom: Float) {
         val width get() = (right - left).coerceAtLeast(0f)
         val height get() = (bottom - top).coerceAtLeast(0f)
@@ -46,6 +65,7 @@ object ClockLayout {
         if (blockWidth <= 0 || blockHeight <= 0) return 0f
         val fit = minOf((width - 2 * inset).coerceAtLeast(0f) / blockWidth,
             (height - 2 * inset).coerceAtLeast(0f) / blockHeight)
-        return fit * percent.coerceIn(40, 100) / 100f
+        return fit * percent.coerceIn(1, 100) / 100f
     }
 }
+

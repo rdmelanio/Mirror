@@ -2,8 +2,12 @@ package com.mirror.app.phone
 
 import android.content.Context
 import org.json.JSONObject
+import org.json.JSONArray
 
 data class ClockPosition(val x: Float, val y: Float)
+
+data class ClockScreenLayout(val sizePercent: Int = 90, val positions: Map<String, ClockPosition> = emptyMap(),
+    val zOrder: List<String> = emptyList(), val itemSizes: Map<String, Int> = emptyMap())
 
 /** The complete, versioned clock preference payload; ready for future transport. */
 data class ClockSettings(
@@ -11,6 +15,7 @@ data class ClockSettings(
     val showUtc: Boolean = true, val sizePercent: Int = 90,
     val tvIcon: Boolean = false, val tvIconSize: Int = 36,
     val layoutEditing: Boolean = true, val positions: Map<String, ClockPosition> = emptyMap(),
+    val screenLayouts: Map<String, ClockScreenLayout> = emptyMap(), val timeLabel: String = "Beside",
     val hourFormat: String = "System", val minimalFont: String = "System thin",
     val color: Int = 0xFF00E040.toInt(), val gradient: Boolean = false,
     val secondColor: Int = 0xFF00E5FF.toInt(),
@@ -29,10 +34,22 @@ data class ClockSettings(
     val excludedDutyCodes: String = "HS,HSA", val allowCalendarStartAlerts: Boolean = false,
     val cautionSound: String = "", val warningSound: String = ""
 ) {
+    fun layoutFor(screen: String) = screenLayouts[screen] ?: ClockScreenLayout(sizePercent, positions)
+    fun withLayout(screen: String, layout: ClockScreenLayout) = copy(screenLayouts = screenLayouts + (screen to layout))
+    fun resized(screen: String, percent: Int) = withLayout(screen, layoutFor(screen).copy(sizePercent = percent.coerceIn(1, 100)))
+    fun moved(screen: String, key: String, position: ClockPosition) = withLayout(screen, layoutFor(screen).let { it.copy(positions = it.positions + (key to position)) })
+    fun front(screen: String, key: String) = withLayout(screen, layoutFor(screen).let { it.copy(zOrder = ClockLayout.bringToFront(it.zOrder, key)) })
+    fun resetLayout() = copy(sizePercent = 90, positions = emptyMap(), screenLayouts = emptyMap(), timeLabel = "Beside", tvIconSize = 36)
     val usesUtc: Boolean get() = showUtc && primaryUtc
     fun json(): String = JSONObject().apply {
-        put("schema", 7); put("tvIcon", tvIcon); put("tvIconSize", tvIconSize); put("showUtc", showUtc); put("sizePercent", sizePercent)
-        put("layoutEditing", layoutEditing)
+        put("schema", 8); put("tvIcon", tvIcon); put("tvIconSize", tvIconSize); put("showUtc", showUtc); put("sizePercent", sizePercent)
+        put("layoutEditing", layoutEditing); put("timeLabel", timeLabel)
+        put("screenLayouts", JSONObject().apply {
+            screenLayouts.forEach { (screen, layout) -> put(screen, JSONObject().apply {
+                put("sizePercent", layout.sizePercent); put("zOrder", JSONArray(layout.zOrder)); put("itemSizes", JSONObject(layout.itemSizes))
+                put("positions", JSONObject().apply { layout.positions.forEach { (key, position) -> put(key, JSONObject().put("x", position.x).put("y", position.y)) } })
+            }) }
+        })
         put("positions", JSONObject().apply {
             positions.forEach { (key, value) -> put(key, JSONObject().put("x", value.x).put("y", value.y)) }
         })
@@ -60,19 +77,32 @@ data class ClockSettings(
         fun load(context: Context) = parse(prefs(context).getString("settings", null))
         fun parse(raw: String?): ClockSettings = runCatching {
             val j = JSONObject(raw ?: "{}"); val d = ClockSettings()
+            fun positions(value: JSONObject?): Map<String, ClockPosition> = ClockLayout.items.mapNotNull { key ->
+                val position = value?.optJSONObject(key) ?: return@mapNotNull null
+                val x = position.optDouble("x"); val y = position.optDouble("y")
+                if (!x.isFinite() || !y.isFinite()) null else key to ClockPosition(x.toFloat().coerceIn(0f, 1f), y.toFloat().coerceIn(0f, 1f))
+            }.toMap()
+            fun layouts(): Map<String, ClockScreenLayout> {
+                val value = j.optJSONObject("screenLayouts") ?: return emptyMap()
+                return value.keys().asSequence().filter { Regex("^(portrait|landscape)-[0-9]{1,4}x[0-9]{1,4}$").matches(it) }.take(16).mapNotNull { key ->
+                    val layout = value.optJSONObject(key) ?: return@mapNotNull null
+                    val order = layout.optJSONArray("zOrder")
+                    val items = (0 until (order?.length() ?: 0)).map { order!!.optString(it) }.filter { it in ClockLayout.items }.distinct()
+                    val sizes = layout.optJSONObject("itemSizes")
+                    key to ClockScreenLayout(layout.optInt("sizePercent", d.sizePercent).coerceIn(1, 100), positions(layout.optJSONObject("positions")), items,
+                        ClockLayout.items.filter { sizes?.has(it) == true }.associateWith { sizes!!.optInt(it, 100).coerceIn(1, 400) })
+                }.toMap()
+            }
             fun choice(key: String, default: String, options: List<String>) = j.optString(key, default).takeIf { it in options } ?: default
             ClockSettings(
                 style = choice("style", d.style, listOf("Cockpit", "Minimal", "Stacked", "Word clock")),
                 primaryUtc = j.optBoolean("primaryUtc", d.primaryUtc),
                 showUtc = j.optBoolean("showUtc", d.showUtc),
-                sizePercent = j.optInt("sizePercent", d.sizePercent).coerceIn(40, 100),
+                sizePercent = j.optInt("sizePercent", d.sizePercent).coerceIn(1, 100),
                 tvIcon = j.optBoolean("tvIcon", d.tvIcon), tvIconSize = j.optInt("tvIconSize", d.tvIconSize).coerceIn(24, 96),
                 layoutEditing = j.optBoolean("layoutEditing", true),
-                positions = listOf("clock", "date", "alarm", "weather", "today", "tomorrow", "calendar_checked", "status", "tv_launch").mapNotNull { key ->
-                    val position = j.optJSONObject("positions")?.optJSONObject(key) ?: return@mapNotNull null
-                    val x = position.optDouble("x"); val y = position.optDouble("y")
-                    if (!x.isFinite() || !y.isFinite()) null else key to ClockPosition(x.toFloat().coerceIn(0f, 1f), y.toFloat().coerceIn(0f, 1f))
-                }.toMap(),
+                positions = positions(j.optJSONObject("positions")), screenLayouts = layouts(),
+                timeLabel = choice("timeLabel", "Beside", listOf("Beside", "Above", "Hidden")),
                 hourFormat = choice("hourFormat", d.hourFormat, listOf("System", "12-hour", "24-hour")),
                 minimalFont = choice("minimalFont", d.minimalFont, listOf("System thin", "B612")),
                 color = j.optInt("color", d.color) or 0xFF000000.toInt(), gradient = j.optBoolean("gradient", d.gradient),

@@ -27,7 +27,7 @@ class ClockTest {
         val hidden = ClockSettings.parse(old.copy(showUtc = false).json())
         assertFalse(hidden.usesUtc); assertTrue(hidden.primaryUtc)
         assertTrue(hidden.copy(showUtc = true).usesUtc)
-        assertEquals(40, ClockSettings.parse("{\"sizePercent\":-10}").sizePercent)
+        assertEquals(1, ClockSettings.parse("{\"sizePercent\":-10}").sizePercent)
         assertEquals(100, ClockSettings.parse("{\"sizePercent\":999}").sizePercent)
     }
     @Test fun savedPositionsRejectMalformedItemsAndClampToScreen() {
@@ -102,3 +102,4 @@ class ClockTest {
         assertEquals("IT IS FIVE TO TWELVE", ClockWords.time(23, 59))
     }
 }
+
