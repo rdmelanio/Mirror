@@ -4,10 +4,10 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const code = fs.readFileSync('app/src/full/assets/ecrew/content.js', 'utf8');
 function page(path = '/eCrew/Dashboard/') {
-  const elements = [], messages = [], clicks = [];
+  const elements = [], messages = [], clicks = [], handlers = {};
   let receiver, connected = 0, interval, disconnected;
   const port = {postMessage: m => messages.push(m), onMessage: {addListener: fn => receiver = fn}, onDisconnect: {addListener: fn => disconnected = fn}};
-  const document = {documentElement: {}, querySelectorAll: selector => elements.filter(e => selector.includes('iframe') ? e.frame : selector.startsWith('nav ') ? e.calendar : !e.frame), addEventListener() {}};
+  const document = {documentElement: {}, querySelectorAll: selector => elements.filter(e => selector.includes('iframe') ? e.frame : selector.startsWith('.webix_sidebar') ? (e.calendar || /calendar/i.test(typeof e.className === 'string' ? e.className : '')) : !e.frame), addEventListener(name, fn) { handlers[name] = fn; }};
   function element(value, options = {}) {
     const e = {innerText: value, tagName: 'BUTTON', className: '', disabled: false,
       ownerDocument: document, addEventListener() {}, getClientRects: () => options.hidden ? [] : [1], matches: () => (options.tagName || 'BUTTON') === 'BUTTON', getAttribute: () => null,
@@ -22,8 +22,8 @@ function page(path = '/eCrew/Dashboard/') {
     setInterval: fn => {interval = fn; return 1;}, clearInterval() {}, setTimeout: () => 1, clearTimeout() {},
     MouseEvent: class {constructor(type) {this.type = type;}}, URL, AbortController, Uint8Array, Blob, fetch: () => {throw Error('unexpected fetch');}, FileReader: class {}};
   function run() { Object.assign(window, {document, frames: [], MouseEvent: context.MouseEvent, getComputedStyle: context.getComputedStyle, MutationObserver: context.MutationObserver}); window.location ||= context.location; document.defaultView = window; vm.runInNewContext(code, context); }
-  function command(command, request = 1) { receiver({command, request}); }
-  return {element, run, command, messages, clicks, context, report: () => interval(), disconnect: () => disconnected(), connected: () => connected};
+  function command(command, request = 1, extra = {}) { receiver({command, request, ...extra}); }
+  return {element, run, command, messages, clicks, context, trustedClick: target => handlers.click({target, isTrusted: true}), report: () => interval(), disconnect: () => disconnected(), connected: () => connected};
 }
 test('Login guard never connects a native port, including mixed case Login', () => {
   for (const route of ['/eCrew/Login', '/eCrew/LOGIN/', '/eCrew/Login?next=Dashboard']) {
@@ -39,7 +39,7 @@ test('linked detector accepts visible My Schedule prefix and the sidebar calenda
   assert(sidebar.messages.some(m => m.kind === 'linked'));
 });
 test('pending is reported and commands cannot click Confirm all changes', () => {
-  const p = page(); p.element('My Schedule (published)'); p.element('Period: October'); p.element('Confirm all changes (2)'); p.element('Print roster'); p.element('Exit report'); p.run();
+  const p = page('/eCrew/CrewSchedule'); p.element('My Schedule (published)'); p.element('Period: October'); p.element('Confirm all changes (2)'); p.element('Print roster'); p.element('Exit report'); p.run();
   p.command('openSchedule', 1); p.command('checkPending', 2); p.command('print', 3); p.command('print', 3); p.command('exit', 4);
   for (const command of ['Confirm all changes', 'confirm', 'confirmAllChanges']) p.command(command, 5);
   assert.deepEqual(p.clicks, ['Print roster', 'Exit report']);
@@ -52,8 +52,8 @@ test('nested Print text cannot click its Confirm all changes parent', () => {
   assert.deepEqual(p.clicks, []);
 });
 test('schedule command clicks at most once while waiting, termination stops commands', () => {
-  const p = page(); p.element('My Schedule (published)'); p.run(); p.command('openSchedule'); p.command('openSchedule');
-  assert.deepEqual(p.clicks, ['My Schedule (published)']);
+  const p = page(); p.element('My Schedule (published)', {tagName: 'DIV'}); p.element('', {className: 'fa-calendar-alt'}); p.run(); p.command('openSchedule'); p.command('openSchedule');
+  assert.deepEqual(p.clicks, ['']);
   p.element('Another active session… terminated'); p.report(); p.element('Print'); p.command('print', 2);
   assert(p.messages.some(m => m.kind === 'terminated')); assert.equal(p.clicks.length, 1);
 });
@@ -97,9 +97,9 @@ test('private runtime configuration disables telemetry, crash upload and Mozilla
 });
 
 test('sub-frame hello, readiness and never-confirm guard', () => {
-  const p = page('/eCrew/Dashboard/HomeIndex'); p.context.window.top = {};
+  const p = page('/eCrew/CrewSchedule'); p.context.window.top = {};
   p.element('Period October'); p.element('Print'); p.element('Confirm all changes'); p.run();
-  assert(p.messages.some(m => m.kind === 'hello' && !m.top && m.path === '/eCrew/Dashboard/HomeIndex'));
+  assert(p.messages.some(m => m.kind === 'hello' && !m.top && m.path === '/eCrew/CrewSchedule'));
   p.command('openSchedule'); p.command('print', 2); p.command('confirmAllChanges', 3);
   assert(p.messages.some(m => m.result === 'schedule')); assert.deepEqual(p.clicks, ['Print']);
 });
@@ -132,15 +132,15 @@ test('blank viewer frame inherits eCrew identity and Login is still excluded', (
   login.run(); assert.equal(login.connected(), 0);
 });
 
-test('DevExpress hidden export gets three center reveal taps then hidden click', () => {
-  const p = page(); const events = [];
+test('DevExpress hidden export gets four center reveal taps then hidden click', () => {
+  const p = page('/AIMS/CrewScheduleReport/PrintReport'); const events = [];
   const image = p.element('', {tagName: 'IMG', complete: true, naturalWidth: 100, dispatchEvent: e => events.push(e.type)});
   p.element('', {className: 'dxrdm-page', querySelectorAll: () => [image]});
   p.element('', {className: 'dxrdm-export-button', hidden: true});
   let now = 10000; p.context.Date = {now: () => now}; p.run();
-  p.command('waitPreview', 1); assert(p.messages.some(m => m.result === 'preview'));
-  for (let i = 0; i < 4; i++) { p.command('openExport', 2); now += 900; }
-  assert.equal(events.length, 21); assert.deepEqual(events.slice(0, 7), ['pointerdown','pointerup','touchstart','touchend','mousedown','mouseup','click']);
+  p.command('waitPreview', 1, {viewerReady: true}); assert(p.messages.some(m => m.result === 'preview'));
+  for (let i = 0; i < 5; i++) { p.command('openExport', 2); now += 900; }
+  assert.equal(events.length, 28); assert.deepEqual(events.slice(0, 7), ['pointerdown','pointerup','touchstart','touchend','mousedown','mouseup','click']);
   assert.equal(p.clicks.length, 1); assert(p.messages.some(m => m.value === 'export hidden last resort'));
 });
 test('DevExpress visible export clicks immediately and chooses only exact PDF', () => {
@@ -184,7 +184,7 @@ function network(available = true) {
     listeners.before({requestId: id, url: 'https://ecrew.cebupacificair.com' + path, tabId});
     if (filters.length === before) return null;
     const f = filters.at(-1);
-    listeners.headers({requestId: id, statusCode: 200, responseHeaders: [{name: 'Content-Type', value: type}]});
+    listeners.headers({requestId: id, statusCode: 200, responseHeaders: [{name: 'Content-Type', value: type}, {name: 'Content-Disposition', value: options.disposition || ''}]});
     for (const part of parts) { const data = Uint8Array.from(part).buffer; f.ondata({data}); assert.equal(f.writes.at(-1), data, 'write original chunk immediately'); }
     if (options.error) f.onerror(); else if (!options.defer) f.onstop();
     assert.deepEqual(Buffer.concat(f.writes.map(v => Buffer.from(v))), Buffer.concat(parts.map(v => Buffer.from(v))));
@@ -226,7 +226,7 @@ test('unavailable filter is reported once and no responses are filtered', () => 
   assert.equal(p.response([Buffer.from('%PDF-test')]), null);
 });
 test('deep traversal reaches nested blank frames, hides multiview frames and excludes Login', () => {
-  const p = page(); const child = page('/eCrew/MySchedule?eCrewHeader=private');
+  const p = page(); const child = page('/eCrew/CrewSchedule?eCrewHeader=private');
   const nested = page(); nested.context.location.href = 'about:blank';
   child.element('Period October'); child.element('Confirm all changes'); const events = [];
   nested.element('Period October');
@@ -274,3 +274,86 @@ test('deep frame status OR, own-window style and script-free document rescans', 
   child.context.window.frames.push(newer.context.window); newer.context.window.frameElement = child.element('', {frame: true, contentWindow: newer.context.window});
   p.command('snapshot'); assert.equal(p.messages.filter(m => m.kind === 'snapshot').at(-1).frames.length, 3);
 });
+
+test('sidebar comes first, Dashboard headings never clicked, flyout is exact, retries stop at three', () => {
+  const p = page(); let now = 0; p.context.Date = {now: () => now};
+  p.element('My Schedule (published up until tomorrow)', {tagName: 'DIV'});
+  const events = []; p.element('', {className: 'fa-calendar-alt', dispatchEvent: e => events.push(e.type)});
+  p.run(); p.command('openSchedule'); assert.deepEqual(p.clicks, ['']);
+  p.element('My Schedule', {tagName: 'A'}); p.command('openSchedule'); assert.deepEqual(p.clicks, ['', 'My Schedule']);
+  p.command('openSchedule'); assert.equal(p.clicks.length, 2);
+  now = 4999; p.command('openSchedule'); assert.equal(p.clicks.length, 2);
+  now = 5000; p.command('openSchedule'); assert.equal(p.clicks.length, 3);
+  p.command('openSchedule'); now = 10000; p.command('openSchedule'); p.command('openSchedule');
+  now = 15000; p.command('openSchedule'); assert.equal(p.clicks.filter(c => c === '').length, 3);
+  assert(events.every(e => ['mousedown', 'mouseup'].includes(e)));
+  assert(!p.clicks.some(c => c.includes('published')));
+  assert(p.messages.some(m => m.kind === 'clickTarget' && m.text.length <= 30));
+  const headings = page(); headings.element('My Schedule (published)', {tagName: 'DIV'}); headings.run(); headings.command('openSchedule'); assert.deepEqual(headings.clicks, []);
+});
+
+test('readiness requires CrewSchedule path plus Period and visible Print', () => {
+  for (const route of ['/eCrew/Dashboard', '/eCrew/CrewSchedule']) {
+    const p = page(route); p.element('Period'); const print = p.element('Print', {hidden: true}); p.run(); p.command('openSchedule');
+    assert(!p.messages.some(m => m.result === 'schedule'));
+    print.getClientRects = () => [1]; p.command('openSchedule');
+    assert.equal(p.messages.some(m => m.result === 'schedule'), route.endsWith('CrewSchedule'));
+  }
+});
+
+test('AIMS viewer participates in deep search and needs a viewer JSON response', () => {
+  const p = page(), viewer = page('/AIMS/CrewScheduleReport/PrintReport');
+  const image = viewer.element('', {tagName: 'IMG', complete: true, naturalWidth: 20});
+  viewer.element('', {className: 'dxrdm-page', querySelectorAll: () => [image]});
+  viewer.element('', {className: 'dxrdm-export-button'}); p.run(); viewer.run();
+  const frame = p.element('', {frame: true, contentWindow: viewer.context.window});
+  viewer.context.window.frameElement = frame; viewer.context.window.parent = p.context.window; p.context.window.frames.push(viewer.context.window);
+  p.command('waitPreview'); assert(!p.messages.some(m => m.result === 'preview'));
+  p.command('waitPreview', 2, {viewerReady: true}); assert(p.messages.some(m => m.result === 'preview'));
+  p.command('openExport', 3); assert.equal(viewer.clicks.length, 1);
+  p.command('snapshot'); assert(p.messages.at(-1).frames.some(f => f.path.startsWith('/AIMS/')));
+  viewer.context.location.href = 'https://ecrew.cebupacificair.com/AIMS/Login'; p.command('snapshot'); assert.equal(p.messages.at(-1).frames.length, 1);
+  const login = page('/AIMS/AutoLogin'); login.run(); assert.equal(login.connected(), 0);
+});
+
+test('trusted manual Print, SVG save and exact PDF taps are reported in AIMS', () => {
+  const p = page('/AIMS/CrewScheduleReport/PrintReport');
+  const print = p.element('Print'), save = p.element('', {getAttribute: n => n === 'class' ? 'svg floppy-save' : null}), pdf = p.element('PDF');
+  p.run(); p.trustedClick(print); p.trustedClick(save); p.trustedClick(pdf);
+  assert(p.messages.some(m => m.kind === 'manualPrint'));
+  assert(p.messages.some(m => m.kind === 'manualExport' && m.value === 'export'));
+  assert(p.messages.some(m => m.kind === 'manualExport' && m.value === 'PDF'));
+});
+
+test('top localStorage is read-only, snapshot follows linked/load/end, size limit rejects partial captures', () => {
+  const p = page(); const entries = {CrewInformation: '[{"crew":"PRIVATE_CREW"}]', PeriodStart: 'PRIVATE_DATE'};
+  let writes = 0;
+  p.context.TextEncoder = TextEncoder;
+  p.context.window.localStorage = {get length() { return Object.keys(entries).length; }, key: i => Object.keys(entries)[i], getItem: key => entries[key], setItem() {writes++;}, removeItem() {writes++;}, clear() {writes++;}};
+  p.element('', {className: 'fa-calendar-alt'}); p.run();
+  assert(p.messages.some(m => m.kind === 'storageSnapshot' && m.reason === 'linked' && !m.afterSchedule));
+  p.context.location.href = 'https://ecrew.cebupacificair.com/eCrew/CrewSchedule'; p.report();
+  assert(p.messages.some(m => m.kind === 'storageSnapshot' && m.reason === 'CrewSchedule load' && m.afterSchedule));
+  p.command('storageSnapshot'); assert.equal(p.messages.at(-1).entries.CrewInformation, entries.CrewInformation);
+  entries.huge = 'x'.repeat(5 * 1024 * 1024); const count = p.messages.filter(m => m.kind === 'storageSnapshot').length;
+  p.command('storageSnapshot'); assert.equal(p.messages.filter(m => m.kind === 'storageSnapshot').length, count); assert.equal(p.messages.at(-1).kind, 'storageLimit'); assert.equal(writes, 0);
+  assert(!/localStorage\s*\.\s*(setItem|removeItem|clear)\s*\(/.test(code));
+});
+
+test('whole-host AIMS download candidates accept PDF type, attachment, octet-stream and magic', () => {
+  for (const [type, disposition] of [['application/pdf', ''], ['application/octet-stream', ''], ['text/plain', 'attachment; filename="schedule.pdf"'], ['image/png', '']]) {
+    const p = network(); p.response([Buffer.from('%P'), Buffer.from('DF-private')], type, '/AIMS/CrewScheduleReport/WebDocumentViewerInvoke', 7, {disposition});
+    assert(p.messages.some(m => m.kind === 'pdf' && m.via === 'webRequest'));
+    const metadata = p.messages.find(m => m.kind === 'network'); assert.equal(metadata.attachment, !!disposition); assert(!JSON.stringify(metadata).includes('private'));
+    p.response([Buffer.from('not PDF')], type, '/AIMS/CrewScheduleReport/WebDocumentViewerInvoke', 7, {disposition}); assert.equal(p.messages.filter(m => m.kind === 'pdf').length, 1);
+  }
+});
+
+test('CrewSchedule HTML is captured unchanged up to one MB, including passive linked capture', () => {
+  const p = network(); p.scope({active: false, record: false, capture: false});
+  const html = '<html>PRIVATE_CREW</html>'; p.response([Buffer.from(html)], 'text/html', '/eCrew/CrewSchedule');
+  assert.equal(p.messages.find(m => m.kind === 'scheduleHtml').body, html);
+  assert(!JSON.stringify(p.messages.filter(m => m.kind === 'network')).includes('PRIVATE_CREW'));
+  p.response([Buffer.alloc(1024 * 1024 + 1, 65)], 'text/html', '/eCrew/CrewSchedule'); assert.equal(p.messages.filter(m => m.kind === 'scheduleHtml').length, 1);
+});
+

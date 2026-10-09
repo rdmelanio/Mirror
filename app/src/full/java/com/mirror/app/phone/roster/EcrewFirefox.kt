@@ -138,13 +138,23 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
     private var receivedResult = false
     private var probePending = false
     private var lastPdfHash = 0
+    private var viewerJsonSeen = false
+    private var scheduleDataCaptured = false
+    private var fetchCompletion: (() -> Unit)? = null
+    private val exportWindow = EcrewExportWindow(SystemClock::elapsedRealtime) { log("EXPORT_WINDOW", it) }
+    private fun snapshotStorage() {
+        frames.top()?.postMessage(JSONObject().put("command", "storageSnapshot").put("request", machine.request))
+    }
     private val logoutOrder = EcrewLogoutOrder()
     private val loop = EcrewLoopDetector()
     private fun allowed() = !dead && !paused && lease.ownsSession() && RosterStore.phone(c)
     private fun page() = allowed() && EcrewPortPolicy.page(url) && !terminated && !loggingOut
     private fun log(step: String, result: String, address: String? = null) = CaptureLog.add(c, step, "$instanceId FIREFOX $owner $result", address)
     private val machine: EcrewAutomation = EcrewAutomation(SystemClock::elapsedRealtime, { command, id ->
-        if (page()) broadcast(command, id)
+        if (page()) {
+            if (command == "print") { viewerJsonSeen = false; exportWindow.arm("robot CLICK_PRINT"); networkScope() }
+            broadcast(command, id)
+        }
     }, { value -> pending(value) }, { success, reason ->
         if (background && hiddenHost == null && reason.startsWith("timeout") && (!receivedResult || !linkedDocument) && !RosterFetcher.login(url) && !terminated)
             EcrewFirefox.limitBackground(c)
@@ -153,17 +163,21 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
             RosterStore.prefs(c).edit().putBoolean("pendingChanges", value).apply()
             RosterChanges.update(c, pending = value)
         }
-        networkScope(); stopContent(); closeChild(); pendingPdf = null; log("FETCH", reason)
-        if (background) main.postDelayed({ completed(success) }, if (reason.startsWith("timeout")) 750 else 0) else completed(success)
-    }, { step -> networkScope(); log(step, "started"); if (step == "PARSE") main.post { parsePendingPdf() } }, { step ->
+        snapshotStorage(); networkScope(); stopContent(); if (!exportWindow.armed) closeChild(); pendingPdf = null; log("FETCH", if (success && reason != "success") "data captured; $reason" else reason)
+        fetchCompletion = { completed(success || scheduleDataCaptured) }
+        // The final read-only snapshot must reach private storage before a worker closes its session.
+        main.postDelayed({ finishFetch() }, 1500)
+    }, { step -> networkScope(); log(step, "started"); if (step == "PARSE") main.post { parsePendingPdf() }
+        if (step == "CAPTURE_PDF" && pendingPdf != null) main.post { pendingPdf?.let { capture(it, "webRequest") } } }, { step ->
         log("SNAPSHOT", "$step timeout; requesting frame diagnostics")
         snapshotUntil = SystemClock.elapsedRealtime() + 1000
         broadcast("snapshot", machine.request)
     })
     private val tick = object : Runnable {
-        override fun run() { if (allowed()) { machine.tick(); main.postDelayed(this, 500) } }
+        override fun run() { if (allowed()) { machine.tick(); networkScope(); if (!exportWindow.armed && child != null) closeChild(); main.postDelayed(this, 500) } }
     }
     private val autoFetch = Runnable { if (foreground && page() && !machine.active) { autoFetchPending = false; start() } }
+    private fun finishFetch() { val completion = fetchCompletion; fetchCompletion = null; completion?.invoke() }
     private val logoutTimeout = Runnable {
         if (logoutOrder.timeout(SystemClock.elapsedRealtime())) {
             loggingOut = false; log("LOGOUT", "Login not reached within 10 s; storage retained")
@@ -175,10 +189,10 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
         session.navigationDelegate = object : GeckoSession.NavigationDelegate {
             override fun onLoadRequest(s: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny> {
                 val popup = request.target == GeckoSession.NavigationDelegate.TARGET_WINDOW_NEW
-                val trusted = RosterFetcher.trusted(request.uri) || (machine.captureAllowed && EcrewPortPolicy.exportPage(request.uri, allowBlank = popup))
+                val trusted = RosterFetcher.trusted(request.uri) || (exportWindow.armed && EcrewPortPolicy.exportPage(request.uri, allowBlank = popup))
                 val ok = allowed() && trusted
                 log("NAVIGATION", if (ok) "load allowed" else "load blocked", request.uri)
-                if (request.target == GeckoSession.NavigationDelegate.TARGET_WINDOW_NEW && !machine.captureAllowed) return GeckoResult.fromValue(AllowOrDeny.DENY)
+                if (request.target == GeckoSession.NavigationDelegate.TARGET_WINDOW_NEW && !exportWindow.armed) return GeckoResult.fromValue(AllowOrDeny.DENY)
                 return GeckoResult.fromValue(if (ok) AllowOrDeny.ALLOW else AllowOrDeny.DENY)
             }
             override fun onSubframeLoadRequest(s: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
@@ -186,13 +200,13 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
                 return null
             }
             override fun onNewSession(s: GeckoSession, uri: String): GeckoResult<GeckoSession>? {
-                if (!page() || !machine.captureAllowed || !exportAddress(uri)) return null
+                if (!page() || !exportWindow.armed || !exportAddress(uri)) return null
                 closeChild()
                 val download = GeckoSession(GeckoSessionSettings.Builder().userAgentMode(GeckoSessionSettings.USER_AGENT_MODE_MOBILE).build())
                 child = download
                 download.navigationDelegate = object : GeckoSession.NavigationDelegate {
                     override fun onLoadRequest(s: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny> =
-                        GeckoResult.fromValue(if (page() && machine.captureAllowed && exportAddress(request.uri)) AllowOrDeny.ALLOW else AllowOrDeny.DENY)
+                        GeckoResult.fromValue(if (page() && exportWindow.armed && exportAddress(request.uri)) AllowOrDeny.ALLOW else AllowOrDeny.DENY)
                     override fun onLocationChange(s: GeckoSession, location: String?, permissions: MutableList<GeckoSession.PermissionDelegate.ContentPermission>, hasUserGesture: Boolean) {
                         if (location != null && location != "about:blank" && exportAddress(location)) log("CAPTURE_PDF", "export popup location", location)
                     }
@@ -203,7 +217,7 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
                 installedExtension?.let { installed -> download.webExtensionController.setMessageDelegate(installed, object : WebExtension.MessageDelegate {
                     override fun onConnect(candidate: WebExtension.Port) {
                         val sender = candidate.sender
-                        if (child !== download || !page() || !machine.captureAllowed || sender.session !== download || sender.environmentType != WebExtension.MessageSender.ENV_TYPE_CONTENT_SCRIPT || !exportAddress(sender.url) || childPorts.size >= 8) { log("PORT_REJECT", "export child session/environment/origin/Login/limit", sender.url); candidate.disconnect(); return }
+                        if (child !== download || !page() || !exportWindow.armed || sender.session !== download || sender.environmentType != WebExtension.MessageSender.ENV_TYPE_CONTENT_SCRIPT || !exportAddress(sender.url) || childPorts.size >= 8) { log("PORT_REJECT", "export child session/environment/origin/Login/limit", sender.url); candidate.disconnect(); return }
                         childPorts.add(candidate)
                         candidate.setDelegate(object : WebExtension.PortDelegate {
                             override fun onPortMessage(message: Any, source: WebExtension.Port) {
@@ -221,8 +235,8 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
                     }
                 }, "mirrorRoster") }
                 main.post { if (child === download && download.isOpen) download.setActive(true) }
-                main.postDelayed(childTimeout, 20_000)
-                log("CAPTURE_PDF", "hidden export popup opened; closes within 20 s")
+                main.postDelayed(childTimeout, 180_000)
+                log("CAPTURE_PDF", "hidden export popup opened; export window 180 s")
                 // Gecko opens the returned session on the same runtime. It must be unopened here.
                 return GeckoResult.fromValue(download)
             }
@@ -309,7 +323,7 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
     private fun networkScope() {
         networkPort?.postMessage(JSONObject().put("kind", "scope").put("id", instanceId)
             .put("tabs", org.json.JSONArray(networkTabs.toList())).put("request", machine.request)
-            .put("active", page() && machine.active).put("capture", page() && machine.captureAllowed)
+            .put("active", page() && machine.active).put("capture", page() && exportWindow.armed)
             .put("record", page() && frames.frames.values.any { it.recording }))
     }
     private fun receiveNetwork(source: WebExtension.Port, j: JSONObject) {
@@ -318,7 +332,7 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
         if (kind == "unavailable") { log("NETWORK_CAPTURE", "network capture unavailable"); return }
         if (j.optString("scope") != instanceId) return
         if (kind == "child") {
-            if (child != null && page() && machine.captureAllowed && j.optInt("opener", -1) in networkTabs && j.optInt("tab", -1) >= 0) {
+            if (child != null && page() && exportWindow.armed && j.optInt("opener", -1) in networkTabs && j.optInt("tab", -1) >= 0) {
                 networkTabs.add(j.optInt("tab")); childTabs.add(j.optInt("tab")); networkScope()
             }
             return
@@ -327,6 +341,13 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
         if (!page() || j.optInt("tab", -1) !in networkTabs || !path.startsWith("/") || path.startsWith("//") || path.contains('?') || path.contains('#') || path.contains("login", true)) return
         when (kind) {
             "pdf" -> receiveChunk(source, j)
+            "scheduleHtml" -> {
+                val html = j.optString("body")
+                if (path.equals("/eCrew/CrewSchedule", true) || path.equals("/eCrew/CrewSchedule/", true)) {
+                    pool.execute { if (allowed()) EcrewScheduleData.saveHtml(c, html) }
+                    main.postDelayed({ if (page()) snapshotStorage() }, 500)
+                }
+            }
             "scheduleData" -> if (path.startsWith("/eCrew/", true) && (machine.active || frames.frames.values.any { it.recording })) {
                 val status = j.optInt("status"); val data = j.optString("body")
                 if (data.length < EcrewScheduleData.LIMIT) pool.execute {
@@ -335,8 +356,9 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
             }
             "network" -> {
                 val type = j.optString("contentType").take(120).replace(Regex("[^A-Za-z0-9 /;=.+_-]"), "")
-                val copied = j.optString("copied").takeIf { it in setOf("pdf", "json", "none") } ?: "none"
-                log("NETWORK_CAPTURE", "path=${EcrewSnapshot.path(path)} type=$type size=${j.optLong("size").coerceAtLeast(0)} copied=$copied")
+                val copied = j.optString("copied").takeIf { it in setOf("pdf", "json", "html", "none") } ?: "none"
+                if (path.equals("/AIMS/CrewScheduleReport/WebDocumentViewerInvoke", true) && type.contains("json", true) && j.optLong("size") > 0) viewerJsonSeen = true
+                log("NETWORK_CAPTURE", "path=${EcrewSnapshot.path(path)} type=$type attachment=${j.optBoolean("attachment")} size=${j.optLong("size").coerceAtLeast(0)} copied=$copied")
             }
         }
     }
@@ -368,13 +390,29 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
         }
         val frame = frames.frames[source] ?: return
         when (j.optString("kind")) {
+            "storageSnapshot" -> if (frame.top) {
+                val entries = j.optJSONObject("entries") ?: return
+                val afterSchedule = j.optBoolean("afterSchedule")
+                pool.execute {
+                    if (allowed()) {
+                        val saved = EcrewScheduleData.saveStorage(c, entries, afterSchedule)
+                        main.post {
+                            if (saved && allowed()) { scheduleDataCaptured = true; machine.scheduleDataSaved(); log("FETCH_DATA", "data captured after CrewSchedule load") }
+                            if (j.optString("reason") == "fetch end") finishFetch()
+                        }
+                    }
+                }
+            }
+            "storageLimit" -> if (frame.top) log("LOCAL_STORAGE", "snapshot stopped: exceeds 5 MB")
+            "scheduleLoaded" -> log("FRAME_LOAD", "CrewSchedule document loaded")
+            "clickTarget" -> log("CLICK_TARGET", "tag=${EcrewSnapshot.text(j.optString("tag"))} classes=${j.optString("classes").take(160)} webix_tm_id=${EcrewSnapshot.text(j.optString("tm"))} webix_l_id=${EcrewSnapshot.text(j.optString("li"))} text=${EcrewSnapshot.text(j.optString("text"))}")
             "recording" -> { frame.recording = j.optBoolean("value"); networkScope() }
             "linked" -> { frame.linked = true; if (frames.linked) linked() }
             "waiting" -> { frame.linked = false }
             "terminated" -> {
                 frame.terminated = true
                 if (terminated || !frames.terminated) return
-                terminated = true; main.removeCallbacks(autoFetch); log("SESSION", "SESSION_TERMINATED by eCrew")
+                exportWindow.clear(); terminated = true; main.removeCallbacks(autoFetch); log("SESSION", "SESSION_TERMINATED by eCrew")
                 RosterStore.prefs(c).edit().putBoolean("expired", true).apply(); RosterWork.cancel(c)
                 RosterNotices.post(c, 602, "eCrew session ended — tap to log in", "Open Roster Link")
                 machine.stop(reason = "eCrew terminated session")
@@ -388,7 +426,8 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
                     machine.response(j.optInt("request", -1), it, frames.pending)
                 }
             }
-            "manualPrint" -> if (!background) { main.removeCallbacks(autoFetch); autoFetchPending = false; autoStarted = true; lastPdfHash = 0; fetchPending = frames.pending; machine.manualPrint(); broadcast("capture", machine.request) }
+            "manualExport" -> if (!background && j.optString("value") in setOf("PDF", "export")) { exportWindow.arm("trusted ${j.optString("value")} tap"); networkScope() }
+            "manualPrint" -> if (!background) { exportWindow.arm("trusted Print tap"); viewerJsonSeen = false; networkScope(); main.removeCallbacks(autoFetch); autoFetchPending = false; autoStarted = true; lastPdfHash = 0; fetchPending = frames.pending; machine.manualPrint() }
             "deepSearch" -> log("DEEP_SEARCH", "${machine.step} result=${j.optString("result").takeIf { it in setOf("wait", "schedule", "pending", "clear", "printed", "preview", "export", "pdf", "exit", "next") } ?: "ignored"}")
             "snapshot" -> if (frame.top && SystemClock.elapsedRealtime() <= snapshotUntil) {
                 val list = j.optJSONArray("frames") ?: return
@@ -415,7 +454,7 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
         if (!page()) return
         val p = RosterStore.prefs(c); val fresh = !p.getBoolean("linked", false) || p.getBoolean("expired", false)
         p.edit().putBoolean("linked", true).putBoolean("expired", false).apply()
-        if (!linkedDocument) { linkedDocument = true; networkScope(); log("SESSION", "linked") }
+        if (!linkedDocument) { linkedDocument = true; networkScope(); log("SESSION", "linked"); snapshotStorage() }
         if (!background) {
             p.edit().putLong("lastInteractive", System.currentTimeMillis()).apply()
             if (fresh) { Toast.makeText(c, "eCrew linked", Toast.LENGTH_SHORT).show(); com.mirror.app.phone.DepartureAlerts.configure(c) }
@@ -443,7 +482,7 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
         wantStart = true
         if (ready) begin()
     }
-    private fun begin() { if (allowed() && !machine.active) { fetchPending = false; machine.start(); if (background) open() } }
+    private fun begin() { if (allowed() && !machine.active) { fetchCompletion = null; scheduleDataCaptured = false; fetchPending = false; machine.start(); if (background) open() } }
     override fun reload() { if (allowed() && ready && !loggingOut) { machine.stop(reason = "explicit reload"); session.reload() } }
     override fun back(): Boolean { if (!allowed() || !canBack || !ready) return false; session.goBack(); return true }
     override fun probeFromTap() {
@@ -462,6 +501,7 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
         main.postDelayed(logoutTimeout, 10_000)
     }
     private fun loginShown(loaded: Boolean) {
+        exportWindow.clear()
         if (loggingOut) {
             if (loaded && logoutOrder.loginShown(true, SystemClock.elapsedRealtime())) {
                 main.removeCallbacks(logoutTimeout); paused = true; disconnectPort()
@@ -485,10 +525,10 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
         main.removeCallbacks(autoFetch)
     }
     private fun receiveChunk(source: WebExtension.Port, j: JSONObject) {
-        if (!machine.captureAllowed) return
+        if (!exportWindow.armed) return
         val id = j.optInt("request", -1)
         // A PDF can arrive immediately from Print, before its acknowledgement advances the step.
-        if (!machine.acceptsPdf(id)) return
+        if (!exportWindow.armed) return
         val index = j.optInt("index", -1); val count = j.optInt("count", 0)
         val name = j.optString("transfer"); val value = j.optString("value")
         if (name.length !in 1..100 || count !in 1..214 || value.length !in 1..131072 || !value.matches(Regex("[A-Za-z0-9+/=]+"))) { resetChunks(); return }
@@ -504,11 +544,12 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
     }
     private fun exportAddress(address: String?) = EcrewPortPolicy.exportPage(address, allowBlank = true)
     private fun externalPdf(response: WebResponse, via: String) {
-        if (!page() || !machine.captureAllowed || !exportAddress(response.uri) || response.uri == "about:blank") { response.body?.close(); return }
-        val id = machine.request; response.setReadTimeoutMillis(15_000); body = response.body
+        if (!page() || !exportWindow.armed || !exportAddress(response.uri) || response.uri == "about:blank") { response.body?.close(); return }
+        log("PDF_CANDIDATE", "path=${EcrewSnapshot.path(runCatching { java.net.URI(response.uri).path }.getOrNull().orEmpty())} type=${response.headers.entries.firstOrNull { it.key.equals("content-type", true) }?.value?.take(120).orEmpty()} attachment=${response.headers.entries.any { it.key.equals("content-disposition", true) && it.value.contains("attachment", true) }} size=${response.headers.entries.firstOrNull { it.key.equals("content-length", true) }?.value?.toLongOrNull() ?: -1} via=$via")
+        response.setReadTimeoutMillis(60_000); body = response.body
         pool.execute {
             val bytes = runCatching { GeckoPdfCapture.read(response) }.getOrNull(); body = null
-            main.post { if (bytes != null && page() && machine.acceptsPdf(id)) capture(bytes, via) else log("CAPTURE_PDF", "response ignored or unavailable") }
+            main.post { if (bytes != null && page() && exportWindow.armed) capture(bytes, via) else log("CAPTURE_PDF", "response ignored or unavailable") }
         }
     }
     private fun closeChild() {
@@ -519,9 +560,19 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
         child?.let { if (it.isOpen) { it.setActive(false); it.close() } }; child = null
     }
     private fun capture(bytes: ByteArray, via: String) {
-        if (!page() || !EcrewPdfBytes.valid(bytes) || bytes.contentHashCode() == lastPdfHash || !machine.captureAllowed) return
+        if (!page() || !EcrewPdfBytes.valid(bytes) || bytes.contentHashCode() == lastPdfHash || !exportWindow.armed) return
+        if (!machine.active) {
+            lastPdfHash = bytes.contentHashCode()
+            log("CAPTURE_PDF", "PDF captured via $via; manual delivery")
+            pool.execute {
+                val success = allowed() && RosterStore.accept(c, bytes, interactive = !background)
+                main.post { if (allowed()) { log("IMPORT", "via=$via success=$success"); if (success && !background) Toast.makeText(c, "Roster imported", Toast.LENGTH_LONG).show() } }
+            }
+            return
+        }
         pendingPdf = bytes
-        if (!machine.pdf()) { pendingPdf = null; return }
+        // An early response may be buffered, but cannot bypass the two export steps.
+        if (!machine.pdf()) return
         lastPdfHash = bytes.contentHashCode(); resetChunks(); closeChild(); log("CAPTURE_PDF", "PDF captured via $via; exiting viewer before parse")
     }
     private fun parsePendingPdf() {
@@ -532,13 +583,13 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
             val success = allowed() && RosterStore.accept(c, bytes, interactive = !background)
             val roster = RosterStore.load(c); val today = LocalDate.now(AirportZones.zone("MNL"))
             val next = success && roster != null && today >= roster.period.end.minusDays(4) && today <= roster.period.end
-            main.post { if (page()) machine.parsed(success, next) }
+            main.post { if (page()) { log("IMPORT", "success=$success"); if (success && !background) Toast.makeText(c, "Roster imported", Toast.LENGTH_LONG).show(); machine.parsed(success, next) } }
         }
     }
     private fun resetChunks() { chunkPort = null; transfer = null; chunks = StringBuilder(); chunkIndex = 0; chunkCount = 0 }
     private fun broadcast(command: String, id: Int) {
         val round = frames.begin(id)
-        frames.frames.keys.toList().forEach { it.postMessage(JSONObject().put("command", command).put("request", id).put("round", round).put("drive", frames.top() == null || frames.top() === it)) }
+        frames.frames.keys.toList().forEach { it.postMessage(JSONObject().put("command", command).put("request", id).put("round", round).put("viewerReady", viewerJsonSeen).put("drive", frames.top() == null || frames.top() === it)) }
     }
     private fun disconnectPort() {
         probePending = false; val old = ports.toList(); ports.clear(); frames.clear(); contentTabs.clear(); networkTabs.clear(); networkScope()
@@ -548,14 +599,15 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
     private fun closeSession() { pendingPdf = null; closeChild(); body?.close(); body = null; geckoView?.releaseSession(); hiddenHost?.removeView(geckoView); if (session.isOpen) { session.setActive(false); session.close() }; ready = false }
     override fun pauseForLocalClear() {
         if (dead || paused) return
-        stopContent(); paused = true; machine.stop(reason = "automation paused; no retry")
+        exportWindow.clear(); stopContent(); paused = true; machine.stop(reason = "automation paused; no retry")
         main.removeCallbacksAndMessages(null); disconnectPort(); closeSession()
     }
     override fun destroy() {
         if (dead) return
-        stopContent(); dead = true; machine.stop(reason = "session closed")
+        exportWindow.clear(); stopContent(); dead = true; machine.stop(reason = "session closed")
         main.removeCallbacksAndMessages(null); disconnectPort(); closeSession(); networkPort?.disconnect(); networkPort = null; installedExtension?.setMessageDelegate(null, "mirrorRosterNet"); pool.shutdownNow()
         if (EcrewBrowsers.current === this) EcrewBrowsers.current = null
         log("LIFECYCLE", "destroy; profile retained")
     }
 }
+

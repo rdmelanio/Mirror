@@ -4,6 +4,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class EcrewScheduleDataTest {
+    @Test fun localStorageMetadataNeverIncludesValuesAndIsBounded() {
+        val entries = org.json.JSONObject().put("CrewInformation", """[{"crew":"PRIVATE_CREW","duty":"PRIVATE_DUTY"}]""")
+            .put("PeriodStart", "PRIVATE_DATE").put("Memos", """{"memo":"PRIVATE_MEMO"}""")
+        val metadata = EcrewScheduleData.storageMetadata(entries)!!
+        val crew = metadata.first { it.startsWith("key=CrewInformation ") }
+        assertTrue(crew.contains("arrayLength=1")); assertTrue(crew.contains("type=array"))
+        assertTrue(metadata.joinToString().contains("memo"))
+        assertFalse(metadata.joinToString().contains("PRIVATE"))
+        assertNull(EcrewScheduleData.storageMetadata(org.json.JSONObject().put("huge", "x".repeat(EcrewScheduleData.STORAGE_LIMIT))))
+        assertNull(EcrewScheduleData.storageMetadata(org.json.JSONObject().put("invalid", 42)))
+    }
     @Test fun capturesOnlyEndpointMetadataAndKeyNames() {
         val item = EcrewScheduleData.decode("/eCrew/DutyDetails", 200, """{"duties":[{"report":"PRIVATE_TIME","tail":"PRIVATE_TAIL"}],"crew":"PRIVATE_CREW"}""")!!
         assertEquals(listOf("crew", "duties"), item.keys.sorted())
@@ -21,3 +32,4 @@ class EcrewScheduleDataTest {
         assertNull(EcrewScheduleData.decode("/eCrew/Details", 999, "{}"))
     }
 }
+

@@ -7,11 +7,11 @@ import java.net.URI
 class EcrewAutomation(private val now: () -> Long, private val send: (String, Int) -> Unit,
     private val pending: (Boolean) -> Unit, private val finished: (Boolean, String) -> Unit,
     private val changed: (String) -> Unit = {}, private val timedOut: (String) -> Unit = {}) {
-    enum class Step { IDLE, OPEN_MY_SCHEDULE, CHECK_PENDING_CHANGES, CLICK_PRINT, WAIT_PREVIEW, OPEN_EXPORT, CHOOSE_PDF, CAPTURE_PDF, EXIT, PARSE, NEXT_PERIOD }
+    enum class Step { IDLE, OPEN_MY_SCHEDULE, CHECK_PENDING_CHANGES, CLICK_PRINT, WAIT_VIEWER, OPEN_EXPORT, CHOOSE_PDF, CAPTURE_PDF, EXIT, PARSE, NEXT_PERIOD }
     var step = Step.IDLE; private set
     var request = 0; private set
     var active = false; private set
-    val captureAllowed get() = active && step in listOf(Step.CLICK_PRINT, Step.WAIT_PREVIEW, Step.OPEN_EXPORT, Step.CHOOSE_PDF, Step.CAPTURE_PDF)
+    val captureAllowed get() = active && step in listOf(Step.CLICK_PRINT, Step.WAIT_VIEWER, Step.OPEN_EXPORT, Step.CHOOSE_PDF, Step.CAPTURE_PDF)
     var paused = false; private set
     private var pausedAt = 0L
     private var pauseDuration = 0L
@@ -35,19 +35,21 @@ class EcrewAutomation(private val now: () -> Long, private val send: (String, In
     fun manualPrint() {
         if (active && step == Step.PARSE) return
         active = true; started = clock(); next = true; captured = false; awaitingParse = false
-        move(Step.CAPTURE_PDF); captureStart = request
+        move(Step.WAIT_VIEWER); captureStart = request
     }
+    fun scheduleDataSaved() { if (active) captured = true }
     private fun move(value: Step) { step = value; since = clock(); sentAt = Long.MIN_VALUE; request++; if (value == Step.CLICK_PRINT) captureStart = request; changed(value.name) }
     fun acceptsPdf(id: Int) = captureAllowed && id in captureStart..request
     fun tick() {
         if (!active || paused) return
-        if (clock() - started >= 120_000 || clock() - since >= 25_000) { timedOut(step.name); stop(false, "timeout; manual Print or import available"); return }
+        val limit = if (step == Step.CAPTURE_PDF) 60_000 else 25_000
+        if (clock() - started >= 240_000 || clock() - since >= limit) { timedOut(step.name); stop(false, "timeout; manual Print or import available"); return }
         if (sentAt != Long.MIN_VALUE && clock() - sentAt < 1500) return
         val command = when (step) {
             Step.OPEN_MY_SCHEDULE -> "openSchedule"
             Step.CHECK_PENDING_CHANGES -> "checkPending"
             Step.CLICK_PRINT -> "print"
-            Step.WAIT_PREVIEW -> "waitPreview"
+            Step.WAIT_VIEWER -> "waitPreview"
             Step.OPEN_EXPORT -> "openExport"
             Step.CHOOSE_PDF -> "choosePdf"
             Step.CAPTURE_PDF -> "capture"
@@ -63,8 +65,8 @@ class EcrewAutomation(private val now: () -> Long, private val send: (String, In
         when (step) {
             Step.OPEN_MY_SCHEDULE -> if (result == "schedule") move(Step.CHECK_PENDING_CHANGES)
             Step.CHECK_PENDING_CHANGES -> if (result in listOf("pending", "clear")) { pending(result == "pending"); move(Step.CLICK_PRINT) }
-            Step.CLICK_PRINT -> if (result == "printed") move(Step.WAIT_PREVIEW)
-            Step.WAIT_PREVIEW -> if (result == "preview") move(Step.OPEN_EXPORT)
+            Step.CLICK_PRINT -> if (result == "printed") move(Step.WAIT_VIEWER)
+            Step.WAIT_VIEWER -> if (result == "preview") move(Step.OPEN_EXPORT)
             Step.OPEN_EXPORT -> if (result == "export") move(Step.CHOOSE_PDF)
             Step.CHOOSE_PDF -> if (result == "pdf") move(Step.CAPTURE_PDF)
             Step.CAPTURE_PDF -> if (hasPending) pending(true)
@@ -77,7 +79,7 @@ class EcrewAutomation(private val now: () -> Long, private val send: (String, In
             else -> Unit
         }
     }
-    fun pdf(): Boolean { if (!captureAllowed) return false; awaitingParse = true; move(Step.EXIT); return true }
+    fun pdf(): Boolean { if (!active || step != Step.CAPTURE_PDF) return false; awaitingParse = true; move(Step.EXIT); return true }
     fun parsed(success: Boolean, fetchNextPeriod: Boolean) {
         if (!active || step != Step.PARSE) return
         parsed = success; captured = captured || success
@@ -93,7 +95,7 @@ object EcrewPortPolicy {
     fun page(url: String?): Boolean = runCatching {
         val u = URI(url ?: return false)
         u.scheme == "https" && u.host == "ecrew.cebupacificair.com" && u.port in listOf(-1, 443) &&
-            u.rawUserInfo == null && u.path.startsWith("/eCrew/", true) && !u.path.contains("/Login", true)
+            u.rawUserInfo == null && (u.path.startsWith("/eCrew/", true) || u.path.startsWith("/AIMS/", true)) && !u.path.contains("login", true)
     }.getOrDefault(false)
     fun exportPage(url: String?, allowBlank: Boolean = false): Boolean {
         if (allowBlank && url in listOf("", "about:blank")) return true
@@ -126,3 +128,4 @@ object EcrewPdfBytes {
         out.toByteArray()
     }
 }
+

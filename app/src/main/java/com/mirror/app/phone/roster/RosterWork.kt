@@ -61,8 +61,9 @@ class RosterWorker(c: Context, params: WorkerParameters) : Worker(c, params) {
                 fetcher = EcrewFirefox.create(c, granted, true) { close() }.also { it.start() }
             } catch (_: Exception) { CaptureLog.add(c, "LOAD_DASHBOARD", "Firefox unavailable"); close() }
         }
-        try { latch.await(125, TimeUnit.SECONDS) } finally { main.post { close() } }
+        try { latch.await(245, TimeUnit.SECONDS) } finally { main.post { close() } }
         return Result.success()
     }
     override fun onStopped() { Handler(Looper.getMainLooper()).post { close() } }
 }
+

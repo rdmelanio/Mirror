@@ -67,7 +67,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Mirror 1.11.2 — build ${{ github.run_number }}
+          name: Mirror 1.11.3 — build ${{ github.run_number }}
           target_commitish: ${{ github.sha }}
           make_latest: true
           files: |
@@ -83,3 +83,4 @@ jobs:
             "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "published-$apk" > "$apk-info.txt"
           done
           python3 scripts/check-release-apks.py
+

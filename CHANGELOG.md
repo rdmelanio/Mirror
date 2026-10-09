@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.11.3 — My Schedule data and real DevExpress export routes
+
+- Open My Schedule from the top-frame sidebar calendar, then an exact My Schedule flyout item. Require the CrewSchedule document plus Period/Print readiness; retry at five-second intervals, at most three calendar clicks. Log bounded click target metadata and never select Dashboard card headings.
+- Read eCrew localStorage without writes after linking, CrewSchedule load, and fetch completion (5 MB limit). Overwrite a private snapshot and save the CrewSchedule response HTML (1 MB limit). Log only per-key sizes/types/key names/array lengths; count saved crew information after schedule load as data captured even if PDF export fails. Explicit Share captured schedule data exports one archive with the snapshot and HTML after a privacy warning; parsing these captures is deferred.
+- Include /AIMS/ viewer frames while excluding Login. Require PrintReport and a WebDocumentViewerInvoke JSON response, then OPEN_EXPORT and CHOOSE_PDF before capture. Allow four center reveal taps with 800 ms waits, click the visible save button immediately, choose exactly PDF, wait up to 60 seconds, exit, and parse.
+- Keep an independent 180-second export window armed or extended by robot Print and trusted Print/save/PDF taps. Accept whole-host webRequest responses, external downloads and hidden export sessions; detect PDF candidates by content type, attachment disposition or magic, validate %PDF and the 20 MB bound, and log delivery/import results.
+- Preserve page-hook CI guard, immediate response pass-through, background pause, frame snapshots, roster change/session-ended notices, both flavors and WebView fallback modes. Add navigation, capture, viewer, export window and privacy regressions. Version code 203; both APKs are version 1.11.3.
+
 ## 1.11.2 — eCrew navigation without page hooks
 
 - Remove every page-world fetch/XHR/open/form wrapper and hook injection so eCrew retains its own navigation and verification headers. CI rejects page-global/prototype modification in the content script and probe.
@@ -216,5 +224,6 @@ Fit on a 16:9 display, no black inner ring window, camera controls, full-resolut
 unmirrored gallery images, freeze/compare, remote/touch, and normal volume keys.
 Confirm at least 24 fps on the camera and weak 32-bit viewer. This device benchmark
 requires physical hardware and is not established by the automated build checks.
+
 
 

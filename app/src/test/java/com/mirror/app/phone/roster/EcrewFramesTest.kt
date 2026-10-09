@@ -4,6 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class EcrewFramesTest {
+    @Test fun realAimsViewerPortsAreTrustedButLoginIsNeverAccepted() {
+        val f = EcrewFrames<Int>()
+        assertTrue(f.hello(1, false, "/AIMS/CrewScheduleReport/PrintReport"))
+        assertTrue(f.hello(2, false, "/AIMS/CrewScheduleReport/WebDocumentViewerInvoke"))
+        assertFalse(f.hello(3, false, "/AIMS/Login"))
+        assertFalse(f.hello(3, false, "/AIMS/AutoLogin"))
+    }
     @Test fun helloLimitDisconnectAndOrigins() {
         val f = EcrewFrames<Int>()
         assertFalse(f.hello(0, true, "/eCrew/Login"))
@@ -56,3 +63,4 @@ class EcrewFramesTest {
         assertFalse(both.acknowledge(both.revision).update(emptyList(), false).pending)
     }
 }
+
