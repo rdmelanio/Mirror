@@ -2,6 +2,7 @@
 """Verify the actual APKs, including dex isolation and native ABIs, before publication."""
 import pathlib
 import sys
+import struct
 import zipfile
 
 lite, full = map(pathlib.Path, sys.argv[1:])
@@ -19,10 +20,38 @@ with zipfile.ZipFile(full) as apk:
     assert 'assets/ecrew/background.js' in apk.namelist(), 'full missing network capture'
     assert 'assets/ecrew/hooks.js' not in apk.namelist(), 'full contains page hooks'
     assert any(b'Lorg/mozilla/geckoview/GeckoSession;' in apk.read(name) for name in apk.namelist() if name.endswith('.dex'))
+def postscript_names(data):
+    if data[:4] != b'\x00\x01\x00\x00':
+        return set()
+    count = struct.unpack_from('>H', data, 4)[0]
+    for index in range(count):
+        tag, _, offset, length = struct.unpack_from('>4sIII', data, 12 + index * 16)
+        if tag != b'name':
+            continue
+        _, records, storage = struct.unpack_from('>HHH', data, offset)
+        result = set()
+        for record in range(records):
+            platform, encoding, language, name_id, size, start = struct.unpack_from('>HHHHHH', data, offset + 6 + record * 12)
+            if name_id == 6:
+                raw = data[offset + storage + start:offset + storage + start + size]
+                result.add(raw.decode('utf-16-be' if platform in (0, 3) else 'mac_roman'))
+        return result
+    return set()
+
+# AAPT may shorten resource paths. Inspect font identity and license bytes instead.
 for path in (lite, full):
     with zipfile.ZipFile(path) as apk:
-        for name in ('res/font/inter_regular.ttf', 'res/font/inter_medium.ttf', 'res/font/inter_semibold.ttf', 'res/raw/inter_ofl.txt'):
-            assert name in apk.namelist(), f'{path}: missing bundled menu font/license {name}'
-        assert b'SIL OPEN FONT LICENSE' in apk.read('res/raw/inter_ofl.txt')
+        fonts = set()
+        licensed = False
+        for entry in apk.infolist():
+            if entry.filename.endswith('.ttf'):
+                fonts.update(postscript_names(apk.read(entry)))
+            elif entry.file_size < 16_000:
+                data = apk.read(entry)
+                licensed = licensed or (b'SIL OPEN FONT LICENSE' in data and b'rsms/inter' in data)
+        required = {'Inter-Regular', 'Inter-Medium', 'Inter-SemiBold'}
+        assert required <= fonts, f'{path}: missing bundled menu fonts {required - fonts}; found {fonts}'
+        assert licensed, f'{path}: bundled Inter SIL OFL missing'
+        print(path, 'verified Inter Regular/Medium/SemiBold and SIL OFL')
 print('Verified: lite universal without Gecko; full arm64 with Gecko and extension')
 
