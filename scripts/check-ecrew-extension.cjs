@@ -10,7 +10,7 @@ function page(path = '/eCrew/Dashboard/') {
   const document = {documentElement: {}, querySelectorAll: selector => elements.filter(e => selector.includes('iframe') ? e.frame : selector.startsWith('nav ') ? e.calendar : !e.frame), addEventListener() {}};
   function element(value, options = {}) {
     const e = {innerText: value, tagName: 'BUTTON', className: '', disabled: false,
-      getClientRects: () => options.hidden ? [] : [1], matches: () => (options.tagName || 'BUTTON') === 'BUTTON', getAttribute: () => null,
+      ownerDocument: document, addEventListener() {}, getClientRects: () => options.hidden ? [] : [1], matches: () => (options.tagName || 'BUTTON') === 'BUTTON', getAttribute: () => null,
       querySelectorAll: () => [], querySelector: () => null, getBoundingClientRect: () => ({left: 0, top: 0, width: 100, height: 100}),
       closest: () => options.parent || e, dispatchEvent: () => true, click: () => clicks.push(value), ...options};
     elements.push(e); return e;
@@ -21,7 +21,7 @@ function page(path = '/eCrew/Dashboard/') {
     getComputedStyle: () => ({visibility: 'visible', display: 'block'}), MutationObserver: class {observe() {} disconnect() {}},
     setInterval: fn => {interval = fn; return 1;}, clearInterval() {}, setTimeout: () => 1, clearTimeout() {},
     MouseEvent: class {constructor(type) {this.type = type;}}, URL, AbortController, Uint8Array, Blob, fetch: () => {throw Error('unexpected fetch');}, FileReader: class {}};
-  function run() { vm.runInNewContext(code, context); }
+  function run() { Object.assign(window, {document, frames: [], MouseEvent: context.MouseEvent, getComputedStyle: context.getComputedStyle, MutationObserver: context.MutationObserver}); window.location ||= context.location; document.defaultView = window; vm.runInNewContext(code, context); }
   function command(command, request = 1) { receiver({command, request}); }
   return {element, run, command, messages, clicks, context, report: () => interval(), disconnect: () => disconnected(), connected: () => connected};
 }
@@ -62,39 +62,13 @@ test('port stops operating when document navigates to Login or disconnects', () 
   assert.equal(p.clicks.length, 0);
   p.context.location.pathname = '/eCrew/Dashboard/'; p.context.location.href = 'https://ecrew.cebupacificair.com/eCrew/Dashboard/'; p.disconnect(); p.command('print'); assert.equal(p.clicks.length, 0);
 });
-test('PDF fallback only fetches print overlay sources, never Login or foreign origin', async () => {
-  const p = page(); p.element('Exit');
-  p.element('', {frame: true, src: 'https://other.test/report.pdf'});
-  p.element('', {frame: true, src: 'https://ecrew.cebupacificair.com/eCrew/Login'});
-  p.element('', {frame: true, src: 'blob:https://ecrew.cebupacificair.com/synthetic'});
-  const requests = []; let cancelled = false;
-  p.context.fetch = async (url, options) => { requests.push(url); assert.equal(options.credentials, 'include'); assert.equal(options.redirect, 'error');
-    return {ok: true, headers: {get: () => null}, body: {getReader: () => ({read: async () => ({done: false, value: new Uint8Array(20 * 1024 * 1024 + 1)}), cancel: async () => {cancelled = true;}})}};
-  };
-  p.run(); p.command('capture'); await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(requests, ['blob:https://ecrew.cebupacificair.com/synthetic']); assert(cancelled);
-  assert(!p.messages.some(m => m.kind === 'pdf'));
-});
 test('manifest confines content scripts to every eCrew frame with Login exclusions', () => {
   const manifest = JSON.parse(fs.readFileSync('app/src/full/assets/ecrew/manifest.json', 'utf8'));
-  assert.deepEqual(manifest.content_scripts[0].matches, ['https://ecrew.cebupacificair.com/eCrew/*']);
+  assert.deepEqual(manifest.content_scripts[0].matches, ['https://ecrew.cebupacificair.com/*']);
   assert.equal(manifest.content_scripts[0].all_frames, true);
   assert.equal(manifest.content_scripts[0].match_about_blank, true);
   assert(manifest.content_scripts[0].exclude_matches.some(p => p.endsWith('/Login*')));
   assert(!manifest.permissions.includes('cookies'));
-});
-test('PDF overlay fallback delivers bounded base64 chunks through the native port', async () => {
-  const p = page(); p.element('Exit'); p.element('', {frame: true, src: '/eCrew/synthetic.pdf'});
-  const bytes = Buffer.from('%PDF-' + 'A'.repeat(140000)); let reads = 0;
-  p.context.fetch = async () => ({ok: true, headers: {get: () => null}, body: {getReader: () => ({read: async () => reads++ ? {done: true} : {done: false, value: new Uint8Array(bytes)}, cancel: async () => {}})}});
-  p.context.FileReader = class {
-    readAsDataURL(blob) { blob.arrayBuffer().then(buffer => { this.result = 'data:application/pdf;base64,' + Buffer.from(buffer).toString('base64'); this.onload(); }); }
-  };
-  p.run(); p.command('capture', 7); await new Promise(resolve => setImmediate(resolve));
-  const parts = p.messages.filter(m => m.kind === 'pdf');
-  assert.equal(parts.length, 2); assert(parts.every(m => m.request === 7 && m.count === 2 && m.value.length <= 131072));
-  assert.equal(parts[0].index, 0); assert.equal(parts[1].index, 1);
-  assert.deepEqual(Buffer.from(parts.map(m => m.value).join(''), 'base64'), bytes);
 });
 test('tap-only probe makes one HomeIndex request and omits cookie/token values', async () => {
   const requests = [];
@@ -133,7 +107,7 @@ test('snapshot uses bounded clickable text without query or input values', () =>
   const p = page('/eCrew/HomeIndex'); p.element('Crew 123456789 ' + 'x'.repeat(60));
   p.element('', {tagName: 'INPUT', value: 'PASSWORD_SECRET'}); p.run(); p.command('snapshot');
   const snap = p.messages.find(m => m.kind === 'snapshot');
-  assert.equal(snap.path, '/eCrew/HomeIndex'); assert(snap.texts.every(t => t.length <= 30));
+  assert.equal(snap.path, '/eCrew/HomeIndex'); assert(snap.frames[0].texts.every(t => t.length <= 30));
   assert(!JSON.stringify(snap).includes('123456789')); assert(!JSON.stringify(snap).includes('PASSWORD_SECRET'));
 });
 
@@ -175,84 +149,128 @@ test('DevExpress visible export clicks immediately and chooses only exact PDF', 
   p.command('choosePdf', 2); assert.deepEqual(p.clicks, ['', 'PDF']); assert(p.messages.some(m => m.value === 'PDF clicked'));
 });
 
-function hooksPage(path = '/eCrew/MySchedule') {
-  const messages = [], requests = [], listeners = {}, formListeners = {};
-  class Xhr {
-    constructor() {this.handlers = {}; this.responseType = '';}
-    open(method, url) {this.url = url;}
-    addEventListener(type, fn) {this.handlers[type] = fn;}
-    send() {}
-    getResponseHeader() {return this.type || 'application/json';}
-  }
-  class Form {submit() {this.submitted = true;}}
-  class FormData {constructor(form) {this.fields = form.fields || [];} *[Symbol.iterator]() {yield* this.fields;}}
-  const page = {location: {href: 'https://ecrew.cebupacificair.com' + path, origin: 'https://ecrew.cebupacificair.com', pathname: path},
-    document: {baseURI: 'https://ecrew.cebupacificair.com' + path, addEventListener: (type, fn) => formListeners[type] = fn},
-    XMLHttpRequest: Xhr, HTMLFormElement: Form, FormData,
-    fetch: async (url, options) => { requests.push({url, options}); return page.response(url); },
-    open: () => null, btoa: data => Buffer.from(data, 'binary').toString('base64'),
-    postMessage: value => messages.push(JSON.parse(value)), addEventListener: (type, fn) => listeners[type] = fn,
-    setTimeout: () => 1}; page.parent = page;
-  page.response = url => {const r = new Response(JSON.stringify({duties: [{report: 'PRIVATE_REPORT_VALUE'}]}), {headers: {'content-type': 'application/json'}}); Object.defineProperty(r, 'url', {value: url}); return r;};
-  const context = {URL, Uint8Array, TextEncoder, TextDecoder, page, expose: fn => fn}; vm.createContext(context);
-  vm.runInContext(fs.readFileSync('app/src/full/assets/ecrew/hooks.js', 'utf8'), context);
-  vm.runInContext('mirrorInstallEcrewHooks(page, "test-token", expose)', context);
-  function state(values) {listeners.message?.({source: page, data: JSON.stringify({mirrorEcrew: 'test-token', type: 'state', ...values})});}
-  return {page, messages, requests, state, Form, listeners, formListeners};
-}
-const settle = () => new Promise(resolve => setTimeout(resolve, 15));
-test('page fetch hooks record JSON only during schedule/fetch and strip endpoint query', async () => {
-  const p = hooksPage(); await p.page.fetch('https://ecrew.cebupacificair.com/eCrew/Duty?id=123'); await settle(); assert.equal(p.messages.length, 0);
-  p.state({schedule: true}); await p.page.fetch('https://ecrew.cebupacificair.com/eCrew/Duty?id=123'); await settle();
-  const item = p.messages.find(m => m.type === 'schedule'); assert.equal(item.path, '/eCrew/Duty'); assert(JSON.parse(item.body).duties);
-  const count = p.messages.length;
-  await p.page.fetch('https://other.test/eCrew/Duty'); await p.page.fetch('https://ecrew.cebupacificair.com/eCrew/Login'); await settle();
-  assert.equal(p.messages.length, count);
-});
-test('fetch PDF hooks preserve bytes, reject magic and enforce limits', async () => {
-  const p = hooksPage(); p.state({active: true, capture: true}); const bytes = Buffer.from('%PDF-' + 'x'.repeat(150000));
-  p.page.response = url => {const r = new Response(bytes, {headers: {'content-type': 'application/pdf'}}); Object.defineProperty(r, 'url', {value: url}); return r;};
-  await p.page.fetch('https://ecrew.cebupacificair.com/eCrew/Export'); await settle();
-  const parts = p.messages.filter(m => m.type === 'pdf'); assert.equal(parts.length, 2); assert(parts.every(m => m.via === 'fetch'));
-  assert.deepEqual(Buffer.from(parts.map(m => m.value).join(''), 'base64'), bytes);
-  p.messages.length = 0; p.page.response = url => {const r = new Response('not a PDF', {headers: {'content-type': 'application/octet-stream'}}); Object.defineProperty(r, 'url', {value: url}); return r;};
-  await p.page.fetch('https://ecrew.cebupacificair.com/eCrew/Export'); await settle(); assert(!p.messages.some(m => m.type === 'pdf'));
-});
-test('XHR records duty-detail JSON and exports binary PDF', async () => {
-  const p = hooksPage(); p.state({schedule: true, capture: true});
-  const xhr = new p.page.XMLHttpRequest(); xhr.open('GET', '/eCrew/Detail'); xhr.send(); xhr.status = 200; xhr.responseURL = 'https://ecrew.cebupacificair.com/eCrew/Detail?duty=1'; xhr.responseText = '{"legs":[{"tail":"PRIVATE_TAIL"}]}'; xhr.handlers.load();
-  assert(p.messages.some(m => m.type === 'schedule' && m.path === '/eCrew/Detail'));
-  const pdf = new p.page.XMLHttpRequest(); pdf.open('GET', '/eCrew/Export'); pdf.send(); pdf.responseURL = 'https://ecrew.cebupacificair.com/eCrew/Export'; pdf.type = 'application/pdf'; pdf.responseType = 'arraybuffer'; pdf.response = new TextEncoder().encode('%PDF-synthetic').buffer; pdf.handlers.load();
-  assert(p.messages.some(m => m.type === 'pdf' && m.via === 'xhr'));
-});
-test('export form replay keeps fields and credentials and never replays Login/password forms', async () => {
-  const p = hooksPage(); p.state({capture: true});
-  p.page.response = url => {const r = new Response('%PDF-export-form', {headers: {'content-type': 'application/pdf'}}); Object.defineProperty(r, 'url', {value: url}); return r;};
-  const form = new p.Form(); form.action = 'https://ecrew.cebupacificair.com/eCrew/DXXRD/Export'; form.method = 'POST'; form.querySelector = () => null; form.fields = [['format', 'pdf']]; form.submit(); await settle();
-  assert(form.submitted); assert.equal(p.requests[0].options.credentials, 'include'); assert.equal(p.requests[0].options.method, 'POST'); assert.deepEqual(p.requests[0].options.body.fields, [['format', 'pdf']]); assert(p.messages.some(m => m.via === 'export-form'));
-  for (const action of ['https://other.test/eCrew/Export', 'https://ecrew.cebupacificair.com/eCrew/Login/Export']) {const other = new p.Form(); other.action = action; other.querySelector = () => null; other.submit();}
-  const password = new p.Form(); password.action = form.action; password.querySelector = () => ({}); password.submit(); assert.equal(p.requests.length, 1);
-});
-test('page hooks refuse Login and oversize schedule JSON', async () => {
-  const login = hooksPage('/eCrew/Login'); assert.equal(login.listeners.message, undefined);
-  const p = hooksPage(); p.state({active: true}); p.page.response = url => {const r = new Response(JSON.stringify({data: 'x'.repeat(2 * 1024 * 1024)}), {headers: {'content-type': 'application/json'}}); Object.defineProperty(r, 'url', {value: url}); return r;};
-  await p.page.fetch('https://ecrew.cebupacificair.com/eCrew/Detail'); await settle(); assert(!p.messages.some(m => m.type === 'schedule'));
-});
-
-test('window.open and download anchors expose only trusted export URLs', () => {
-  const p = hooksPage(); p.state({capture: true});
-  p.page.open('blob:https://ecrew.cebupacificair.com/synthetic'); p.page.open('https://other.test/crew.pdf'); p.page.open('https://ecrew.cebupacificair.com/eCrew/Login');
-  assert.equal(p.messages.filter(m => m.type === 'url').length, 1);
-  p.formListeners.click({target: {closest: () => ({href: 'blob:https://ecrew.cebupacificair.com/anchor'})}});
-  assert(p.messages.some(m => m.via === 'download-anchor'));
-});
-test('PDF response headers over 20 MB prevent export buffering', async () => {
-  const p = hooksPage(); p.state({capture: true});
-  p.page.response = url => {const r = new Response('%PDF-small', {headers: {'content-type': 'application/pdf', 'content-length': String(20 * 1024 * 1024 + 1)}}); Object.defineProperty(r, 'url', {value: url}); return r;};
-  await p.page.fetch('https://ecrew.cebupacificair.com/eCrew/Export'); await settle(); assert(!p.messages.some(m => m.type === 'pdf'));
-});
-
 test('SVG export icons use their class attribute rather than SVGAnimatedString', () => {
   const p = page(); p.element('', {className: {baseVal: 'dxrd-svg-export'}, getAttribute: name => name === 'class' ? 'dxrd-svg-export' : null});
   p.run(); p.command('openExport'); assert(p.messages.some(m => m.result === 'export')); assert.equal(p.clicks.length, 1);
+});
+
+test('CI guard forbids page globals/prototypes and hook injection', () => {
+  for (const file of ['content.js', 'probe.js']) {
+    const source = fs.readFileSync('app/src/full/assets/ecrew/' + file, 'utf8');
+    for (const pattern of [/wrappedJSObject/, /exportFunction/, /XMLHttpRequest\s*\.\s*prototype/, /HTMLFormElement\s*\.\s*prototype/, /window\s*(?:\.\s*(?:fetch|open)|\[\s*['"](?:fetch|open)['"]\s*\])\s*=(?!=)/]) assert(!pattern.test(source), file + ': forbidden ' + pattern);
+  }
+  assert(!fs.existsSync('app/src/full/assets/ecrew/hooks.js'));
+  const manifest = JSON.parse(fs.readFileSync('app/src/full/assets/ecrew/manifest.json'));
+  assert.deepEqual(manifest.background.scripts, ['background.js']);
+  assert(!manifest.web_accessible_resources);
+  for (const p of ['webRequest', 'webRequestBlocking', 'https://ecrew.cebupacificair.com/*']) assert(manifest.permissions.includes(p));
+  assert(!/\bfetch\s*\(/.test(code));
+});
+function network(available = true) {
+  const messages = [], filters = [], listeners = {};
+  let native;
+  const event = name => ({addListener: fn => listeners[name] = fn});
+  const port = {postMessage: m => messages.push(m), onMessage: {addListener: fn => native = fn}, onDisconnect: event('disconnect')};
+  const webRequest = {onBeforeRequest: event('before'), onHeadersReceived: event('headers')};
+  if (available) webRequest.filterResponseData = id => {
+    const f = {writes: [], closed: false, disconnected: false, write(data) { this.writes.push(data); }, close() {this.closed = true;}, disconnect() {this.disconnected = true;}};
+    filters.push(f); return f;
+  };
+  vm.runInNewContext(fs.readFileSync('app/src/full/assets/ecrew/background.js', 'utf8'), {browser: {webRequest, tabs: {onCreated: event('child')}, runtime: {connectNative: () => port, onMessage: event('identity')}}, URL, Uint8Array, TextDecoder, btoa: value => Buffer.from(value, 'binary').toString('base64'), setTimeout() {}, Date});
+  const scope = (changes = {}) => native({kind: 'scope', id: 'active', tabs: [7], request: 3, active: true, capture: true, record: true, ...changes});
+  scope();
+  const response = (parts, type = '', path = '/eCrew/Export', tabId = 7, options = {}) => {
+    const id = String(filters.length); const before = filters.length;
+    listeners.before({requestId: id, url: 'https://ecrew.cebupacificair.com' + path, tabId});
+    if (filters.length === before) return null;
+    const f = filters.at(-1);
+    listeners.headers({requestId: id, statusCode: 200, responseHeaders: [{name: 'Content-Type', value: type}]});
+    for (const part of parts) { const data = Uint8Array.from(part).buffer; f.ondata({data}); assert.equal(f.writes.at(-1), data, 'write original chunk immediately'); }
+    if (options.error) f.onerror(); else if (!options.defer) f.onstop();
+    assert.deepEqual(Buffer.concat(f.writes.map(v => Buffer.from(v))), Buffer.concat(parts.map(v => Buffer.from(v))));
+    return f;
+  };
+  return {messages, filters, response, scope, listeners};
+}
+test('network filter passes PDF bytes unchanged and copies bounded base64', () => {
+  const p = network(); const bytes = Buffer.from('%PDF-' + 'x'.repeat(140000));
+  assert(p.response([bytes.subarray(0, 2), bytes.subarray(2)], 'application/pdf').closed);
+  const parts = p.messages.filter(m => m.kind === 'pdf'); assert.equal(parts.length, 2);
+  assert.deepEqual(Buffer.from(parts.map(m => m.value).join(''), 'base64'), bytes);
+  assert.equal(parts[0].path, '/eCrew/Export'); assert.equal(parts[0].scope, 'active');
+  const sniff = network(); sniff.response([Buffer.from('%P'), Buffer.from('DF-test')], 'image/png');
+  assert(sniff.messages.some(m => m.kind === 'pdf'));
+});
+test('network rejects Login, foreign tabs, invalid PDF, oversize copies; error disconnects', () => {
+  const p = network();
+  for (const path of ['/eCrew/Login?x=1', '/ECREW/LOGIN', '/login', '/eCrew/AutoLogin']) assert.equal(p.response([Buffer.from('%PDF-test')], 'application/pdf', path), null);
+  assert.equal(p.response([Buffer.from('%PDF-test')], 'application/pdf', '/eCrew/Export', 8), null);
+  p.response([Buffer.from('notPDF')], 'application/pdf');
+  p.response([Buffer.from('%PDF'), Buffer.alloc(20 * 1024 * 1024)], 'application/pdf');
+  p.response([Buffer.from('{"private":"'), Buffer.alloc(2 * 1024 * 1024), Buffer.from('"}')], 'application/json');
+  assert(!p.messages.some(m => ['pdf', 'scheduleData'].includes(m.kind)));
+  assert(p.response([Buffer.from('ordinary page')], 'text/html', '/eCrew/Dashboard', 7, {error: true}).disconnected);
+});
+test('JSON recorder strips query; inactive scope and stale lease cannot copy', () => {
+  const p = network(); p.response([Buffer.from('{"duties":[{"report":"private"}]}')], 'text/plain', '/eCrew/Duty?id=123456');
+  assert.equal(p.messages.find(m => m.kind === 'scheduleData').path, '/eCrew/Duty');
+  assert(p.messages.some(m => m.kind === 'network' && m.copied === 'json' && m.size > 0));
+  assert(!p.messages.filter(m => m.kind === 'network').some(m => JSON.stringify(m).includes('private')));
+  p.scope({active: false, record: false, capture: false});
+  p.response([Buffer.from('{"duties":[]}')], 'application/json');
+  assert.equal(p.messages.filter(m => m.kind === 'scheduleData').length, 1);
+  const f = p.filters.at(-1); assert(f.closed);
+});
+test('unavailable filter is reported once and no responses are filtered', () => {
+  const p = network(false); p.scope(); p.scope(); assert.equal(p.messages.filter(m => m.kind === 'unavailable').length, 1);
+  assert.equal(p.response([Buffer.from('%PDF-test')]), null);
+});
+test('deep traversal reaches nested blank frames, hides multiview frames and excludes Login', () => {
+  const p = page(); const child = page('/eCrew/MySchedule?eCrewHeader=private');
+  const nested = page(); nested.context.location.href = 'about:blank';
+  child.element('Period October'); child.element('Confirm all changes'); const events = [];
+  nested.element('Period October');
+  const print = nested.element('Print', {dispatchEvent: e => events.push(e.realm)});
+  p.run(); child.run(); nested.run();
+  const attach = (parent, target, hidden = false) => {
+    const frame = parent.element('', {frame: true, hidden, contentWindow: target.context.window, src: target.context.location.href});
+    target.context.window.frameElement = frame; target.context.window.parent = parent.context.window; parent.context.window.frames.push(target.context.window);
+    return frame;
+  };
+  nested.context.window.MouseEvent = class {constructor(type) {this.type = type; this.realm = 'nested';}};
+  nested.context.window.getComputedStyle = () => ({visibility: 'visible', display: 'block'});
+  const frame = attach(p, child); attach(child, nested);
+  p.command('openSchedule'); assert(p.messages.some(m => m.result === 'schedule'));
+  p.command('print', 2); assert.deepEqual(nested.clicks, ['Print']); assert.deepEqual(events, ['nested', 'nested']);
+  p.command('snapshot'); const snap = p.messages.filter(m => m.kind === 'snapshot').at(-1);
+  assert.equal(snap.frames.length, 3); assert.equal(snap.frames[2].depth, 2); assert.equal(snap.frames[2].path, 'about:blank'); assert(!JSON.stringify(snap).includes('eCrewHeader'));
+  frame.getClientRects = () => []; p.command('print', 3); assert.equal(nested.clicks.length, 1);
+  p.command('checkPending', 4); assert.equal(p.messages.filter(m => m.kind === 'result').at(-1).result, 'wait');
+  frame.getClientRects = () => [1]; child.context.location.href = 'https://ecrew.cebupacificair.com/eCrew/Login';
+  p.command('print', 5); assert.equal(nested.clicks.length, 1);
+  p.command('snapshot'); assert.equal(p.messages.filter(m => m.kind === 'snapshot').at(-1).frames.length, 1);
+});
+test('paused content commands and reveal callbacks cannot click until resumed', () => {
+  const p = page(); p.element('Print'); p.run(); p.command('pause'); p.command('print'); assert.equal(p.clicks.length, 0);
+  p.command('resume'); p.command('print'); assert.deepEqual(p.clicks, ['Print']);
+  p.command('print', 2); assert(!p.messages.some(m => m.kind === 'pdf'));
+});
+test('network scope changes discard in-flight copies and closed scopes stop filtering', () => {
+  const p = network();
+  const f = p.response([Buffer.from('%PDF-private')], 'application/pdf', '/eCrew/Export', 7, {defer: true});
+  p.scope({id: 'new-owner', tabs: [8]}); f.onstop();
+  assert(!p.messages.some(m => m.kind === 'pdf'));
+  assert.equal(p.response([Buffer.from('%PDF-private')]), null);
+});
+test('deep frame status OR, own-window style and script-free document rescans', () => {
+  const p = page(), child = page('/ecrew/MySchedule');
+  child.element('Confirm all changes'); child.element('Another active session');
+  p.run(); child.run();
+  const frame = p.element('', {frame: true, contentWindow: child.context.window, src: child.context.location.href});
+  child.context.window.frameElement = frame; p.context.window.frames.push(child.context.window);
+  let styled = 0; child.context.window.getComputedStyle = () => { styled++; return {display: 'block', visibility: 'visible'}; };
+  p.report(); assert(styled > 0); assert(p.messages.some(m => m.kind === 'terminated')); assert(p.messages.some(m => m.kind === 'pending' && m.value));
+  const newer = page('/eCrew/Dashboard/HomeIndex'); newer.element('Period'); newer.element('Print'); newer.run();
+  child.context.window.frames.push(newer.context.window); newer.context.window.frameElement = child.element('', {frame: true, contentWindow: newer.context.window});
+  p.command('snapshot'); assert.equal(p.messages.filter(m => m.kind === 'snapshot').at(-1).frames.length, 3);
 });

@@ -2,7 +2,7 @@ package com.mirror.app.phone.roster
 
 /** One command round can be answered by any trusted frame. Late rounds never advance a step. */
 class EcrewFrames<T> {
-    data class Frame(val top: Boolean, val path: String, var linked: Boolean = false, var pending: Boolean = false, var terminated: Boolean = false)
+    data class Frame(val top: Boolean, val path: String, var linked: Boolean = false, var pending: Boolean = false, var terminated: Boolean = false, var recording: Boolean = false)
     val frames = linkedMapOf<T, Frame>()
     private var request = -1
     private var round = 0

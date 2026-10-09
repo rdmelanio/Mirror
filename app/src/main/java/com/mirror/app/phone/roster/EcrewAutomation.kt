@@ -12,6 +12,12 @@ class EcrewAutomation(private val now: () -> Long, private val send: (String, In
     var request = 0; private set
     var active = false; private set
     val captureAllowed get() = active && step in listOf(Step.CLICK_PRINT, Step.WAIT_PREVIEW, Step.OPEN_EXPORT, Step.CHOOSE_PDF, Step.CAPTURE_PDF)
+    var paused = false; private set
+    private var pausedAt = 0L
+    private var pauseDuration = 0L
+    private fun clock() = (if (paused) pausedAt else now()) - pauseDuration
+    fun pause() { if (!paused) { pausedAt = now(); paused = true } }
+    fun resume() { if (paused) { pauseDuration += now() - pausedAt; paused = false } }
     private var started = 0L
     private var since = 0L
     private var sentAt = Long.MIN_VALUE
@@ -23,20 +29,20 @@ class EcrewAutomation(private val now: () -> Long, private val send: (String, In
     private var nextAfterExit = false
     fun start(): Boolean {
         if (active) return false
-        active = true; started = now(); next = false; captured = false; awaitingParse = false
+        active = true; started = clock(); next = false; captured = false; awaitingParse = false
         move(Step.OPEN_MY_SCHEDULE); return true
     }
     fun manualPrint() {
         if (active && step == Step.PARSE) return
-        active = true; started = now(); next = true; captured = false; awaitingParse = false
+        active = true; started = clock(); next = true; captured = false; awaitingParse = false
         move(Step.CAPTURE_PDF); captureStart = request
     }
-    private fun move(value: Step) { step = value; since = now(); sentAt = Long.MIN_VALUE; request++; if (value == Step.CLICK_PRINT) captureStart = request; changed(value.name) }
+    private fun move(value: Step) { step = value; since = clock(); sentAt = Long.MIN_VALUE; request++; if (value == Step.CLICK_PRINT) captureStart = request; changed(value.name) }
     fun acceptsPdf(id: Int) = captureAllowed && id in captureStart..request
     fun tick() {
-        if (!active) return
-        if (now() - started >= 120_000 || now() - since >= 25_000) { timedOut(step.name); stop(false, "timeout; manual Print or import available"); return }
-        if (sentAt != Long.MIN_VALUE && now() - sentAt < 1500) return
+        if (!active || paused) return
+        if (clock() - started >= 120_000 || clock() - since >= 25_000) { timedOut(step.name); stop(false, "timeout; manual Print or import available"); return }
+        if (sentAt != Long.MIN_VALUE && clock() - sentAt < 1500) return
         val command = when (step) {
             Step.OPEN_MY_SCHEDULE -> "openSchedule"
             Step.CHECK_PENDING_CHANGES -> "checkPending"
@@ -49,10 +55,10 @@ class EcrewAutomation(private val now: () -> Long, private val send: (String, In
             Step.EXIT -> "exit"
             else -> return
         }
-        sentAt = now(); send(command, request)
+        sentAt = clock(); send(command, request)
     }
     fun response(id: Int, result: String, hasPending: Boolean = false) {
-        if (!active || id != request) return
+        if (!active || paused || id != request) return
         if (result == "terminated" || result == "login") { stop(false, "session expired"); return }
         when (step) {
             Step.OPEN_MY_SCHEDULE -> if (result == "schedule") move(Step.CHECK_PENDING_CHANGES)

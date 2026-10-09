@@ -104,11 +104,13 @@ class ECrewActivity : ComponentActivity() {
     }
     private fun back() { if (firefox?.back() == true) return; val browser = web; if (browser?.canGoBack() == true) browser.goBack() else finish() }
     override fun onStart() {
-        super.onStart(); if (!::root.isInitialized) return
+        super.onStart()
+        firefox?.foregroundChanged(true); if (!::root.isInitialized) return
         lifetime.start(); lifecycle("start"); RosterPrivacy.apply(this)
         if (firefox == null) CaptureLog.add(this, "WEBVIEW", "${browser?.instanceId.orEmpty()} ${browserMode.name} ${EcrewWebViewInfo.text(this)}")
     }
     override fun onStop() {
+        firefox?.foregroundChanged(false)
         if (::root.isInitialized) { lifetime.stop(); lifecycle("stop") }
         super.onStop()
     }

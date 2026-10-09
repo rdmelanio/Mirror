@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.11.2 — eCrew navigation without page hooks
+
+- Remove every page-world fetch/XHR/open/form wrapper and hook injection so eCrew retains its own navigation and verification headers. CI rejects page-global/prototype modification in the content script and probe.
+- Capture response bytes through the extension's webRequest background script, passing every original chunk through unchanged before copying. Exclude Login URLs, scope capture to the active session's tabs, validate PDF magic and the 20 MB limit, and retain download/export-session capture. Record schedule JSON privately under 2 MB, latest per endpoint (max 20), with the existing explicit share warning.
+- Drive automation from the top document through accessible nested frames, including about:blank/srcdoc; exclude Login and hidden Webix multiview frames. Use each element's own window for visibility and input events. Keep the mobile DevExpress preview/reveal/export/PDF/exit sequence and never confirm changes.
+- Log deep-search results, subframe navigation paths, bounded recursive frame snapshots and network capture metadata without private payloads, queries or cookie values. Pause interactive fetch commands and step/total timers while the activity is stopped, retaining the session and resuming on return.
+- Preserve roster change cautions, the last good roster/alarms, session-ended notices and both APK flavors. Add pass-through/copy-limit/Login, deep-frame, cross-window input, export and timer pause/resume regressions. Version code 202; both APKs are version 1.11.2.
+
 ## 1.11.1 — eCrew iframe automation and roster change caution
 
 - Run Firefox roster automation in same-origin eCrew frames, including Webix HomeIndex and nested print viewers. Aggregate up to eight content ports, retain the top-frame-only probe/logout, and detect schedule readiness with Period and Print.

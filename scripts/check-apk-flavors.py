@@ -16,5 +16,7 @@ with zipfile.ZipFile(full) as apk:
     assert libraries and all(name.startswith('lib/arm64-v8a/') for name in libraries), libraries
     assert 'lib/arm64-v8a/libxul.so' in libraries, 'full missing Gecko engine'
     assert 'assets/ecrew/manifest.json' in apk.namelist(), 'full missing built-in extension'
+    assert 'assets/ecrew/background.js' in apk.namelist(), 'full missing network capture'
+    assert 'assets/ecrew/hooks.js' not in apk.namelist(), 'full contains page hooks'
     assert any(b'Lorg/mozilla/geckoview/GeckoSession;' in apk.read(name) for name in apk.namelist() if name.endswith('.dex'))
 print('Verified: lite universal without Gecko; full arm64 with Gecko and extension')

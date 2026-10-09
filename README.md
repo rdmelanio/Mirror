@@ -1,4 +1,4 @@
-# Mirror 1.11.1
+# Mirror 1.11.2
 
 Mirror uses a phone camera and a Google TV mirror. Kotlin, Android Views, one
 `:app` module, Android 8.0+ (API 26). Camera, clock and TV behavior are shared by both builds.
@@ -24,15 +24,21 @@ crash reporting, Mozilla account, push, remote-settings and other service reques
 
 The eCrew toolbar has Back, Reload, Fetch roster now, Log out of eCrew and Close, plus the
 explicit diagnostic probe and Copy log. Sign-in does not trigger a reload. Three seconds after
-the first linked-page signal, Mirror opens My Schedule, checks pending changes, clicks Print,
-captures the PDF, feeds it to the existing parser and clicks Exit. It never clicks **Confirm all changes**.
-Each step has a 25-second limit and the complete fetch has a 90-second limit. Near month end,
-it fetches Next Period after closing the first print overlay.
+the first linked-page signal, Mirror searches accessible child frames for My Schedule, checks pending
+changes, opens Print, waits for the preview, reveals Save/Export and selects PDF. It captures the
+PDF, clicks Exit, then feeds it to the existing parser. It never clicks **Confirm all changes**.
+Each step has a 25-second limit and the complete fetch has a 120-second limit. Interactive fetch
+commands and timers pause while the eCrew activity is stopped. Near month end, Mirror fetches
+Next Period after closing the first print overlay.
 
-A built-in extension runs only on eCrew pages outside Login, using an origin-checked native
-port. PDF downloads are read directly from Gecko's external-response body; visible print
-iframe/embed/object/blob sources also have a bounded in-page capture fallback (20 MB maximum).
-PDFs and parsed data remain private. Open with Mirror PDF import, capture logs and alarms remain available.
+The built-in extension leaves eCrew's page globals and navigation code untouched. Its background
+webRequest filter passes original response chunks through unchanged and copies valid PDFs (up
+to 20 MB) or schedule JSON (under 2 MB) from the active session, excluding Login. Gecko external
+responses and export sessions provide additional PDF capture paths. If response filtering is
+unavailable, Capture log reports **network capture unavailable**. Schedule/duty-detail responses
+remain in private storage (latest per endpoint, max 20); **Share captured schedule data** requires
+an explicit tap and warns that the archive contains private crew information. Open with Mirror
+PDF import, capture logs, roster change cautions and alarms remain available.
 
 WorkManager refreshes use a viewless active session on the shared runtime. The interactive
 screen owns the session and workers yield before it opens. If a headless fetch receives no
@@ -436,7 +442,7 @@ and full's arm64 engine, uploads the `mirror-apks` artifact, and publishes both
 Both public latest URLs are downloaded and byte/version checked before Actions succeeds.
 
 The project uses stable AGP 9.3.2, Kotlin 2.4.20 (AGP built-in Kotlin), and Gradle
-9.8.0. Compile SDK is 37.1 (required by GeckoView); target SDK remains 36. Version name `1.11.1` and code `201` are
+9.8.0. Compile SDK is 37.1 (required by GeckoView); target SDK remains 36. Version name `1.11.2` and code `202` are
 defined once in `version.properties`. Bump both for future changes.
 
 Both debug and release builds use `keystore/mirror.jks`. Its alias and passwords

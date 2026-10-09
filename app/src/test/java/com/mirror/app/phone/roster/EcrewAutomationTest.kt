@@ -79,6 +79,30 @@ class EcrewAutomationTest {
         p.machine.response(choosing, "pdf")
         assertTrue(p.machine.acceptsPdf(choosing)); assertFalse(p.machine.acceptsPdf(first))
     }
+    @Test fun pauseFreezesStepAndTotalTimersAndSuppressesCommands() {
+        val p = FakePort(); p.machine.start(); p.machine.tick(); p.now = 24_000
+        p.machine.pause(); val count = p.commands.size
+        p.now += 300_000; p.machine.tick(); p.machine.response(p.machine.request, "schedule")
+        assertTrue(p.machine.active); assertEquals(count, p.commands.size)
+        assertEquals(EcrewAutomation.Step.OPEN_MY_SCHEDULE, p.machine.step)
+        p.machine.resume(); p.machine.tick(); assertTrue(p.machine.active)
+        p.now += 1000; p.machine.tick(); assertFalse(p.machine.active)
+    }
+    @Test fun pdfDuringPauseWaitsForForegroundExitAndParse() {
+        val p = FakePort(); p.toCapture(); p.machine.pause(); p.now += 300_000
+        assertTrue(p.machine.pdf()); assertEquals(EcrewAutomation.Step.EXIT, p.machine.step)
+        val count = p.commands.size; p.machine.tick(); assertEquals(count, p.commands.size)
+        p.machine.resume(); p.reply("exit"); p.machine.parsed(true, false)
+        assertTrue(p.results.single().first)
+    }
+    @Test fun repeatedPausesExcludeBackgroundTimeFromTotalLimit() {
+        val p = FakePort(); p.machine.start()
+        for (result in listOf("schedule", "clear", "printed", "preview", "export")) {
+            p.now += 24_000; p.machine.pause(); p.now += 60_000; p.machine.resume()
+            p.reply(result)
+        }
+        assertFalse(p.machine.active); assertFalse(p.results.single().first)
+    }
     @Test fun readsMagicAndEnforcesLimitEvenWithoutContentLength() {
         val bytes = "%PDF-fake".toByteArray(); var closed = false
         val stream = object : ByteArrayInputStream(bytes) { override fun close() { closed = true; super.close() } }
@@ -97,6 +121,7 @@ class EcrewAutomationTest {
     }
     @Test fun nativeMessagesMustComeFromEcrewOutsideLoginAndConfirmationIsForbidden() {
         assertTrue(EcrewPortPolicy.page("https://ecrew.cebupacificair.com/eCrew/Dashboard/"))
+        assertTrue(EcrewPortPolicy.page("https://ecrew.cebupacificair.com/ECREW/dashboard/HomeIndex"))
         for (url in listOf("https://ecrew.cebupacificair.com/eCrew/Login/", "https://ecrew.cebupacificair.com/eCrew/LOGIN", "https://other.test/eCrew/Dashboard/", "http://ecrew.cebupacificair.com/eCrew/Dashboard/", "https://ecrew.cebupacificair.com:444/eCrew/Dashboard/", "https://user@ecrew.cebupacificair.com/eCrew/Dashboard/")) assertFalse(url, EcrewPortPolicy.page(url))
         assertFalse(EcrewPortPolicy.clickAllowed(" CONFIRM ALL CHANGES (2) "))
         assertTrue(EcrewPortPolicy.clickAllowed("Print"))
