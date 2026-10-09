@@ -67,7 +67,7 @@ object RosterPdf {
             }
             require(columns.isNotEmpty()) { "No roster columns" }
             val legendSection = all.substringAfter("Descriptions", "")
-            val legend = Regex("(?m)^\\s*([A-Z]{2,5})\\s*[-–]\\s*(.+)$").findAll(legendSection).associate { it.groupValues[1] to it.groupValues[2].trim() }
+            val legend = RosterLegend.parse(legendSection)
             val memoSection = all.substringAfter("Memos", "").substringBefore("Descriptions")
             val memos = mutableMapOf<LocalDate, String>()
             var memoDate: LocalDate? = null
@@ -90,3 +90,4 @@ object RosterPdf {
         }
     }
 }
+

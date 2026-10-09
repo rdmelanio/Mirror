@@ -62,7 +62,7 @@ class RosterReviewTest {
     }
     @Test fun alarmSourceDefaultsAndExplicitChoice() {
         assertEquals(DepartureSourcePolicy.Source.ECREW, DepartureSourcePolicy.select("Auto", true, true))
-        assertEquals(DepartureSourcePolicy.Source.CALENDAR, DepartureSourcePolicy.select("Auto", false, true))
+        assertEquals(DepartureSourcePolicy.Source.ECREW, DepartureSourcePolicy.select("Auto", false, true))
         assertEquals(DepartureSourcePolicy.Source.CALENDAR, DepartureSourcePolicy.select("Auto", true, false))
         assertEquals(DepartureSourcePolicy.Source.CALENDAR, DepartureSourcePolicy.select("Calendar", true, true))
         assertEquals(DepartureSourcePolicy.Source.ECREW, DepartureSourcePolicy.select("eCrew", false, true))
@@ -94,3 +94,4 @@ class RosterReviewTest {
         assertTrue(seen.update(emptyList(), false).update(emptyList(), true).visible)
     }
 }
+

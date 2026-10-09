@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.11.4 — eCrew clock duties and Glass cockpit menus
+
+- Share the existing departure roster source with the clock and screen saver. Default full builds to a parsed eCrew roster; lite stays Calendar only. Draw printed station-local report, flight, standby, leave and memo lines in the existing duty boxes, keep overnight continuation on its report date, preserve clock drawing/dimming/burn-in behavior, redraw at roster/day/duty changes, and use a countdown-only next line in eCrew mode. Calendar permission is only requested in Calendar mode.
+- Open an existing My Schedule flyout first across all accessible frames, or follow the first sidebar tap within one second. Preserve navigation limits, Firefox PDF capture/export windows, privacy rules and the page-hook guard.
+- Split PDF legend columns even when whitespace collapses. OFF is Day off, M is Day Memo, and the AS/RVL descriptions remain separate.
+- Introduce phone-only Glass cockpit menus: one centralized gradient/cyan palette, bundled official Inter Regular/Medium/SemiBold with SIL OFL in About, rounded settings/day cards, Material 3 switches, accessible rows, pill actions and back-arrow app bars. Preserve wide settings panes, camera behavior, clock/alarm screens, annunciators and TV UI. Diagnostics can enable the hidden Classic ECAM menus switch.
+- Add printed-roster/source/legend tests, rapid flyout regressions, palette contrast and protected-screen checks. Version code 204; both APKs are version 1.11.4.
+
 ## 1.11.3 — My Schedule data and real DevExpress export routes
 
 - Open My Schedule from the top-frame sidebar calendar, then an exact My Schedule flyout item. Require the CrewSchedule document plus Period/Print readiness; retry at five-second intervals, at most three calendar clicks. Log bounded click target metadata and never select Dashboard card headings.

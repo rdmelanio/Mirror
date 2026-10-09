@@ -11,10 +11,12 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 fun Context.dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
-fun Context.label(value: String, size: Float = 18f) = TextView(this).apply {
+fun Context.label(value: String, size: Float = 18f) = if (com.mirror.app.phone.PhoneTheme.enabled(this)) com.mirror.app.phone.PhoneTheme.label(this, value, size) else TextView(this).apply {
     text = value; textSize = size; setTextColor(Color.WHITE); setPadding(dp(8), dp(8), dp(8), dp(8))
 }
-fun Context.action(value: String, click: () -> Unit) = Button(this).apply {
+fun Context.action(value: String, click: () -> Unit): Button {
+    if (com.mirror.app.phone.PhoneTheme.enabled(this)) return com.mirror.app.phone.PhoneTheme.action(this, value, click)
+    return Button(this).apply {
     text = value; textSize = 17f; isAllCaps = false; isFocusable = true
     minHeight = dp(56); setTextColor(Color.WHITE)
     fun background(color: String) = GradientDrawable().apply {
@@ -28,13 +30,15 @@ fun Context.action(value: String, click: () -> Unit) = Button(this).apply {
     }
     layoutParams = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(4), 0, dp(4)) }
     setOnClickListener { click() }
+    }
 }
 fun Activity.insetContent(view: View, padding: Int = 16) {
     view.setOnApplyWindowInsetsListener { v, insets ->
-        val p = dp(padding)
+        val p = dp(if (com.mirror.app.phone.PhoneTheme.enabled(this)) 16 else padding)
         v.setPadding(p + insets.systemWindowInsetLeft, p + insets.systemWindowInsetTop,
             p + insets.systemWindowInsetRight, p + insets.systemWindowInsetBottom)
         insets
     }
     view.requestApplyInsets()
 }
+

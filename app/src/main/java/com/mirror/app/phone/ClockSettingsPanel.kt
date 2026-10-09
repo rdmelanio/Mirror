@@ -52,7 +52,7 @@ class ClockSettingsPanel(private val activity: Activity, private val content: Li
         choice("12/24-hour", listOf("System", "12-hour", "24-hour"), { settings.hourFormat }) { save(settings.copy(hourFormat = it)) }
         content.addView(activity.label("UTC uses aviation 24-hour Z notation. The format override applies to local time."))
         choice("Minimal font", listOf("System thin", "B612"), { settings.minimalFont }) { save(settings.copy(minimalFont = it)) }
-        val presets = linkedMapOf("ECAM Green" to "#00E040", "Amber" to "#FFB000", "Cyan" to "#00E5FF", "White" to "#F2F2F2", "Magenta" to "#FF40FF", "Night Red" to "#FF2A1A")
+        val presets = ClockColorPresets.values
         content.addView(activity.action("Color preset") {
             AlertDialog.Builder(activity).setTitle("Clock color").setItems(presets.keys.toTypedArray()) { _, index -> save(settings.copy(color = Color.parseColor(presets.values.elementAt(index)))) }.show()
         })
@@ -67,19 +67,20 @@ class ClockSettingsPanel(private val activity: Activity, private val content: Li
         content.addView(activity.label("Night mode temporarily makes all text red. Your custom colors return in daylight."))
         }
         if (category == "calendar") {
-        content.addView(activity.label("Calendar schedule · Philippine time", 22f))
-        toggle("Show calendar schedule", { settings.schedule }) {
+        content.addView(activity.label("Duty boxes", 22f))
+        refreshControls += RosterSourceSelector.add(activity, content) { settings = ClockSettings.load(activity); refreshControls.forEach { it() }; controller.start() }
+        toggle("Show roster schedule", { settings.schedule }) {
             save(settings.copy(schedule = it))
-            if (it && (!ClockCalendar.hasPermission(activity) || settings.calendarId < 0))
+            if (it && DepartureRosterSource.select(activity, settings) == DepartureSourcePolicy.Source.CALENDAR && (!ClockCalendar.hasPermission(activity) || settings.calendarId < 0))
                 activity.startActivity(Intent(activity, ClockCalendarSettingsActivity::class.java))
         }
         val calendarButton = activity.action("Choose roster calendar") {
             activity.startActivity(Intent(activity, ClockCalendarSettingsActivity::class.java))
         }
         content.addView(calendarButton)
-        refreshControls += { calendarButton.text = "Roster calendar: ${settings.calendarName.ifBlank { "Choose calendar" }}" }
-        content.addView(activity.action("Refresh calendar now") { controller.refreshCalendar() })
-        content.addView(activity.label("Read-only. Today/overnight and tomorrow are shown with reporting–debriefing or duty times. Empty tomorrow says no calendar entry, never OFF. Refreshes every 15 minutes, at duty end, on opening and on synced changes. Google sync completion depends on Android."))
+        refreshControls += { calendarButton.text = "Roster calendar: ${settings.calendarName.ifBlank { "Choose calendar" }}"; calendarButton.visibility = if (DepartureRosterSource.select(activity, settings) == DepartureSourcePolicy.Source.CALENDAR) android.view.View.VISIBLE else android.view.View.GONE }
+        content.addView(activity.action("Refresh roster display now") { controller.refreshCalendar() })
+        content.addView(activity.label("One source for clock duty boxes and departure alarms. eCrew uses printed local station times and updates after import. Calendar is read-only and refreshes on synced changes. Empty days never imply OFF."))
         }
         if (category == "info") {
         content.addView(activity.label("Info lines", 22f))
@@ -135,12 +136,13 @@ class ClockSettingsPanel(private val activity: Activity, private val content: Li
         }
         if (category == "about") {
             content.addView(activity.label("Mirror ${BuildConfig.VERSION_NAME}", 26f))
-            content.addView(activity.label("Weather data by Open-Meteo.com\n\nB612 and B612 Mono: https://github.com/polarsys/b612\n\nMaster warning: recording supplied by the app owner, prepared as a seamless PCM loop. Built-in caution: original synthesized single chime.", 16f))
+            content.addView(activity.label("Menus: Inter 4.1 by Rasmus Andersson / The Inter Project Authors, SIL Open Font License 1.1.\n\nWeather data by Open-Meteo.com\n\nB612 and B612 Mono: https://github.com/polarsys/b612\n\nMaster warning: recording supplied by the app owner, prepared as a seamless PCM loop. Built-in caution: original synthesized single chime.", 16f))
             content.addView(activity.action("TV launch · open-source licenses") {
                 val text = activity.label(activity.resources.openRawResource(R.raw.tv_adb_licenses).bufferedReader().use { it.readText() }, 14f)
                 AlertDialog.Builder(activity).setTitle("TV launch licenses").setView(android.widget.ScrollView(activity).apply { addView(text) })
                     .setPositiveButton("Close", null).show()
             })
+            content.addView(activity.label(activity.resources.openRawResource(R.raw.inter_ofl).bufferedReader().use { it.readText() }, 14f))
             content.addView(activity.label(activity.resources.openRawResource(R.raw.b612_ofl).bufferedReader().use { it.readText() }, 14f))
         }
         content.addOnAttachStateChangeListener(object : android.view.View.OnAttachStateChangeListener {
@@ -148,20 +150,27 @@ class ClockSettingsPanel(private val activity: Activity, private val content: Li
             override fun onViewDetachedFromWindow(v: android.view.View) { alive = false; stop() }
         })
     }
-    private fun toggle(name: String, read: () -> Boolean, changed: (Boolean) -> Unit): CheckBox = CheckBox(activity).apply {
+    private fun toggle(name: String, read: () -> Boolean, changed: (Boolean) -> Unit): CompoundButton = PhoneTheme.switch(activity, checkbox = true).apply {
         text = name; isChecked = read(); minHeight = activity.dp(48)
         setOnCheckedChangeListener { _, checked -> if (checked != read()) changed(checked) }; content.addView(this)
         refreshControls += { isChecked = read() }
     }
     private fun choice(name: String, values: List<String>, read: () -> String, changed: (String) -> Unit) {
-        val button = activity.action("$name: ${read()}") {}
-        button.setOnClickListener {
-            AlertDialog.Builder(activity).setTitle(name).setItems(values.toTypedArray()) { _, index ->
-                button.text = "$name: ${values[index]}"; changed(values[index])
+        var refresh: () -> Unit = {}
+        fun choose() {
+            AlertDialog.Builder(activity).setTitle(name).setSingleChoiceItems(values.toTypedArray(), values.indexOf(read())) { dialog, index ->
+                changed(values[index]); refresh(); dialog.dismiss()
             }.show()
         }
-        content.addView(button)
-        refreshControls += { button.text = "$name: ${read()}" }
+        if (PhoneTheme.classic(activity)) {
+            val button = activity.action("", ::choose); content.addView(button)
+            refresh = { button.text = "$name: ${read()}" }
+        } else {
+            val row = PhoneTheme.row(activity, name, "Clock appearance", read(), ::choose)
+            content.addView(row); val trailing = row.getChildAt(1) as TextView
+            refresh = { trailing.text = "${read()}  ›"; row.contentDescription = "$name: ${read()}" }
+        }
+        refresh(); refreshControls += refresh
     }
     private fun slider(parent: LinearLayout, name: String, read: () -> Int, low: Int, high: Int, changed: (Int) -> Unit) {
         val label = activity.label("$name: ${read()}"); parent.addView(label)
@@ -181,7 +190,7 @@ class ClockSettingsPanel(private val activity: Activity, private val content: Li
     private fun colorPicker(initial: Int, changed: (Int) -> Unit) {
         val hsv = FloatArray(3); Color.colorToHSV(initial, hsv)
         val body = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 16, 24, 16) }
-        val swatch = activity.label("Preview", 28f).apply { setTextColor(initial); setBackgroundColor(Color.BLACK) }; body.addView(swatch)
+        val swatch = activity.label("Preview", 28f).apply { setTextColor(initial); setBackgroundColor(PhoneTheme.clockPreviewBackground()); tag = "clock-color-preview" }; body.addView(swatch)
         fun update() { swatch.setTextColor(Color.HSVToColor(hsv)) }
         slider(body, "Hue", { hsv[0].toInt() }, 0, 360) { hsv[0] = it.toFloat(); update() }
         slider(body, "Saturation (%)", { (hsv[1] * 100).toInt() }, 0, 100) { hsv[1] = it / 100f; update() }
@@ -190,3 +199,4 @@ class ClockSettingsPanel(private val activity: Activity, private val content: Li
             .setPositiveButton("Apply") { _, _ -> changed(Color.HSVToColor(hsv)) }.show()
     }
 }
+

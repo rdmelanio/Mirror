@@ -34,8 +34,8 @@ class ClockController(private val context: Context, private val view: ClockView,
         view.roster = calendarSnapshot()
         if (running) render()
     }
-    private fun calendarSnapshot(): ClockCalendar.Snapshot = calendar.snapshot
-    fun refreshCalendar() { calendar.refresh(true) }
+    private fun calendarSnapshot(): ClockCalendar.Snapshot = if (DepartureRosterSource.select(context, view.settings) == DepartureSourcePolicy.Source.ECREW) DepartureRosterSource.snapshot(context) else calendar.snapshot
+    fun refreshCalendar() { if (DepartureRosterSource.select(context, view.settings) == DepartureSourcePolicy.Source.ECREW) render() else calendar.refresh(true) }
     private val tick = Runnable { render() }
     private val deadline = Runnable { render() }
     private val stateChanged: () -> Unit = { if (running) { applyLight(); render() } }
@@ -43,7 +43,7 @@ class ClockController(private val context: Context, private val view: ClockView,
         if (running && !preview && key == "active") { view.stopInteraction(); render() }
     }
     private val rosterChanged = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (running && key == "changeBanner") render()
+        if (running && key in setOf("changeBanner", "lastSuccess", "linked")) { calendar.start(view.settings); render() }
     }
     private val preferencesChanged = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "settings" && running) { view.settings = ClockSettings.load(context); calendar.start(view.settings); render() }
@@ -71,7 +71,7 @@ class ClockController(private val context: Context, private val view: ClockView,
         if (Build.VERSION.SDK_INT >= 33) context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
         else { @Suppress("UnspecifiedRegisterReceiverFlag") context.registerReceiver(receiver, filter) }
         if (!preview) sensors.getDefaultSensor(Sensor.TYPE_LIGHT)?.let { sensors.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL) }
-        calendar.start(view.settings); view.roster = calendar.snapshot
+        calendar.start(view.settings); view.roster = calendarSnapshot()
         render()
     }
     fun stop() {
@@ -86,6 +86,7 @@ class ClockController(private val context: Context, private val view: ClockView,
     private fun render() {
         if (!running) return
         handler.removeCallbacks(tick)
+        view.roster = calendarSnapshot()
         view.mirrorState = ClockMirrorState.state
         applyLight(); view.invalidate()
         ClockWeather.refresh(context, view.settings) { if (running) view.invalidate() }
@@ -93,7 +94,9 @@ class ClockController(private val context: Context, private val view: ClockView,
         val rosterAlert = com.mirror.app.phone.roster.RosterStore.phone(context) && com.mirror.app.phone.roster.RosterChanges.state(context).visible
         val interval = if (rosterAlert) 500L else if (alert?.kind == DeparturePlan.Kind.WARNING || (!view.blank && (view.settings.seconds || view.settings.drift ||
             (view.settings.status && view.mirrorState == "LIVE")))) 1000L else 60_000L
-        handler.postDelayed(tick, interval - System.currentTimeMillis() % interval)
+        val now = System.currentTimeMillis()
+        val boundary = if (DepartureRosterSource.select(context, view.settings) == DepartureSourcePolicy.Source.ECREW) ClockEcrewRoster.nextBoundary(com.mirror.app.phone.roster.RosterStore.load(context), now) else ClockRoster.nextBoundary(view.roster.duties, now)
+        handler.postDelayed(tick, minOf(interval - now % interval, (boundary - now).coerceAtLeast(1)))
         scheduleDeadline()
     }
     private fun applyLight() {
@@ -177,3 +180,4 @@ class MirrorClockDream : DreamService() {
 }
 
 class ClockSettingsActivity : PhoneSettingsActivity()
+

@@ -28,6 +28,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Bundle verified official B612 fonts
         run: python3 scripts/fetch-clock-fonts.py
+      - name: Bundle Inter menu fonts
+        run: python3 scripts/fetch-menu-fonts.py
+      - name: Verify menu theme and protected clock/alarm styles
+        run: python3 scripts/check-phone-theme.py
       - name: Verify supplied warning loop
         run: python3 scripts/check-warning-loop.py
       - name: Build and check
@@ -67,7 +71,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Mirror 1.11.3 — build ${{ github.run_number }}
+          name: Mirror 1.11.4 — build ${{ github.run_number }}
           target_commitish: ${{ github.sha }}
           make_latest: true
           files: |

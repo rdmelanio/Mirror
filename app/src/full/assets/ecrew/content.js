@@ -89,8 +89,8 @@
   const menu = () => Array.from(document.querySelectorAll('.webix_sidebar,.webix_tree,.webix_list,[view_id],[webix_tm_id],[webix_l_id],nav a,aside a,.sidebar a')).filter(visible);
   const iconText = e => [e.getAttribute('class') || (typeof e.className === 'string' ? e.className : ''), e.getAttribute('aria-label') || '', e.getAttribute('title') || ''].join(' ');
   const calendar = () => !top ? null : menu().flatMap(e => [e, ...e.querySelectorAll('[class],[aria-label],[title]')]).find(e => visible(e) && /calendar/i.test(iconText(e)));
-  const scheduleItem = () => !top ? null : Array.from(document.querySelectorAll('a,[webix_tm_id],[webix_l_id],.webix_tree_item,.webix_list_item,[role=button]'))
-    .find(e => visible(e) && text(e) === 'My Schedule');
+  const scheduleItem = () => !top ? null : query('[webix_l_id="ViewSchedButton"],a,.webix_list_item')
+    .find(e => visible(e) && (e.getAttribute('webix_l_id') === 'ViewSchedButton' || text(e) === 'My Schedule'));
   const scheduleLoaded = () => allDocs().some(r => r.doc && /\/ecrew\/crewschedule(?:\/|$)/i.test(r.path));
   const storageSnapshot = reason => {
     if (!top || !safe() || suspended) return;
@@ -196,6 +196,12 @@
     if (value !== lastPending) { lastPending = value; send({kind: 'pending', value}); }
   };
   const respond = (id, result) => { send({kind: 'deepSearch', command: exportCommand || '', result}); send({kind: 'result', request: id, round, result, pending: pending()}); };
+  const quickFlyout = (id, tries = 0) => {
+    if (!top || suspended || stopped || !safe() || request !== id || exportCommand !== 'openSchedule' || flyoutClicked) return;
+    const item = scheduleItem();
+    if (item) { flyoutClicked = click('My Schedule', item); return; }
+    if (tries < 9) setTimeout(() => quickFlyout(id, tries + 1), 100);
+  };
   port.onMessage.addListener(message => {
     if (!safe() || stopped || !message || typeof message.command !== 'string') return;
     if (message.command === 'snapshot') { send(snapshot()); return; }
@@ -230,11 +236,11 @@
       request = id;
       if (scheduleLoaded() && ready()) { storageSnapshot('CrewSchedule ready'); respond(id, 'schedule'); return; }
       if (!top) { respond(id, 'wait'); return; }
-      const flyout = opened && !flyoutClicked && scheduleItem();
+      const flyout = !flyoutClicked && scheduleItem();
       if (flyout) flyoutClicked = click('My Schedule', flyout);
       else if (scheduleAttempts < 3 && (!opened || Date.now() - scheduleClickedAt >= 5000)) {
         const icon = calendar();
-        if (icon && click('My Schedule', icon)) { opened = true; flyoutClicked = false; scheduleAttempts++; scheduleClickedAt = Date.now(); }
+        if (icon && click('My Schedule', icon)) { opened = true; flyoutClicked = false; scheduleAttempts++; scheduleClickedAt = Date.now(); quickFlyout(id); }
       }
       respond(id, 'wait'); return;
     }
@@ -286,6 +292,7 @@
       }, true);
       const observer = new doc.defaultView.MutationObserver(() => {
         watch(); report();
+        if (exportCommand === 'openSchedule') quickFlyout(request, 9);
         if (!suspended && fetchActive && exportArmed && revealCount > 0 && Date.now() >= revealUntil && exportButton() && visible(exportButton()) && !pdfItem()) openExport();
       });
       observer.observe(doc.documentElement, {childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'style', 'hidden']});

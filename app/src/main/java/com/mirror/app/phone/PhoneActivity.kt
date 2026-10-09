@@ -19,9 +19,9 @@ class PhoneActivity : Activity() {
         override fun run() { update(); handler.postDelayed(this, 1000) }
     }
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }
-        val header = label("MIRROR / PHONE", 23f); root.addView(header)
+        PhoneTheme.install(this); super.onCreate(savedInstanceState)
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; PhoneTheme.page(this) }
+        val header = label("MIRROR / PHONE", 23f); root.addView(if (PhoneTheme.classic(this)) header else PhoneTheme.appBar(this, "Mirror") { finish() })
         if (com.mirror.app.BuildConfig.ROSTER_ENABLED) root.addView(com.mirror.app.phone.roster.RosterChangeAnnunciator(this))
         val wide = resources.configuration.screenWidthDp >= 600
         val body = LinearLayout(this).apply { orientation = if (wide) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL }
@@ -46,8 +46,8 @@ class PhoneActivity : Activity() {
             body.addView(display); body.addView(controls)
             root.addView(ScrollView(this).apply { addView(body) }, LinearLayout.LayoutParams(-1, 0, 1f))
         }
-        PhoneUi.style(root); header.setTextColor(PhoneUi.GREEN)
-        setContentView(root); insetContent(root, 10); update()
+        PhoneTheme.groupSettings(controls); PhoneUi.style(root); header.setTextColor(PhoneTheme.accent(this))
+        setContentView(root); insetContent(root); update()
     }
     private fun requestStart() {
         val missing = mutableListOf<String>()
@@ -76,12 +76,12 @@ class PhoneActivity : Activity() {
         nextDuty.text = "NEXT DUTY\n" + com.mirror.app.phone.roster.RosterDisplay.compact(this) +
             (com.mirror.app.phone.roster.RosterDisplay.next(this)?.let { "\n" + com.mirror.app.phone.roster.RosterDisplay.legs(it) } ?: "") +
             (com.mirror.app.phone.roster.RosterStore.stale(this)?.let { "\n" + it.first } ?: "")
-        nextDuty.setTextColor(com.mirror.app.phone.roster.RosterStore.stale(this)?.second ?: PhoneUi.GREEN)
+        nextDuty.setTextColor(com.mirror.app.phone.roster.RosterStore.stale(this)?.let { if (PhoneTheme.classic(this)) it.second else PhoneTheme.staleColor(this) } ?: PhoneTheme.accent(this))
         start.text = if (CameraService.active) "STOP CAMERA" else "START CAMERA"
         val metrics = CameraService.stats
         val live = metrics.clients.get() > 0
         val state = if (!CameraService.active) "CAMERA OFF" else if (live) "CAMERA LIVE" else "CAMERA READY"
-        status.setTextColor(if (live) Color.RED else PhoneUi.GREEN)
+        status.setTextColor(if (live) PhoneTheme.error(this) else PhoneTheme.accent(this))
         status.text = state + (if (CameraService.active) String.format(java.util.Locale.US,
             "\n%.0f fps · %.0f ms\n%d viewer%s", metrics.cameraFps, metrics.encodeMs, metrics.clients.get(), if (metrics.clients.get() == 1) "" else "s") else "\nStart the camera before Clock mode") +
             (CameraService.error?.let { "\n$it" } ?: "") + (CameraService.note?.let { "\n$it" } ?: "") +
@@ -95,3 +95,4 @@ class PhoneActivity : Activity() {
     }
     override fun onPause() { controller.stop(); handler.removeCallbacks(refresh); super.onPause() }
 }
+

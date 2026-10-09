@@ -108,3 +108,9 @@ data class ClockSettings(
         }.getOrDefault(ClockSettings())
     }
 }
+
+
+/** These are clock-face choices, never menu colors. */
+object ClockColorPresets {
+    val values = linkedMapOf("ECAM Green" to "#00E040", "Amber" to "#FFB000", "Cyan" to "#00E5FF", "White" to "#F2F2F2", "Magenta" to "#FF40FF", "Night Red" to "#FF2A1A")
+}

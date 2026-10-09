@@ -15,7 +15,7 @@ class ClockCalendarSettingsActivity : Activity() {
     private lateinit var content: LinearLayout
     private var generation = 0
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+        PhoneTheme.install(this); super.onCreate(savedInstanceState)
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         setContentView(ScrollView(this).apply { addView(content) }); insetContent(content)
     }
@@ -23,7 +23,13 @@ class ClockCalendarSettingsActivity : Activity() {
     private fun render() {
         val epoch = ++generation
         content.removeAllViews()
-        content.addView(label("Calendar on your clock", 26f))
+        content.addView(PhoneTheme.appBar(this, "Roster calendar") { finish() })
+        if (DepartureRosterSource.select(this) == DepartureSourcePolicy.Source.ECREW) {
+            content.addView(label("Roster source is eCrew Roster Link. Calendar access is not needed."))
+            content.addView(action("Use Calendar roster source") { ClockSettings.load(this).copy(departureSource = "Calendar").save(this); render() })
+            PhoneUi.style(content)
+            return
+        }
         content.addView(label("Choose the calendar where eCrew exports your roster. Mirror reads it without creating, editing or deleting events. Enable Google Calendar sync for that account in Android settings."))
         content.addView(label("Roster times always use Philippine time. Checks run every 15 minutes, on calendar changes, and at duty end. Android controls when requested Google sync finishes."))
         if (!ClockCalendar.hasPermission(this)) {
@@ -40,7 +46,7 @@ class ClockCalendarSettingsActivity : Activity() {
             result.fold(onSuccess = { sources ->
                 status.text = if (sources.isEmpty()) "No calendars are synced on this phone. Add your Google account and enable Calendar sync, then return here." else "Select one roster calendar:"
                 sources.forEach { source -> content.addView(action("${source.name}\n${source.account}") {
-                    ClockSettings.load(this).copy(schedule = true, calendarId = source.id, calendarName = source.name).save(this)
+                    ClockSettings.load(this).copy(schedule = true, departureSource = "Calendar", calendarId = source.id, calendarName = source.name).save(this)
                     finish()
                 }) }
             }, onFailure = { status.text = "Calendar unavailable. Check Calendar permission and account sync, then try again." })
@@ -54,3 +60,4 @@ class ClockCalendarSettingsActivity : Activity() {
         if (requestCode == 52) render()
     }
 }
+

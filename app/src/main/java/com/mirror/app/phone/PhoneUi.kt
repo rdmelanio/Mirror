@@ -12,9 +12,11 @@ import com.mirror.app.core.dp
 
 /** Phone-only presentation. TV widgets and camera processing are untouched. */
 object PhoneUi {
-    val GREEN = 0xFF00E040.toInt()
-    val CYAN = 0xFF00E5FF.toInt()
+    val GREEN = ClockSettings().color
+    val CYAN = ClockSettings().secondColor
     fun style(view: View) {
+        if (PhoneTheme.enabled(view.context)) { PhoneTheme.style(view); return }
+        if (PhoneTheme.protected(view)) return
         val c = view.context
         if (view is TextView) {
             view.typeface = c.resources.getFont(R.font.b612_regular)
@@ -37,3 +39,4 @@ object PhoneUi {
         }
     }
 }
+

@@ -54,7 +54,7 @@ internal class TvLaunchPanel(private val activity: ComponentActivity, private va
                 .setMessage("Mirror will need a new pairing code. You can also remove Mirror Clock from the TV's paired devices list.")
                 .setNegativeButton("Cancel", null).setPositiveButton("Forget") { _, _ -> TvLauncher.forget(activity) }.show()
         }
-        val show = CheckBox(activity).apply { text = "Show white mirror icon on clock"; isChecked = ClockSettings.load(activity).tvIcon }
+        val show = PhoneTheme.switch(activity, checkbox = true).apply { text = "Show white mirror icon on clock"; isChecked = ClockSettings.load(activity).tvIcon }
         show.setOnCheckedChangeListener { _, value -> val s = ClockSettings.load(activity); if (s.tvIcon != value) s.copy(tvIcon = value).save(activity) }; content.addView(show)
         val sizeLabel = activity.label(""); content.addView(sizeLabel)
         val size = SeekBar(activity).apply { max = 72; progress = ClockSettings.load(activity).tvIconSize - 24 }
@@ -82,3 +82,4 @@ internal class TvLaunchPanel(private val activity: ComponentActivity, private va
     fun start() { if (!active) { active = true; TvLauncher.listeners.add(changed) }; refresh() }
     fun stop() { active = false; TvLauncher.listeners.remove(changed) }
 }
+

@@ -35,7 +35,7 @@ class ClockCalendar(private val context: Context, private val changed: () -> Uni
         }
     }
     fun start(settings: ClockSettings) {
-        if (!settings.schedule && (!settings.departureEnabled || DepartureRosterSource.select(context, settings) != DepartureSourcePolicy.Source.CALENDAR)) { stop(); snapshot = Snapshot(loading = false); return }
+        if (DepartureRosterSource.select(context, settings) != DepartureSourcePolicy.Source.CALENDAR || (!settings.schedule && !settings.departureEnabled)) { stop(); snapshot = Snapshot(loading = false); return }
         if (active && selected == settings.calendarId) return
         stop(); active = true; selected = settings.calendarId
         snapshot = Snapshot(calendarId = selected)
@@ -167,3 +167,4 @@ class ClockCalendar(private val context: Context, private val changed: () -> Uni
         }.getOrDefault(Snapshot(calendarId = id, loading = false))
     }
 }
+

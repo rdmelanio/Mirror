@@ -21,7 +21,7 @@ class PhoneControlsPanel(private val activity: Activity, private val content: Li
     init {
         if (category == "camera") {
             content.addView(activity.label("Camera & streaming", 25f))
-            content.addView(CheckBox(activity).apply {
+            content.addView(PhoneTheme.switch(activity, checkbox = true).apply {
                 text = "Standby · camera wakes when a paired TV connects"; isChecked = prefs.getBoolean("standby", true)
                 setOnCheckedChangeListener { _, value -> prefs.edit().putBoolean("standby", value).apply() }
             })
@@ -111,3 +111,4 @@ class PhoneControlsPanel(private val activity: Activity, private val content: Li
     fun start() { if (category == "camera") handler.post(refresh) }
     fun stop() { pairingDialog?.dismiss(); handler.removeCallbacksAndMessages(null) }
 }
+

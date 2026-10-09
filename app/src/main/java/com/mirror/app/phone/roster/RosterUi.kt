@@ -15,6 +15,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.core.content.FileProvider
 import com.mirror.app.core.*
+import com.mirror.app.phone.PhoneTheme
+import com.mirror.app.phone.PhoneUi
 import java.io.File
 import java.time.*
 import java.time.format.DateTimeFormatter
@@ -56,13 +58,13 @@ class ECrewActivity : ComponentActivity() {
     private lateinit var root: LinearLayout
     private fun lifecycle(event: String) = CaptureLog.add(this, "LIFECYCLE", "${browser?.instanceId.orEmpty()} ${browser?.mode ?: browserMode.name} INTERACTIVE ECrewActivity $event")
     override fun onCreate(state: Bundle?) {
-        super.onCreate(state); if (!RosterStore.phone(this)) { finish(); return }
+        PhoneTheme.install(this); super.onCreate(state); if (!RosterStore.phone(this)) { finish(); return }
         RosterPrivacy.apply(this)
         val useFirefox = EcrewEngine.selected(this) == EcrewEngine.FIREFOX
         browserMode = EcrewBrowserMode.CLEAN
         root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val top = LinearLayout(this)
-        top.addView(action("Back") { back() }, LinearLayout.LayoutParams(-2, -2))
+        root.addView(PhoneTheme.appBar(this, "eCrew") { back() })
         top.addView(action("Reload") { browser?.reload() }, LinearLayout.LayoutParams(-2, -2))
         if (useFirefox) {
             top.addView(action("Fetch roster now") { firefox?.start() }, LinearLayout.LayoutParams(-2, -2))
@@ -76,7 +78,7 @@ class ECrewActivity : ComponentActivity() {
             top.addView(action("Copy log") { copyRosterLog() })
         }
         top.addView(action("Close") { finish() }, LinearLayout.LayoutParams(-2, -2))
-        root.addView(HorizontalScrollView(this).apply { addView(top) })
+        PhoneUi.style(top); root.addView(HorizontalScrollView(this).apply { addView(top) })
         setContentView(root); insetContent(root, 0)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) { override fun handleOnBackPressed() { back() } })
         screen = EcrewSessionLock.coordinator.openScreen()
@@ -132,15 +134,16 @@ class RosterActivity : Activity() {
     private lateinit var root: LinearLayout
     private val redraw = object : Runnable { override fun run() { show(); handler.postDelayed(this, 60_000) } }
     override fun onCreate(state: Bundle?) {
-        super.onCreate(state); if (!RosterStore.phone(this)) { finish(); return }
+        PhoneTheme.install(this); super.onCreate(state); if (!RosterStore.phone(this)) { finish(); return }
         RosterPrivacy.apply(this)
-        root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }
-        setContentView(ScrollView(this).apply { addView(root) }); insetContent(root, 12)
+        root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; PhoneTheme.page(this) }
+        PhoneTheme.page(root); PhoneUi.style(root); setContentView(ScrollView(this).apply { addView(root) }); insetContent(root)
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 61)
     }
     override fun onResume() { super.onResume(); RosterPrivacy.apply(this); if (::root.isInitialized) { handler.post(redraw); RosterWork.onOpen(this) } }
     override fun onPause() { handler.removeCallbacks(redraw); super.onPause() }
     private fun show() {
+        if (!PhoneTheme.classic(this)) { showGlass(); return }
         root.removeAllViews(); root.addView(RosterChangeAnnunciator(this)); root.addView(action("Back") { finish() }); root.addView(label("ROSTER LINK", 26f))
         root.addView(label("NEXT DUTY", 18f)); root.addView(label(RosterDisplay.compact(this), 22f))
         RosterDisplay.next(this)?.let { root.addView(label(RosterDisplay.legs(it), 17f)) }
@@ -151,15 +154,58 @@ class RosterActivity : Activity() {
         root.addView(action("Roster alarms & refresh") { startActivity(Intent(this, RosterSettingsActivity::class.java)) })
         val roster = RosterStore.load(this) ?: return
         val stamp = Instant.ofEpochMilli(RosterStore.prefs(this).getLong("lastSuccess", 0)).atZone(AirportZones.zone("MNL")).format(DateTimeFormatter.ofPattern("HH:mm"))
-        root.addView(label("updated $stamp", 16f)); RosterStore.stale(this)?.let { root.addView(label(it.first, 18f).apply { setTextColor(it.second) }) }
+        root.addView(label("updated $stamp", 16f)); RosterStore.stale(this)?.let { root.addView(label(it.first, 18f).apply { setTextColor(if (PhoneTheme.classic(this@RosterActivity)) it.second else PhoneTheme.staleColor(this@RosterActivity)) }) }
         val today = LocalDate.now(AirportZones.zone("MNL")); var day = roster.period.start
         while (day <= roster.period.end) {
             val date = day; val duties = roster.duties.filter { it.date == date }
-            root.addView(label("${if (date == today) "TODAY · " else ""}${date.format(DateTimeFormatter.ofPattern("EEE dd/MM"))}${if (duties.any { it.memoFlag } || roster.memos[date] != null) "  ✉" else ""}", 20f).apply { if (date == today) setTextColor(0xFFFFB000.toInt()) })
+            root.addView(label("${if (date == today) "TODAY · " else ""}${date.format(DateTimeFormatter.ofPattern("EEE dd/MM"))}${if (duties.any { it.memoFlag } || roster.memos[date] != null) "  ✉" else ""}", 20f).apply { if (date == today) setTextColor(PhoneTheme.caution(this@RosterActivity)) })
             duties.forEach { d ->
                 root.addView(label(if (d.code == "CHECK") "⚠ check eCrew" else if (d.legs.isEmpty()) "${roster.legend[d.code] ?: d.code} ${d.reportLocal?.toLocalTime() ?: "ALL DAY"}${d.releaseLocal?.let { " – ${it.toLocalTime()}" }.orEmpty()}" else "RPT ${d.reportLocal?.toLocalTime()} · release ${d.releaseLocal?.toLocalTime()}${if (d.releaseEstimated) " (est)" else ""}\n${RosterDisplay.legs(d)}", 16f))
             }
             roster.memos[date]?.let { root.addView(label(it, 15f)) }; day = day.plusDays(1)
+        }
+    }
+    private fun showGlass() {
+        root.removeAllViews()
+        root.addView(PhoneTheme.appBar(this, "Roster Link") { finish() })
+        root.addView(RosterChangeAnnunciator(this))
+        val hero = PhoneTheme.card(this)
+        hero.addView(label("NEXT DUTY", 12f).apply { setTextColor(PhoneTheme.secondary(this@RosterActivity)); letterSpacing = .08f })
+        val duty = RosterDisplay.next(this)
+        hero.addView(label(duty?.reportLocal?.format(DateTimeFormatter.ofPattern("HH:mm")) ?: duty?.code ?: "Link eCrew", 32f).apply { typeface = resources.getFont(com.mirror.app.R.font.inter_semibold) })
+        val countdown = com.mirror.app.phone.ClockEcrewRoster.countdown(RosterStore.load(this), Instant.now())
+        hero.addView(label(countdown ?: RosterDisplay.compact(this), 16f))
+        duty?.let { if (it.legs.isNotEmpty()) hero.addView(label(RosterDisplay.legs(it), 16f)) }
+        root.addView(hero)
+        val actions = listOf<Pair<String, () -> Unit>>(
+            "Open eCrew" to { startActivity(Intent(this, ECrewActivity::class.java)) },
+            "Import roster PDF" to { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).setType("application/pdf").addCategory(Intent.CATEGORY_OPENABLE), 60) },
+            "Capture log" to { startActivity(Intent(this, RosterLogActivity::class.java)) },
+            "Alarms & refresh" to { startActivity(Intent(this, RosterSettingsActivity::class.java)) },
+            "Skip next PREPARE" to { RosterAlarms.skipNext(this); Toast.makeText(this, "Next PREPARE skipped", Toast.LENGTH_SHORT).show() },
+            "Clock settings" to { startActivity(Intent(this, com.mirror.app.phone.PhoneSettingsActivity::class.java).putExtra("section", "calendar")) })
+        actions.chunked(2).forEach { pair ->
+            val row = LinearLayout(this)
+            pair.forEach { (title, work) -> row.addView(action(title, work), LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(dp(3), dp(3), dp(3), dp(3)) }) }
+            root.addView(row)
+        }
+        val roster = RosterStore.load(this) ?: run { root.addView(label("Link eCrew in Roster Link", 16f)); return }
+        val stamp = Instant.ofEpochMilli(RosterStore.prefs(this).getLong("lastSuccess", 0)).atZone(AirportZones.zone("MNL")).format(DateTimeFormatter.ofPattern("dd MMM HH:mm"))
+        root.addView(label("Updated $stamp", 13f).apply { setTextColor(PhoneTheme.secondary(this@RosterActivity)) })
+        RosterStore.stale(this)?.let { root.addView(label(it.first, 15f).apply { setTextColor(if (PhoneTheme.classic(this@RosterActivity)) it.second else PhoneTheme.staleColor(this@RosterActivity)) }) }
+        val today = LocalDate.now(AirportZones.zone("MNL")); var date = roster.period.start
+        while (date <= roster.period.end) {
+            val card = PhoneTheme.card(this, date == today)
+            card.addView(label("${if (date == today) "TODAY · " else ""}${date.format(DateTimeFormatter.ofPattern("EEE dd MMM"))}", 15f).apply { if (date == today) setTextColor(PhoneTheme.accent(this@RosterActivity)) })
+            val duties = roster.duties.filter { it.date == date }
+            duties.forEach { d ->
+                val lines = com.mirror.app.phone.ClockEcrewRoster.lines(d).joinToString("\n") { it.text }
+                card.addView(label(lines, 16f))
+                roster.legend[d.code]?.let { card.addView(label(it, 13f).apply { setTextColor(PhoneTheme.secondary(this@RosterActivity)) }) }
+            }
+            roster.memos[date]?.let { card.addView(label("✉ $it", 13f)) }
+            if (duties.any { it.memoFlag } && !roster.memos.containsKey(date)) card.addView(label("✉ memo", 13f))
+            root.addView(card); date = date.plusDays(1)
         }
     }
     @Deprecated("Activity result compatibility") override fun onActivityResult(request: Int, result: Int, data: Intent?) {
@@ -197,7 +243,7 @@ object RosterImport {
 }
 class RosterImportActivity : Activity() {
     override fun onCreate(state: Bundle?) {
-        super.onCreate(state); if (!RosterStore.phone(this)) { finish(); return }
+        PhoneTheme.install(this); super.onCreate(state); if (!RosterStore.phone(this)) { finish(); return }
         @Suppress("DEPRECATION") val uri = if (intent.action == Intent.ACTION_VIEW) intent.data else intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM) ?: intent.data
         if (uri == null || uri.scheme != "content") { finish(); return }
         setContentView(label("Importing roster…"))
@@ -224,10 +270,10 @@ class RosterImportActivity : Activity() {
 }
 class RosterLogActivity : Activity() {
     override fun onCreate(state: Bundle?) {
-        super.onCreate(state); if (!RosterStore.phone(this)) { finish(); return }
+        PhoneTheme.install(this); super.onCreate(state); if (!RosterStore.phone(this)) { finish(); return }
         RosterPrivacy.apply(this)
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        root.addView(action("Back") { finish() }); val log = label(CaptureLog.read(this), 12f)
+        root.addView(PhoneTheme.appBar(this, "Capture log") { finish() }); val log = label(CaptureLog.read(this), 12f)
         root.addView(action("Copy log") { copyRosterLog() })
         root.addView(action("Share log as text file") { shareRosterLog() })
         root.addView(action("Share last PDF") {
@@ -261,15 +307,16 @@ class RosterLogActivity : Activity() {
                 File(cacheDir, "roster-logs").deleteRecursively()
                 EcrewFirefox.clearLocal(this) { EcrewStorage.clearLocal(this) { log.text = CaptureLog.read(this); Toast.makeText(this, "Local eCrew and roster data cleared", Toast.LENGTH_SHORT).show() } }
             }.show()
-        }); root.addView(log); setContentView(ScrollView(this).apply { addView(root) }); insetContent(root, 12)
+        }); root.addView(log); PhoneTheme.groupSettings(root); PhoneTheme.page(root); PhoneUi.style(root); setContentView(ScrollView(this).apply { addView(root) }); insetContent(root)
     }
 }
 class RosterSettingsActivity : Activity() {
-    override fun onCreate(state: Bundle?) { super.onCreate(state); if (!RosterStore.phone(this)) { finish(); return }; RosterPrivacy.apply(this); show() }
+    override fun onCreate(state: Bundle?) { PhoneTheme.install(this); super.onCreate(state); if (!RosterStore.phone(this)) { finish(); return }; RosterPrivacy.apply(this); show() }
     private fun show() {
         RosterPrivacy.apply(this)
         val p = RosterStore.prefs(this); val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        root.addView(action("Back") { finish() }); root.addView(label("ROSTER ALARMS & REFRESH", 24f))
+        root.addView(PhoneTheme.appBar(this, "Roster alarms & refresh") { finish() })
+        root.addView(label("Connection & refresh", 22f))
         root.addView(label(EcrewWebViewInfo.text(this), 14f))
         val selectedEngine = EcrewEngine.selected(this)
         root.addView(action("Roster engine: ${selectedEngine.label}") {
@@ -285,21 +332,25 @@ class RosterSettingsActivity : Activity() {
         root.addView(action("Refresh interval: ${p.getInt("interval", 30)} min") {
             AlertDialog.Builder(this).setItems(arrayOf("15 min", "30 min", "60 min")) { _, i -> p.edit().putInt("interval", listOf(15, 30, 60)[i]).apply(); RosterWork.configure(this); show() }.show()
         })
-        fun toggle(text: String, key: String, default: Boolean) { root.addView(Switch(this).apply { this.text = text; isChecked = p.getBoolean(key, default); setOnCheckedChangeListener { _, value -> p.edit().putBoolean(key, value).apply(); RosterPrivacy.apply(this@RosterSettingsActivity); RosterAlarms.reschedule(this@RosterSettingsActivity) } }) }
+        fun toggle(text: String, key: String, default: Boolean) { root.addView(PhoneTheme.switch(this).apply { this.text = text; isChecked = p.getBoolean(key, default); setOnCheckedChangeListener { _, value -> p.edit().putBoolean(key, value).apply(); RosterPrivacy.apply(this@RosterSettingsActivity); RosterAlarms.reschedule(this@RosterSettingsActivity) } }) }
+        root.addView(label("Privacy & clock", 22f))
         toggle("Block screenshots on roster screens", "blockScreenshots", false); toggle("Next duty line", "nextDutyLine", true); toggle("Use system alarm sound", "systemSound", false)
+        root.addView(label("Duty types", 22f))
         toggle("Flight duties", "type-FLIGHT", true); toggle("Airport standby AS", "type-AS", true); toggle("Home standby HSA", "type-HSA", false)
         RosterStore.load(this)?.duties?.filter { it.type == DutyType.OTHER && it.reportInstant != null }?.map { it.code }?.distinct()?.forEach { toggle("Timed duty $it", "type-$it", true) }
+        root.addView(label("Roster alarms", 22f))
         val alarms = RosterAlarms.definitions(this)
         alarms.forEach { alarm ->
-            root.addView(Switch(this).apply { text = "${alarm.label} · ${alarm.offset / 60}:${(alarm.offset % 60).toString().padStart(2, '0')} before report"; isChecked = alarm.enabled; setOnCheckedChangeListener { _, on -> RosterAlarms.save(this@RosterSettingsActivity, RosterAlarms.definitions(this@RosterSettingsActivity).map { if (it.id == alarm.id) it.copy(enabled = on) else it }) } })
+            root.addView(PhoneTheme.switch(this).apply { text = "${alarm.label} · ${alarm.offset / 60}:${(alarm.offset % 60).toString().padStart(2, '0')} before report"; isChecked = alarm.enabled; setOnCheckedChangeListener { _, on -> RosterAlarms.save(this@RosterSettingsActivity, RosterAlarms.definitions(this@RosterSettingsActivity).map { if (it.id == alarm.id) it.copy(enabled = on) else it }) } })
             root.addView(action("Edit ${alarm.label}") { edit(alarm) })
             if (alarm.id != 1) root.addView(action("Remove ${alarm.label}") { RosterAlarms.save(this, RosterAlarms.definitions(this).filter { it.id != alarm.id }); show() })
         }
         if (alarms.size < 5) root.addView(action("+ Add roster alarm") { edit(RosterAlarm((alarms.maxOfOrNull { it.id } ?: 0) + 1, "Roster alarm")) })
+        root.addView(label("Android permissions", 22f))
         if (Build.VERSION.SDK_INT >= 31) root.addView(action("Exact alarm access") { startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName"))) })
         if (Build.VERSION.SDK_INT >= 34) root.addView(action("Full-screen alarm access") { startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:$packageName"))) })
         root.addView(action("Notification settings") { startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)) })
-        setContentView(ScrollView(this).apply { addView(root) }); insetContent(root, 12)
+        PhoneTheme.groupSettings(root); PhoneTheme.page(root); PhoneUi.style(root); setContentView(ScrollView(this).apply { addView(root) }); insetContent(root)
     }
     private fun edit(alarm: RosterAlarm) {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }; val name = EditText(this).apply { setText(alarm.label) }; box.addView(name)
@@ -322,3 +373,4 @@ private fun Activity.shareRosterLog() {
     startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain")
         .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share eCrew diagnostic log"))
 }
+

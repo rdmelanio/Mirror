@@ -283,7 +283,7 @@ test('sidebar comes first, Dashboard headings never clicked, flyout is exact, re
   p.element('My Schedule', {tagName: 'A'}); p.command('openSchedule'); assert.deepEqual(p.clicks, ['', 'My Schedule']);
   p.command('openSchedule'); assert.equal(p.clicks.length, 2);
   now = 4999; p.command('openSchedule'); assert.equal(p.clicks.length, 2);
-  now = 5000; p.command('openSchedule'); assert.equal(p.clicks.length, 3);
+  now = 5000; p.command('openSchedule'); assert.equal(p.clicks.length, 4);
   p.command('openSchedule'); now = 10000; p.command('openSchedule'); p.command('openSchedule');
   now = 15000; p.command('openSchedule'); assert.equal(p.clicks.filter(c => c === '').length, 3);
   assert(events.every(e => ['mousedown', 'mouseup'].includes(e)));
@@ -366,5 +366,21 @@ test('second reveal tap opens the fading save button in the 800 ms callback', ()
   p.run(); p.command('openExport'); assert.equal(taps, 1); assert.equal(p.clicks.length, 0);
   now += 800; p.flushTimers(); assert.equal(taps, 2); assert.equal(p.clicks.length, 0);
   now += 800; p.flushTimers(); assert.equal(p.clicks.length, 1); assert(p.messages.some(m => m.result === 'export'));
+});
+
+test('an existing ViewSchedButton flyout in a nested frame wins before the sidebar', () => {
+  const p = page(), child = page('/eCrew/Dashboard/HomeIndex');
+  p.element('My Schedule (published)', {tagName: 'DIV'}); p.element('', {className: 'fa-calendar-alt'});
+  child.element('My Schedule', {tagName: 'A', className: 'webix_list_item menu', getAttribute: name => name === 'webix_l_id' ? 'ViewSchedButton' : null});
+  p.run(); child.run(); const frame = p.element('', {frame: true, contentWindow: child.context.window});
+  child.context.window.frameElement = frame; child.context.window.parent = p.context.window; p.context.window.frames.push(child.context.window);
+  p.command('openSchedule'); assert.deepEqual(p.clicks, []); assert.deepEqual(child.clicks, ['My Schedule']);
+});
+
+test('a flyout appearing after the sidebar is tapped within the one-second poll budget', () => {
+  const p = page(); p.element('', {className: 'fa-calendar-alt'}); p.run(); p.command('openSchedule');
+  p.flushTimers(); p.element('My Schedule', {tagName: 'A', className: 'webix_list_item menu', getAttribute: name => name === 'webix_l_id' ? 'ViewSchedButton' : null});
+  p.flushTimers(); assert.deepEqual(p.clicks, ['', 'My Schedule']);
+  p.flushTimers(); assert.equal(p.clicks.length, 2);
 });
 

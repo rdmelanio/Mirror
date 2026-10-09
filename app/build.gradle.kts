@@ -62,6 +62,7 @@ androidComponents {
     }
 }
 dependencies {
+    implementation("com.google.android.material:material:1.13.0")
     "fullImplementation"("org.mozilla.geckoview:geckoview-arm64-v8a:157.0.20261005135250")
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("androidx.camera:camera-camera2:1.4.2")
@@ -81,4 +82,5 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
 }
+
 

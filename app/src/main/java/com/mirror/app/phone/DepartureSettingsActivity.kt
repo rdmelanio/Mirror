@@ -20,7 +20,8 @@ class DepartureSettingsPanel(private val activity: ComponentActivity, private va
     private lateinit var warning: EditText
     private lateinit var duration: EditText
     private lateinit var excluded: EditText
-    private lateinit var sourceButton: Button
+    private var refreshSource: () -> Unit = {}
+    private var calendarButton: Button? = null
     private var soundKind = DeparturePlan.Kind.valueOf(DepartureAlerts.prefs(activity).getString("soundPickerKind", "CAUTION") ?: "CAUTION")
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> updateStatus() }
     private val permissions = activity.activityResultRegistry.register("departure.permission", ActivityResultContracts.RequestPermission()) { updateStatus(); DepartureAlerts.configure(activity) }
@@ -38,18 +39,12 @@ class DepartureSettingsPanel(private val activity: ComponentActivity, private va
         content.addView(activity.label("Leave for duty", 28f))
         content.addView(activity.label("Two departure alarms from your selected roster source. Flights, AS and timed training are included; OFF, HS and HSA are skipped by default. Alarms work without leaving Clock mode open."))
         fun toggle(title: String, value: Boolean, change: (ClockSettings, Boolean) -> ClockSettings) {
-            content.addView(CheckBox(activity).apply {
+            content.addView(PhoneTheme.switch(activity, checkbox = true).apply {
                 text = title; isChecked = value; minHeight = activity.dp(48)
                 setOnCheckedChangeListener { _, checked -> change(ClockSettings.load(activity), checked).save(activity); updateStatus() }
             })
         }
-        sourceButton = activity.action("") {
-            AlertDialog.Builder(activity).setTitle("Roster source").setItems(if (com.mirror.app.BuildConfig.ROSTER_ENABLED) arrayOf("Calendar", "eCrew Roster Link") else arrayOf("Calendar")) { _, which ->
-                ClockSettings.load(activity).copy(departureSource = if (which == 0) "Calendar" else "eCrew").save(activity); updateStatus()
-            }.show()
-        }
-        sourceButton.text = "Roster source: ${if (DepartureRosterSource.select(activity) == DepartureSourcePolicy.Source.ECREW) "eCrew Roster Link" else "Calendar"}"
-        content.addView(sourceButton)
+        refreshSource = RosterSourceSelector.add(activity, content) { updateStatus() }
         toggle("Enable departure alarms", s.departureEnabled) { settings, checked -> settings.copy(departureEnabled = checked) }
         toggle("Master caution · single chime and persistent amber", s.cautionEnabled) { settings, checked -> settings.copy(cautionEnabled = checked) }
         toggle("Master warning · repeating sound and flashing red", s.warningEnabled) { settings, checked -> settings.copy(warningEnabled = checked) }
@@ -75,7 +70,7 @@ class DepartureSettingsPanel(private val activity: ComponentActivity, private va
                 excludedDutyCodes = excluded.text.toString().trim()).save(activity)
             Toast.makeText(activity, "Departure timing saved", Toast.LENGTH_SHORT).show(); updateStatus()
         })
-        content.addView(activity.action("Choose roster calendar / allow calendar access") { activity.startActivity(Intent(activity, ClockCalendarSettingsActivity::class.java)) })
+        calendarButton = activity.action("Choose roster calendar / allow calendar access") { activity.startActivity(Intent(activity, ClockCalendarSettingsActivity::class.java)) }; content.addView(calendarButton)
         content.addView(activity.action("Refresh selected roster departure alarms now") { DepartureAlerts.configure(activity) })
         content.addView(activity.label("Alarm setup", 23f))
         status = activity.label(""); content.addView(status)
@@ -116,12 +111,12 @@ class DepartureSettingsPanel(private val activity: ComponentActivity, private va
     private fun openSettings(intent: Intent) { runCatching { activity.startActivity(intent) }.onFailure { Toast.makeText(activity, "This setting is unavailable on your ROM", Toast.LENGTH_LONG).show() } }
     private fun updateStatus() {
         if (!::status.isInitialized) return
-        if (::sourceButton.isInitialized) sourceButton.text = "Roster source: ${if (DepartureRosterSource.select(activity) == DepartureSourcePolicy.Source.ECREW) "eCrew Roster Link" else "Calendar"}"
+        refreshSource(); calendarButton?.visibility = if (DepartureRosterSource.select(activity) == DepartureSourcePolicy.Source.CALENDAR) android.view.View.VISIBLE else android.view.View.GONE
         val s = ClockSettings.load(activity); val manager = activity.getSystemService(NotificationManager::class.java)
         val full = Build.VERSION.SDK_INT < 34 || manager.canUseFullScreenIntent()
         val volume = activity.getSystemService(AudioManager::class.java).getStreamVolume(AudioManager.STREAM_ALARM)
         val p = DepartureAlerts.prefs(activity)
-        status.text = "Roster source: ${if (DepartureRosterSource.select(activity) == DepartureSourcePolicy.Source.ECREW) "eCrew Roster Link" else "Calendar"}\nCalendar: ${s.calendarName.ifBlank { "Choose calendar" }}\nCalendar access: ${ClockCalendar.hasPermission(activity)}\n" +
+        status.text = "Roster source: ${RosterSourceSelector.title(activity)}\n" + (if (DepartureRosterSource.select(activity) == DepartureSourcePolicy.Source.CALENDAR) "Calendar: ${s.calendarName.ifBlank { "Choose calendar" }}\nCalendar access: ${ClockCalendar.hasPermission(activity)}\n" else "Printed eCrew duty report times\n") +
             "Precise alarms: ${DepartureAlerts.exactAllowed(activity)} · Notifications: ${DepartureAlerts.notificationsAllowed(activity)}\nFull-screen alarms: $full · Alarm volume: $volume\n\n" +
             p.getString("status", "Enable departure alarms to schedule your next duty") + "\n" + p.getString("next", "") +
             p.getString("audioStatus", "").let { if (it.isNullOrBlank()) "" else "\n$it" }
@@ -134,13 +129,14 @@ class DepartureSettingsPanel(private val activity: ComponentActivity, private va
 class DepartureSettingsActivity : ComponentActivity() {
     private lateinit var panel: DepartureSettingsPanel
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+        PhoneTheme.install(this); super.onCreate(savedInstanceState)
         volumeControlStream = AudioManager.STREAM_ALARM
         val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         panel = DepartureSettingsPanel(this, content)
-        setContentView(ScrollView(this).apply { addView(content) }); insetContent(content)
+        content.addView(PhoneTheme.appBar(this, "Departure alarms") { finish() }, 0); PhoneTheme.groupSettings(content); PhoneUi.style(content); setContentView(ScrollView(this).apply { addView(content) }); insetContent(content)
     }
     override fun onResume() { super.onResume(); panel.start() }
     override fun onPause() { panel.stop(); super.onPause() }
     override fun onDestroy() { panel.dispose(); super.onDestroy() }
 }
+

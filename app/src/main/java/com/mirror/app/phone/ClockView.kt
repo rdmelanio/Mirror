@@ -162,7 +162,15 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
             fun addSchedule(target: MutableList<Row>, text: String, size: Float = 22f) {
                 target += Row(text, size, regular, color = s.scheduleColor)
             }
-            if (!ClockCalendar.hasPermission(context)) {
+            if (DepartureRosterSource.select(context, s) == DepartureSourcePolicy.Source.ECREW) {
+                val linkedRoster = com.mirror.app.phone.roster.RosterStore.load(context)
+                ClockEcrewRoster.days(linkedRoster, java.time.Instant.ofEpochMilli(now.time)).forEachIndexed { index, day ->
+                    val target = if (index == 0) todayRows else tomorrowRows
+                    addSchedule(target, "${day.label} · ${titleFormat.format(day.date).uppercase(Locale.ENGLISH)}", 18f)
+                    day.lines.forEach { addSchedule(target, it.text, if (it.small) 14f else if (it.text.startsWith("RPT ") || it.text.startsWith("REL ")) 21f else 23f) }
+                }
+                com.mirror.app.phone.roster.RosterStore.stale(context)?.let { footerRows += Row(it.first, 12f, regular, color = it.second) }
+            } else if (!ClockCalendar.hasPermission(context)) {
                 addSchedule(todayRows, "Calendar access needed", 19f)
                 addSchedule(todayRows, "Enable in Clock settings", 17f)
             } else if (roster.calendarId != s.calendarId || roster.loading) addSchedule(todayRows, "Loading calendar…")
@@ -195,7 +203,8 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
             }
         }
         if (com.mirror.app.phone.roster.RosterStore.prefs(context).getBoolean("nextDutyLine", true) && com.mirror.app.phone.roster.RosterStore.load(context) != null) {
-            todayRows += Row(com.mirror.app.phone.roster.RosterDisplay.compact(context), 20f, regular, color = s.scheduleColor)
+            val line = if (DepartureRosterSource.select(context, s) == DepartureSourcePolicy.Source.ECREW) ClockEcrewRoster.countdown(com.mirror.app.phone.roster.RosterStore.load(context), java.time.Instant.ofEpochMilli(now.time)) else com.mirror.app.phone.roster.RosterDisplay.compact(context)
+            if (line != null) todayRows += Row(line, 20f, regular, color = s.scheduleColor)
         }
         val density = resources.displayMetrics.density
         val zones = ClockLayout.zones(width.toFloat(), height.toFloat(), density)
@@ -466,3 +475,4 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
     override fun onAttachedToWindow() { super.onAttachedToWindow(); attached = true; TvLauncher.listeners.add(tvChanged) }
     override fun onDetachedFromWindow() { attached = false; launchRequested = false; TvLauncher.listeners.remove(tvChanged); saveSize(); stopInteraction(); super.onDetachedFromWindow() }
 }
+

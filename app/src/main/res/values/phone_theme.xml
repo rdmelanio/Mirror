@@ -1,0 +1,48 @@
+<resources>
+    <color name="glass_background_start">#0B1220</color>
+    <color name="glass_background_end">#111A2E</color>
+    <color name="glass_surface">#D9172238</color>
+    <color name="glass_border">#14FFFFFF</color>
+    <color name="glass_primary">#E8EEF8</color>
+    <color name="glass_secondary">#9AA8BF</color>
+    <color name="glass_divider">#12FFFFFF</color>
+    <color name="glass_accent">#38BDF8</color>
+    <color name="glass_pressed">#0EA5E9</color>
+    <color name="glass_disabled">#5538BDF8</color>
+    <color name="glass_on_accent">#04111F</color>
+    <color name="glass_success">#34D399</color>
+    <color name="glass_caution">#FFB000</color>
+    <color name="glass_error">#F87171</color>
+    <style name="PhoneMenuTheme" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:fontFamily">@font/inter_regular</item>
+        <item name="fontFamily">@font/inter_regular</item>
+        <item name="colorPrimary">@color/glass_accent</item>
+        <item name="colorOnPrimary">@color/glass_on_accent</item>
+        <item name="colorSurface">@color/glass_surface</item>
+        <item name="colorOnSurface">@color/glass_primary</item>
+        <item name="colorOnSurfaceVariant">@color/glass_secondary</item>
+        <item name="colorOutline">@color/glass_border</item>
+        <item name="colorSecondary">@color/glass_accent</item>
+        <item name="colorError">@color/glass_error</item>
+        <item name="android:colorAccent">@color/glass_accent</item>
+        <item name="android:windowBackground">@color/glass_background_start</item>
+        <item name="android:textColorPrimary">@color/glass_primary</item>
+        <item name="android:textColorSecondary">@color/glass_secondary</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:alertDialogTheme">@style/PhoneDialogTheme</item>
+        <item name="materialSwitchStyle">@style/Widget.Material3.CompoundButton.MaterialSwitch</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+    <style name="GlassToolbarTitle" parent="TextAppearance.Material3.TitleLarge">
+        <item name="fontFamily">@font/inter_semibold</item>
+        <item name="android:fontFamily">@font/inter_semibold</item>
+        <item name="android:textColor">@color/glass_primary</item>
+    </style>
+    <style name="PhoneDialogTheme" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:fontFamily">@font/inter_regular</item>
+        <item name="android:colorAccent">@color/glass_accent</item>
+        <item name="android:textColorPrimary">@color/glass_primary</item>
+        <item name="android:textColorSecondary">@color/glass_secondary</item>
+        <item name="android:windowBackground">@drawable/glass_dialog</item>
+    </style>
+</resources>

@@ -1,0 +1,21 @@
+{
+  "app/src/main/java/com/mirror/app/phone/CameraService.kt": "07cd9becff9f086a93f64938871aebe920a404ed",
+  "app/src/main/java/com/mirror/app/phone/ClockLayout.kt": "2be971e4dfc0ea0e09553bc80542b47d8433484e",
+  "app/src/main/java/com/mirror/app/phone/ClockLightPolicy.kt": "2ec32ffb7f2a1f54b6c6624137da60813b3487a7",
+  "app/src/main/java/com/mirror/app/phone/DepartureSoundService.kt": "7458907b34ce90c7d24cae5597999ab3dd1a0ee2",
+  "app/src/main/java/com/mirror/app/phone/roster/RosterAlarmActivity.kt": "d608beb24586911cff7f29aa6b5d141d41375707",
+  "app/src/main/java/com/mirror/app/phone/roster/RosterChanges.kt": "3919896c9d41a88c9d12f99ede12f0169798b0c7",
+  "app/src/main/java/com/mirror/app/phone/roster/RosterSoundService.kt": "d7515d4b69ca1615813cef146450004e299b915d",
+  "app/src/main/java/com/mirror/app/tv/BitmapPool.kt": "5be8886bc2c9ff800d6cea61827d9fdc279f8ae2",
+  "app/src/main/java/com/mirror/app/tv/CameraRemote.kt": "22533e4d038dee856e68e2cfc76027eb732e40ff",
+  "app/src/main/java/com/mirror/app/tv/CompareView.kt": "2251238534ca1d235d2d9778028de8f96d8cccec",
+  "app/src/main/java/com/mirror/app/tv/DelayedFrames.kt": "3acc28eb200a2e43a0e345ef3d84aafe0ac7e70c",
+  "app/src/main/java/com/mirror/app/tv/MirrorView.kt": "948b834803e8829d381e20fdd9b727f8193ded17",
+  "app/src/main/java/com/mirror/app/tv/MjpegClient.kt": "b61489af18c4fd23a35fa114060a3641dd1fe4ec",
+  "app/src/main/java/com/mirror/app/tv/PairingScreen.kt": "6aeb5858d3bb0569015258131ff42f4d1611dd97",
+  "app/src/main/java/com/mirror/app/tv/QuickMenu.kt": "118bfba4bb93c19938d3c4d092b07a0fd40ef29d",
+  "app/src/main/java/com/mirror/app/tv/RingLightView.kt": "0d95e30c54ea30de25c2b6f4896980e57598385c",
+  "app/src/main/java/com/mirror/app/tv/SourceAuth.kt": "324abe1cba3e1592d83f60d6acc85bd1a3cacd5b",
+  "app/src/main/java/com/mirror/app/tv/TvActivity.kt": "c87c540b127ace26d17dd95c272abf25685ba485",
+  "app/src/main/res/values/styles.xml": "b92b0b701b0c51448f4004c74652df367394d6b8"
+}
