@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const code = fs.readFileSync('app/src/full/assets/ecrew/content.js', 'utf8');
 function page(path = '/eCrew/Dashboard/') {
-  const elements = [], messages = [], clicks = [], handlers = {};
+  const elements = [], messages = [], clicks = [], handlers = {}, callbacks = [];
   let receiver, connected = 0, interval, disconnected;
   const port = {postMessage: m => messages.push(m), onMessage: {addListener: fn => receiver = fn}, onDisconnect: {addListener: fn => disconnected = fn}};
   const document = {documentElement: {}, querySelectorAll: selector => elements.filter(e => selector.includes('iframe') ? e.frame : selector.startsWith('.webix_sidebar') ? (e.calendar || /calendar/i.test(typeof e.className === 'string' ? e.className : '')) : !e.frame), addEventListener(name, fn) { handlers[name] = fn; }};
@@ -19,11 +19,11 @@ function page(path = '/eCrew/Dashboard/') {
   const context = {location: {origin: 'https://ecrew.cebupacificair.com', pathname: path, href: 'https://ecrew.cebupacificair.com' + path}, window, document,
     browser: {runtime: {connectNative: name => { assert.equal(name, 'mirrorRoster'); connected++; return port; }}},
     getComputedStyle: () => ({visibility: 'visible', display: 'block'}), MutationObserver: class {observe() {} disconnect() {}},
-    setInterval: fn => {interval = fn; return 1;}, clearInterval() {}, setTimeout: () => 1, clearTimeout() {},
+    setInterval: fn => {interval = fn; return 1;}, clearInterval() {}, setTimeout: fn => { callbacks.push(fn); return callbacks.length; }, clearTimeout() {},
     MouseEvent: class {constructor(type) {this.type = type;}}, URL, AbortController, Uint8Array, Blob, fetch: () => {throw Error('unexpected fetch');}, FileReader: class {}};
   function run() { Object.assign(window, {document, frames: [], MouseEvent: context.MouseEvent, getComputedStyle: context.getComputedStyle, MutationObserver: context.MutationObserver}); window.location ||= context.location; document.defaultView = window; vm.runInNewContext(code, context); }
   function command(command, request = 1, extra = {}) { receiver({command, request, ...extra}); }
-  return {element, run, command, messages, clicks, context, trustedClick: target => handlers.click({target, isTrusted: true}), report: () => interval(), disconnect: () => disconnected(), connected: () => connected};
+  return {element, run, command, messages, clicks, context, flushTimers: () => callbacks.splice(0).forEach(fn => fn()), trustedClick: target => handlers.click({target, isTrusted: true}), report: () => interval(), disconnect: () => disconnected(), connected: () => connected};
 }
 test('Login guard never connects a native port, including mixed case Login', () => {
   for (const route of ['/eCrew/Login', '/eCrew/LOGIN/', '/eCrew/Login?next=Dashboard']) {
@@ -145,7 +145,7 @@ test('DevExpress hidden export gets four center reveal taps then hidden click', 
 });
 test('DevExpress visible export clicks immediately and chooses only exact PDF', () => {
   const p = page(); p.element('', {className: 'dxrdm-export-button'}); p.run(); p.command('openExport');
-  assert(p.messages.some(m => m.result === 'export')); p.element('PDF options'); p.element('PDF'); p.element('Confirm all changes');
+  assert(p.messages.some(m => m.result === 'export')); p.element('PDF options'); p.element('pdf'); p.element('PDF'); p.element('Confirm all changes');
   p.command('choosePdf', 2); assert.deepEqual(p.clicks, ['', 'PDF']); assert(p.messages.some(m => m.value === 'PDF clicked'));
 });
 
@@ -355,5 +355,16 @@ test('CrewSchedule HTML is captured unchanged up to one MB, including passive li
   assert.equal(p.messages.find(m => m.kind === 'scheduleHtml').body, html);
   assert(!JSON.stringify(p.messages.filter(m => m.kind === 'network')).includes('PRIVATE_CREW'));
   p.response([Buffer.alloc(1024 * 1024 + 1, 65)], 'text/html', '/eCrew/CrewSchedule'); assert.equal(p.messages.filter(m => m.kind === 'scheduleHtml').length, 1);
+});
+
+test('second reveal tap opens the fading save button in the 800 ms callback', () => {
+  const p = page('/AIMS/CrewScheduleReport/PrintReport'); let now = 1000, taps = 0, shown = false;
+  p.context.Date = {now: () => now};
+  const image = p.element('', {tagName: 'IMG', complete: true, naturalWidth: 20, dispatchEvent: event => { if (event.type === 'click' && ++taps === 2) shown = true; }});
+  p.element('', {className: 'dxrdm-page', querySelectorAll: () => [image]});
+  p.element('', {className: 'dxrdm-save', getClientRects: () => shown ? [1] : []});
+  p.run(); p.command('openExport'); assert.equal(taps, 1); assert.equal(p.clicks.length, 0);
+  now += 800; p.flushTimers(); assert.equal(taps, 2); assert.equal(p.clicks.length, 0);
+  now += 800; p.flushTimers(); assert.equal(p.clicks.length, 1); assert(p.messages.some(m => m.result === 'export'));
 });
 

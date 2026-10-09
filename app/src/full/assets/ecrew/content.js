@@ -146,7 +146,7 @@
       .filter(e => !/^confirm all changes/i.test(text(e)));
     return candidates.find(visible) || candidates[0];
   };
-  const pdfItem = () => nodes().find(e => text(e).toUpperCase() === 'PDF');
+  const pdfItem = () => nodes().find(e => text(e) === 'PDF');
   const substep = value => send({kind: 'exportStep', value});
   const reveal = () => {
     const e = preview();

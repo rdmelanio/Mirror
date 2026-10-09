@@ -121,6 +121,8 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
     private var chunkPort: WebExtension.Port? = null
     private var fetchPending = false
     private var pendingPdf: ByteArray? = null
+    private var pendingPdfVia = "webRequest"
+    private var manualPdfSelected = false
     private var child: GeckoSession? = null
     private val childPorts = linkedSetOf<WebExtension.Port>()
     private val childTrusted = linkedSetOf<WebExtension.Port>()
@@ -152,7 +154,7 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
     private fun log(step: String, result: String, address: String? = null) = CaptureLog.add(c, step, "$instanceId FIREFOX $owner $result", address)
     private val machine: EcrewAutomation = EcrewAutomation(SystemClock::elapsedRealtime, { command, id ->
         if (page()) {
-            if (command == "print") { viewerJsonSeen = false; exportWindow.arm("robot CLICK_PRINT"); networkScope() }
+            if (command == "print") { viewerJsonSeen = false; manualPdfSelected = false; exportWindow.arm("robot CLICK_PRINT"); networkScope() }
             broadcast(command, id)
         }
     }, { value -> pending(value) }, { success, reason ->
@@ -168,7 +170,7 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
         // The final read-only snapshot must reach private storage before a worker closes its session.
         main.postDelayed({ finishFetch() }, 1500)
     }, { step -> networkScope(); log(step, "started"); if (step == "PARSE") main.post { parsePendingPdf() }
-        if (step == "CAPTURE_PDF" && pendingPdf != null) main.post { pendingPdf?.let { capture(it, "webRequest") } } }, { step ->
+        if (step == "CAPTURE_PDF" && pendingPdf != null) main.post { pendingPdf?.let { capture(it, pendingPdfVia) } } }, { step ->
         log("SNAPSHOT", "$step timeout; requesting frame diagnostics")
         snapshotUntil = SystemClock.elapsedRealtime() + 1000
         broadcast("snapshot", machine.request)
@@ -426,8 +428,13 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
                     machine.response(j.optInt("request", -1), it, frames.pending)
                 }
             }
-            "manualExport" -> if (!background && j.optString("value") in setOf("PDF", "export")) { exportWindow.arm("trusted ${j.optString("value")} tap"); networkScope() }
-            "manualPrint" -> if (!background) { exportWindow.arm("trusted Print tap"); viewerJsonSeen = false; networkScope(); main.removeCallbacks(autoFetch); autoFetchPending = false; autoStarted = true; lastPdfHash = 0; fetchPending = frames.pending; machine.manualPrint() }
+            "manualExport" -> if (!background && j.optString("value") in setOf("PDF", "export")) {
+                val pdf = j.optString("value") == "PDF"
+                if (pdf) manualPdfSelected = true
+                log("EXPORT", if (pdf) "trusted PDF clicked" else "trusted save/export clicked")
+                exportWindow.arm("trusted ${j.optString("value")} tap"); networkScope()
+            }
+            "manualPrint" -> if (!background) { exportWindow.arm("trusted Print tap"); manualPdfSelected = false; viewerJsonSeen = false; networkScope(); main.removeCallbacks(autoFetch); autoFetchPending = false; autoStarted = true; lastPdfHash = 0; fetchPending = frames.pending; machine.manualPrint() }
             "deepSearch" -> log("DEEP_SEARCH", "${machine.step} result=${j.optString("result").takeIf { it in setOf("wait", "schedule", "pending", "clear", "printed", "preview", "export", "pdf", "exit", "next") } ?: "ignored"}")
             "snapshot" -> if (frame.top && SystemClock.elapsedRealtime() <= snapshotUntil) {
                 val list = j.optJSONArray("frames") ?: return
@@ -527,8 +534,6 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
     private fun receiveChunk(source: WebExtension.Port, j: JSONObject) {
         if (!exportWindow.armed) return
         val id = j.optInt("request", -1)
-        // A PDF can arrive immediately from Print, before its acknowledgement advances the step.
-        if (!exportWindow.armed) return
         val index = j.optInt("index", -1); val count = j.optInt("count", 0)
         val name = j.optString("transfer"); val value = j.optString("value")
         if (name.length !in 1..100 || count !in 1..214 || value.length !in 1..131072 || !value.matches(Regex("[A-Za-z0-9+/=]+"))) { resetChunks(); return }
@@ -561,7 +566,10 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
     }
     private fun capture(bytes: ByteArray, via: String) {
         if (!page() || !EcrewPdfBytes.valid(bytes) || bytes.contentHashCode() == lastPdfHash || !exportWindow.armed) return
-        if (!machine.active) {
+        if (!machine.active || manualPdfSelected) {
+            // A trusted exact-PDF tap already performed the user's menu selection.
+            // Deliver it independently without inventing or skipping robot step acknowledgements.
+            if (machine.active) machine.stop(reason = "trusted manual PDF delivery")
             lastPdfHash = bytes.contentHashCode()
             log("CAPTURE_PDF", "PDF captured via $via; manual delivery")
             pool.execute {
@@ -570,7 +578,7 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
             }
             return
         }
-        pendingPdf = bytes
+        pendingPdf = bytes; pendingPdfVia = via
         // An early response may be buffered, but cannot bypass the two export steps.
         if (!machine.pdf()) return
         lastPdfHash = bytes.contentHashCode(); resetChunks(); closeChild(); log("CAPTURE_PDF", "PDF captured via $via; exiting viewer before parse")
