@@ -34,10 +34,29 @@ jobs:
         run: python3 scripts/check-phone-theme.py
       - name: Verify supplied warning loop
         run: python3 scripts/check-warning-loop.py
-      - name: Build and check
+      - name: Verify eCrew automation and no-page-hooks guard
+        run: node --test scripts/check-ecrew-extension.cjs
+      - name: Build both release APKs
+        run: ./gradlew :app:assembleLiteRelease :app:assembleFullRelease
+      - name: Test both flavors
+        run: ./gradlew :app:testLiteDebugUnitTest :app:testFullDebugUnitTest
+      - name: Lint both flavors
+        run: ./gradlew :app:lintLiteRelease :app:lintFullRelease
+      - name: Report unit test totals
         run: |
-          node --test scripts/check-ecrew-extension.cjs
-          ./gradlew :app:assembleLiteRelease :app:assembleFullRelease :app:testLiteDebugUnitTest :app:testFullDebugUnitTest :app:lintLiteRelease :app:lintFullRelease
+          python3 - <<'PYTHON'
+          import pathlib, xml.etree.ElementTree as ET
+          for flavor in ('lite', 'full'):
+              reports = list(pathlib.Path(f'app/build/test-results/test{flavor.capitalize()}DebugUnitTest').glob('TEST-*.xml'))
+              totals = {key: 0 for key in ('tests', 'failures', 'errors', 'skipped')}
+              for report in reports:
+                  root = ET.parse(report).getroot()
+                  for key in totals:
+                      totals[key] += int(root.attrib.get(key, 0))
+              assert reports and totals['tests'] > 0, f'{flavor}: missing test reports'
+              assert totals['failures'] == totals['errors'] == 0, (flavor, totals)
+              print(flavor, totals)
+          PYTHON
       - name: Show failed unit test details
         if: failure()
         run: |
