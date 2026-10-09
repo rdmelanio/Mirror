@@ -103,6 +103,11 @@ class EcrewAutomationTest {
         }
         assertFalse(p.machine.active); assertFalse(p.results.single().first)
     }
+    @Test fun exportHandlersAtSiteRootStaySameOriginAndNeverLogin() {
+        assertTrue(EcrewPortPolicy.exportPage("https://ecrew.cebupacificair.com/DXXRDV.axd?action=export"))
+        assertFalse(EcrewPortPolicy.page("https://ecrew.cebupacificair.com/DXXRDV.axd"))
+        for (address in listOf("https://other.test/DXXRDV.axd", "http://ecrew.cebupacificair.com/DXXRDV.axd", "https://ecrew.cebupacificair.com/eCrew/AutoLogin", "https://user@ecrew.cebupacificair.com/DXXRDV.axd")) assertFalse(EcrewPortPolicy.exportPage(address))
+    }
     @Test fun readsMagicAndEnforcesLimitEvenWithoutContentLength() {
         val bytes = "%PDF-fake".toByteArray(); var closed = false
         val stream = object : ByteArrayInputStream(bytes) { override fun close() { closed = true; super.close() } }

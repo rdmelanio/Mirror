@@ -95,8 +95,16 @@ object EcrewPortPolicy {
         u.scheme == "https" && u.host == "ecrew.cebupacificair.com" && u.port in listOf(-1, 443) &&
             u.rawUserInfo == null && u.path.startsWith("/eCrew/", true) && !u.path.contains("/Login", true)
     }.getOrDefault(false)
-    fun exportPage(url: String?, allowBlank: Boolean = false) = page(url) || url?.startsWith("blob:https://ecrew.cebupacificair.com/") == true ||
-        (allowBlank && url in listOf("", "about:blank"))
+    fun exportPage(url: String?, allowBlank: Boolean = false): Boolean {
+        if (allowBlank && url in listOf("", "about:blank")) return true
+        if (url?.startsWith("blob:https://ecrew.cebupacificair.com/") == true) return true
+        // DevExpress handlers can live at the site root, outside the content-script route.
+        return runCatching {
+            val u = URI(url ?: return false)
+            u.scheme == "https" && u.host == "ecrew.cebupacificair.com" && u.port in listOf(-1, 443) &&
+                u.rawUserInfo == null && !u.path.contains("login", true)
+        }.getOrDefault(false)
+    }
     fun clickAllowed(text: String) = !text.trim().startsWith("Confirm all changes", true)
 }
 object EcrewPdfBytes {
