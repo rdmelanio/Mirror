@@ -3,6 +3,7 @@ package com.mirror.app.phone
 import android.content.Context
 import org.json.JSONObject
 import org.json.JSONArray
+import kotlin.math.roundToInt
 
 data class ClockPosition(val x: Float, val y: Float)
 
@@ -143,4 +144,22 @@ data class ClockSettings(
 /** These are clock-face choices, never menu colors. */
 object ClockColorPresets {
     val values = linkedMapOf("ECAM Green" to "#00E040", "Amber" to "#FFB000", "Cyan" to "#00E5FF", "White" to "#F2F2F2", "Magenta" to "#FF40FF", "Night Red" to "#FF2A1A")
+}
+
+/** Window bounds include system bars, so menus and the immersive clock share one profile. */
+object ClockScreenKey {
+    fun current(context: Context): String {
+        val density = context.resources.displayMetrics.density
+        val bounds = runCatching {
+            val manager = context.getSystemService(android.view.WindowManager::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= 30) manager.currentWindowMetrics.bounds
+            else {
+                val metrics = android.util.DisplayMetrics()
+                @Suppress("DEPRECATION") manager.defaultDisplay.getRealMetrics(metrics)
+                android.graphics.Rect(0, 0, metrics.widthPixels, metrics.heightPixels)
+            }
+        }.getOrNull()
+        return if (bounds != null) ClockLayout.screenKey((bounds.width() / density).roundToInt(), (bounds.height() / density).roundToInt())
+            else ClockLayout.screenKey(context.resources.configuration.screenWidthDp, context.resources.configuration.screenHeightDp)
+    }
 }

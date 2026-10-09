@@ -45,7 +45,7 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
     private var iconSizeChanged = false
     private var resizingKey: String? = null
     private var editingScreen: String? = null
-    private fun screenKey() = ClockLayout.screenKey(resources.configuration.screenWidthDp, resources.configuration.screenHeightDp)
+    private fun screenKey() = ClockScreenKey.current(context)
     private fun screenLayout() = settings.layoutFor(screenKey())
     private var launchRequested = false
     private var attached = false
@@ -63,11 +63,13 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
     private var dragging = false
     private var multiplePointers = false
     private var dragArea: ClockLayout.Area? = null
+    private var dragOrigin: ClockPosition? = null
+    private val itemCenters = mutableMapOf<String, ClockPosition>()
     private var motionX = 0f; private var motionY = 0f
     private val clearSelectionTask = Runnable { clearSelection(); invalidate() }
     private val armDrag = Runnable {
         if (holding && downItem != null && downItem == selected && settings.layoutEditing) {
-            dragArea = hitAreas[downItem]; dragging = true; cancelHold(); invalidate()
+            dragArea = hitAreas[downItem]; dragOrigin = itemCenters[downItem]; dragging = true; cancelHold(); invalidate()
         }
     }
     private fun clearSelection() { selected = null; dragging = false; removeCallbacks(armDrag); removeCallbacks(clearSelectionTask) }
@@ -115,7 +117,7 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
     }.format(date)
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        hitAreas.clear(); alertStop = null
+        hitAreas.clear(); itemCenters.clear(); alertStop = null
         if (showDepartureAlerts) DepartureAlerts.active(context)?.let { drawDeparture(canvas, it); return }
         if (blank || width == 0 || height == 0) return
         val s = settings; val now = Date()
@@ -364,7 +366,7 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         if (!measureOnly) {
             canvas.restore()
             val hit = if (clock) ClockLayout.Area(digitAreas.minOf { it.left }, digitAreas.minOf { it.top }, digitAreas.maxOf { it.right }, digitAreas.maxOf { it.bottom }) else placed
-            if (key != null) recordHit(canvas, key, hit, motionX, motionY)
+            if (key != null) { recordHit(canvas, key, hit, motionX, motionY); itemCenters[key] = ClockPosition(placed.centerX / width, placed.centerY / height) }
         }
     }
 
@@ -423,6 +425,7 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
         val pad = if (key == "tv_launch") maxOf(5f * resources.displayMetrics.density, (48f * resources.displayMetrics.density - area.width) / 2) else 5f * resources.displayMetrics.density
         val hit = ClockLayout.Area(area.left + motionX - pad, area.top + motionY - pad, area.right + motionX + pad, area.bottom + motionY + pad)
         hitAreas[key] = hit
+        itemCenters[key] = ClockPosition(area.centerX / width, area.centerY / height)
         if (selected == key) {
             paint.shader = null; paint.color = if (night) 0xFFFF2A1A.toInt() else settings.scheduleColor
             paint.alpha = 130; paint.style = Paint.Style.STROKE; paint.strokeWidth = resources.displayMetrics.density
@@ -538,8 +541,8 @@ class ClockView(context: Context, private val exit: (() -> Unit)? = null) : View
                 if (dragging && !multiplePointers) {
                     val key = downItem; val original = dragArea
                     if (key != null && original != null) {
-                        val centerX = original.centerX + event.x - downX - motionX
-                        val centerY = original.centerY + event.y - downY - motionY
+                        val centerX = (dragOrigin?.x?.times(width) ?: (original.centerX - motionX)) + event.x - downX
+                        val centerY = (dragOrigin?.y?.times(height) ?: (original.centerY - motionY)) + event.y - downY
                         val screen = editingScreen ?: screenKey().also { editingScreen = it }
                         settings = settings.moved(screen, key, ClockPosition((centerX / width).coerceIn(0f, 1f), (centerY / height).coerceIn(0f, 1f)))
                         layoutChanged = true

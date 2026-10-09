@@ -43,7 +43,7 @@ class ClockController(private val context: Context, private val view: ClockView,
         if (running && !preview && key == "active") { view.stopInteraction(); render() }
     }
     private val rosterChanged = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (running && key in setOf("changeBanner", "lastSuccess", "linked")) { calendar.start(view.settings); render() }
+        if (running && (key == null || key in setOf("changeBanner", "lastSuccess", "linked"))) { calendar.start(view.settings); render() }
     }
     private val preferencesChanged = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "settings" && running) { view.settings = ClockSettings.load(context); calendar.start(view.settings); render() }

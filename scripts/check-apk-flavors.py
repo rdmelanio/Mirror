@@ -19,4 +19,10 @@ with zipfile.ZipFile(full) as apk:
     assert 'assets/ecrew/background.js' in apk.namelist(), 'full missing network capture'
     assert 'assets/ecrew/hooks.js' not in apk.namelist(), 'full contains page hooks'
     assert any(b'Lorg/mozilla/geckoview/GeckoSession;' in apk.read(name) for name in apk.namelist() if name.endswith('.dex'))
+for path in (lite, full):
+    with zipfile.ZipFile(path) as apk:
+        for name in ('res/font/inter_regular.ttf', 'res/font/inter_medium.ttf', 'res/font/inter_semibold.ttf', 'res/raw/inter_ofl.txt'):
+            assert name in apk.namelist(), f'{path}: missing bundled menu font/license {name}'
+        assert b'SIL OPEN FONT LICENSE' in apk.read('res/raw/inter_ofl.txt')
 print('Verified: lite universal without Gecko; full arm64 with Gecko and extension')
+

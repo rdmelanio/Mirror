@@ -70,7 +70,7 @@ object PhoneTheme {
         fontFeatureSettings = "tnum"; setPadding(c.dp(8), c.dp(8), c.dp(8), c.dp(8))
     }
     private fun colors(c: Context, filled: Boolean) = ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf(android.R.attr.state_pressed), intArrayOf()),
-        intArrayOf(c.getColor(R.color.glass_disabled), c.getColor(R.color.glass_pressed), if (filled) accent(c) else Color.TRANSPARENT))
+        intArrayOf(c.getColor(R.color.glass_disabled), c.getColor(if (filled) R.color.glass_pressed else R.color.glass_disabled), if (filled) accent(c) else Color.TRANSPARENT))
     fun action(c: Context, value: String, click: () -> Unit): Button = MaterialButton(c).apply button@ {
         text = value; isAllCaps = false; textSize = 16f; typeface = c.resources.getFont(R.font.inter_medium)
         minHeight = c.dp(56); minimumHeight = c.dp(56); cornerRadius = c.dp(28)

@@ -43,7 +43,7 @@ class ClockSettingsPanel(private val activity: Activity, private val content: Li
         choice("Style", listOf("Cockpit", "Minimal", "Stacked", "Word clock"), { settings.style }) { save(settings.copy(style = it)) }
         toggle("Show UTC time", { settings.showUtc }) { save(settings.copy(showUtc = it)) }
         content.addView(activity.label("Turn UTC off for local time only. Cockpit hides its second line; your primary-time preference is kept for when UTC is enabled again."))
-        fun screen() = ClockLayout.screenKey(activity.resources.configuration.screenWidthDp, activity.resources.configuration.screenHeightDp)
+        fun screen() = ClockScreenKey.current(activity)
         slider(content, "Clock size (% of safe screen)", { settings.layoutFor(screen()).sizePercent }, 1, 100) { save(settings.resized(screen(), it)) }
         choice("Time label", listOf("Beside", "Above", "Hidden"), { settings.timeLabel }) { save(settings.copy(timeLabel = it)) }
         content.addView(activity.label("Tap the clock to select it, then pinch freely or hold and drag. Size, position and layers are saved separately for each screen size and orientation, including folded and unfolded screens. At 100%, only the screen edge and burn-in margins limit the digits. Items may overlap."))
