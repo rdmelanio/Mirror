@@ -68,6 +68,7 @@ class CameraService : LifecycleService() {
                 nextAirCameraAttempt=android.os.SystemClock.elapsedRealtime()+15_000;startCamera()
             }
             val viewers = server?.viewerNames().orEmpty()
+            demand()
             if (viewers.isEmpty()) {
                 if (idleSince == 0L) idleSince = android.os.SystemClock.elapsedRealtime()
                 if (standby && cameraRunning && android.os.SystemClock.elapsedRealtime() - idleSince >= 60_000) stopCamera()
@@ -75,6 +76,25 @@ class CameraService : LifecycleService() {
             updateNotification(viewers)
             main.postDelayed(this, 1000)
         }
+    }
+    private var activeCamera:androidx.camera.core.Camera?=null
+    private var fpsRanges=emptyList<android.util.Range<Int>>()
+    private var appliedFps:android.util.Range<Int>?=null
+    private var cameraFrames=0L
+    private var cameraMeasuredAt=0L
+    private fun demand() {
+        val viewers=server?.viewerNames()?.isNotEmpty()==true
+        wifi?.let { if(AirWorkload.wifiPerformance(viewers) && !it.isHeld) it.acquire() else if(!viewers && it.isHeld) it.release() }
+        val needCpu=cameraRunning || opening || AirRemote.enabled(this)
+        wake?.let { if(needCpu && !it.isHeld) it.acquire() else if(!needCpu && it.isHeld) it.release() }
+        val camera=activeCamera ?: return
+        val selected=AirWorkload.fpsRange(fpsRanges.map { it.lower to it.upper },AirRemote.enabled(this) && !viewers && airRemote?.eco==true)
+        val range=fpsRanges.firstOrNull { it.lower==selected?.first && it.upper==selected?.second } ?: return
+        if(range==appliedFps) return
+        appliedFps=range
+        val future=androidx.camera.camera2.interop.Camera2CameraControl.from(camera.cameraControl).setCaptureRequestOptions(
+            androidx.camera.camera2.interop.CaptureRequestOptions.Builder().setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,range).build())
+        future.addListener({ runCatching { future.get() }.onFailure { note="Camera FPS override unavailable; downstream Eco throttling remains active" } },java.util.concurrent.Executor { task -> main.post(task) })
     }
     private var analysis: ImageAnalysis? = null
     private var capture: ImageCapture? = null
@@ -105,7 +125,7 @@ class CameraService : LifecycleService() {
             else startForeground(8080, notification)
             wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Mirror:camera").apply { acquire() }
             @Suppress("DEPRECATION")
-            wifi = applicationContext.getSystemService(WifiManager::class.java).createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Mirror:stream").apply { acquire() }
+            wifi = applicationContext.getSystemService(WifiManager::class.java).createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Mirror:stream")
             front = intent?.getBooleanExtra("front", false) ?: false
             fullHd = intent?.getBooleanExtra("fullHd", false) ?: false
             physicalRotation = intent?.getIntExtra("rotation", Surface.ROTATION_0) ?: Surface.ROTATION_0
@@ -152,9 +172,9 @@ class CameraService : LifecycleService() {
                     val cameraInfo = selector.filter(provider!!.availableCameraInfos).first()
                     val ranges = Camera2CameraInfo.from(cameraInfo)
                         .getCameraCharacteristic(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES).orEmpty()
-                    val fps = ranges.filter { it.upper == 30 }.maxByOrNull { it.lower }
-                        ?: ranges.filter { it.upper >= 24 && it.upper <= 30 }.maxByOrNull { it.lower }
-                        ?: ranges.filter { it.upper >= 30 }.minByOrNull { it.upper }
+                    fpsRanges=ranges.toList()
+                    val chosen=AirWorkload.fpsRange(ranges.map { it.lower to it.upper },false)
+                    val fps=ranges.firstOrNull { it.lower==chosen?.first && it.upper==chosen?.second }
                     @Suppress("RestrictedApi")
                     val builder = ImageAnalysis.Builder()
                         .setResolutionSelector(ResolutionSelector.Builder()
@@ -179,21 +199,27 @@ class CameraService : LifecycleService() {
                     analysis.setAnalyzer(analyzer) { image ->
                         try {
                             if (!destroyed && cameraEpoch == epoch) {
-                                if (AirRemote.enabled(this@CameraService) && server?.viewerNames()?.isEmpty()==true && airRemote?.needsFrame()!=true) return@setAnalyzer
-                                val start = System.nanoTime()
-                                val jpeg = encoder.encode(image, quality, streamOrientation)
-                                stats.rotationDegrees = 0
-                                stats.encoded((System.nanoTime() - start) / 1_000_000.0)
-                                if (!destroyed && cameraEpoch == epoch) server?.publish(jpeg, 0)
-                                airRemote?.offer(jpeg)
-                                if (++encodedFrames % 30 == 0 && stats.encodeMs > 25.0 && quality > 60) quality -= 2
+                                val measured=android.os.SystemClock.elapsedRealtime()
+                                if(cameraMeasuredAt==0L) cameraMeasuredAt=measured
+                                cameraFrames++
+                                if(measured-cameraMeasuredAt>=1000) { cameraFps=cameraFrames*1000.0/(measured-cameraMeasuredAt);cameraFrames=0;cameraMeasuredAt=measured }
+                                if(AirRemote.enabled(this@CameraService)) airRemote?.offer(image)
+                                val viewers=server?.viewerNames()?.isNotEmpty()==true
+                                if(AirWorkload.encodeJpeg(AirRemote.enabled(this@CameraService),viewers)) {
+                                    val start=System.nanoTime()
+                                    val jpeg=encoder.encode(image,quality,streamOrientation)
+                                    stats.rotationDegrees=0;stats.encoded((System.nanoTime()-start)/1_000_000.0)
+                                    if(!destroyed && cameraEpoch==epoch) server?.publish(jpeg,0)
+                                    if(++encodedFrames%30==0 && stats.encodeMs>25.0 && quality>60) quality-=2
+                                }
                             }
                         } catch (failure: Exception) { error = "Camera frame failed: ${failure.message}" }
                         finally { image.close() }
                     }
                     val camera = provider!!.bindToLifecycle(this, selector, analysis, capture)
+                    activeCamera=camera;appliedFps=fps
                     server?.controls = CameraControls(this, camera, capture)
-                    cameraRunning = true; opening = false
+                    cameraRunning = true; opening = false;demand()
                     camera.cameraInfo.cameraState.observe(this) { state ->
                         if (cameraEpoch == epoch && state.error != null && (server?.viewerNames()?.isNotEmpty() == true || AirRemote.enabled(this@CameraService))) {
                             standbyFailed(); stopCamera()
@@ -209,7 +235,7 @@ class CameraService : LifecycleService() {
         note = "Android refused to wake the camera in the background. Keep Mirror open briefly; the camera will stay running for this device."
     }
     private fun stopCamera() {
-        cameraEpoch++; opening = false; cameraRunning = false
+        cameraEpoch++;activeCamera=null;appliedFps=null; opening = false; cameraRunning = false;cameraFps=0.0
         analysis?.clearAnalyzer(); provider?.unbindAll(); analysis = null; capture = null
         server?.controls = null; server?.clearFrames()
     }
@@ -226,7 +252,7 @@ class CameraService : LifecycleService() {
             server = MjpegServer(Build.MODEL, stats, PhoneSecurity.get(this), java.net.InetAddress.getByName(address),
                 { ip -> main.post { blockedNotification(ip) } }, { names -> main.post {
                     if (names.isNotEmpty() && server?.viewerNames()?.isNotEmpty() == true) { idleSince = 0; startCamera() }
-                    updateNotification(names)
+                    demand();updateNotification(names)
                 } }).also { it.start() }
             advertise()
             if (!standby) startCamera()
@@ -292,6 +318,7 @@ class CameraService : LifecycleService() {
         super.onDestroy()
     }
     companion object {
+        @Volatile var cameraFps=0.0
         @Volatile var stats = StreamStats()
         @Volatile var cameraRunning = false
         @Volatile var standbyFallback = false

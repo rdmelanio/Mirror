@@ -107,7 +107,7 @@ class ClockController(private val context: Context, private val view: ClockView,
         if (night != view.night || blank != view.blank) { view.night = night; view.blank = blank; view.invalidate() }
         if (!preview) window?.let {
             val alert = DepartureAlerts.active(context)
-            val brightness = if (alert != null) minOf(0.35f, maxOf(0.08f, view.settings.maxBrightness / 100f)) else policy.brightness(view.settings, live, now)
+            val brightness = if (alert != null) minOf(0.35f, maxOf(0.08f, view.settings.maxBrightness / 100f)) else policy.brightness(view.settings, live, now).let { if(context.getSharedPreferences("air_remote",android.content.Context.MODE_PRIVATE).getBoolean("dim_clock",false)) minOf(it,.08f) else it }
             if (kotlin.math.abs(it.attributes.screenBrightness - brightness) >= 0.002f) {
                 it.attributes = it.attributes.apply { screenBrightness = brightness }
             }

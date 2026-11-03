@@ -44,8 +44,8 @@ class AirOwnershipTest {
         assertTrue(o.claimed);o.reset();assertFalse(o.claimed)
     }
     @Test fun inferenceRateLeavesHeadroomAndChangesWithState() {
-        val r=AirInferenceRate();assertEquals(333L,r.interval(false));assertEquals(83L,r.interval(true))
-        r.measured(300);assertTrue(r.interval(true)>=405);assertTrue(r.interval(false)>=405)
-        val overloaded=AirInferenceRate();overloaded.measured(20_000);assertTrue(overloaded.interval(true)>=27_000)
+        val r=AirInferenceRate();assertEquals(400L,r.interval(false));assertEquals(50L,r.interval(true))
+        r.measured(300);assertEquals(50L,r.interval(true));assertEquals(400L,r.interval(false))
+        val overloaded=AirInferenceRate();overloaded.measured(20_000);assertEquals(50L,overloaded.interval(true))
     }
 }

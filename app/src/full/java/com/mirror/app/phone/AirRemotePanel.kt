@@ -19,7 +19,7 @@ internal class AirRemotePanel(private val activity: ComponentActivity, content: 
         AirRemoteTv.init(activity)
         val p = AirRemoteTv.prefs(activity)
         content.addView(activity.label("AIR REMOTE", 23f))
-        content.addView(activity.label("Hold an open palm still for two seconds to claim control, then relax your hand briefly before gesturing. Swipe with your palm for directions; fist = OK, victory = Back, thumb up = Home. Release each gesture before repeating. Tracks that hand only; pauses for ambiguity and disarms on loss or 30 seconds without a command. Standby ~3 fps, active ~12 fps, adapted for performance. Uses the running camera even outside Mirror on TV."))
+        content.addView(activity.label("Hold an open palm two seconds to activate once. Default: point index UP/DOWN/LEFT/RIGHT; thumb up = OK, thumb down = Back, victory = Home (longer hold). Fist or open palm releases a held command. Tracking remains claimed until unsafe loss or 30 seconds idle. Eco sampling accelerates during activation and active control, limited by actual processing and temperature."))
         val enable = PhoneTheme.switch(activity).apply { text = "Enable Air Remote"; isChecked = AirRemote.enabled(activity) }
         enable.setOnCheckedChangeListener { _, checked ->
             if (checked && activity.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -62,6 +62,33 @@ internal class AirRemotePanel(private val activity: ComponentActivity, content: 
         content.addView(PhoneTheme.switch(activity).apply {
             text="Calibration · recognize without sending commands";isChecked=false
             setOnCheckedChangeListener { _,value -> AirRemote.calibration=value }
+        })
+        content.addView(PhoneTheme.switch(activity).apply {
+            text="Legacy Gesture Mode · swipes / fist OK";isChecked=p.getBoolean("legacy",false)
+            setOnCheckedChangeListener { _,v -> p.edit().putBoolean("legacy",v).apply() }
+        })
+        val dwell=activity.label("")
+        fun holdText(ms:Long) { dwell.text="Pointing Hold Duration: $ms ms" }
+        holdText(p.getLong("point_hold",400));content.addView(dwell)
+        content.addView(SeekBar(activity).apply {
+            max=19;progress=((p.getLong("point_hold",400)-250)/50).toInt().coerceIn(0,19)
+            setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar:SeekBar,value:Int,user:Boolean) { if(user) { val ms=250L+50*value;p.edit().putLong("point_hold",ms).apply();holdText(ms) } }
+                override fun onStartTrackingTouch(bar:SeekBar) {}
+                override fun onStopTrackingTouch(bar:SeekBar) {}
+            })
+        })
+        content.addView(PhoneTheme.switch(activity).apply {
+            text="640 px inference detail · off = 480 px benchmark";isChecked=p.getInt("input_size",640)==640
+            setOnCheckedChangeListener { _,v -> p.edit().putInt("input_size",if(v) 640 else 480).apply() }
+        })
+        content.addView(PhoneTheme.switch(activity).apply {
+            text="Compatibility input · direct RGB Bitmap fallback";isChecked=p.getBoolean("bitmap_input",false)
+            setOnCheckedChangeListener { _,v -> p.edit().putBoolean("bitmap_input",v).apply() }
+        })
+        content.addView(PhoneTheme.switch(activity).apply {
+            text="Low-power Clock display · dim to 8%";isChecked=p.getBoolean("dim_clock",false)
+            setOnCheckedChangeListener { _,v -> p.edit().putBoolean("dim_clock",v).apply() }
         })
         content.addView(activity.label("Sensitivity: lower = larger deliberate swipes. Calibrate below your TV by testing each direction."))
         content.addView(SeekBar(activity).apply {

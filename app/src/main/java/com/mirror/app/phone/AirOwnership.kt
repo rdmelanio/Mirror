@@ -57,7 +57,7 @@ internal class AirOwnership {
             if(good) c.lastGood=now
             if(now-c.lastGood>650) continue
             c.evidence.add(now to good)
-            c.evidence.removeAll { now-it.first>2400 }
+            c.evidence.removeAll { now-it.first>maxOf(2400L,graceMs*2) }
             c.hand=hand;next.add(c)
         }
         candidates=next;lastSeen=now
@@ -77,5 +77,6 @@ internal class AirOwnership {
 internal class AirInferenceRate {
     var latencyMs = 0.0; private set
     fun measured(ms: Long) { latencyMs = if(latencyMs==0.0) ms.toDouble() else latencyMs*.8+ms*.2 }
-    fun interval(armed: Boolean): Long = maxOf(if(armed) 83L else 333L, (latencyMs*1.35).toLong())
+    // Latency is measured for diagnostics; one in-flight frame supplies throughput backpressure.
+    fun interval(armed: Boolean): Long = if(armed) 50L else 400L
 }

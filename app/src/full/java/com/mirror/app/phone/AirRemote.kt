@@ -1,20 +1,24 @@
 package com.mirror.app.phone
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
+import androidx.camera.core.ImageProxy
 import android.os.SystemClock
-import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.gesturerecognizer.GestureRecognizer
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
 
-/** One in-flight sampled JPEG, sharing CameraService's upright immutable frame. No ImageProxy retention. */
+/** One owned sampled YUV snapshot, converted off the analyzer; no ImageProxy retention or JPEG round trip. */
 internal class AirRemote(private val context: Context) : AutoCloseable {
     private val worker = Executors.newSingleThreadExecutor()
-    private val busy = AtomicBoolean()
+    private val gate=AirFrameGate()
+    private val raw=AirRawFrame()
+    private val workload=AirWorkload()
+    @Volatile var eco=true;private set
+    private var nextThermal=0L
+    @Volatile private var thermalReport=0
+    @Volatile private var thermalReading="Unavailable"
+    private var copyMs=0L
     private var lastFrame = 0L
     private var lastResult = 0L
     private var observedFps = 0.0
@@ -27,7 +31,7 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
     private val ownership get() = session.ownership
     private val rate = AirInferenceRate()
     @Volatile private var armedMode=false
-    @Volatile private var intervalMs=333L
+    @Volatile private var intervalMs=400L
     @Volatile private var feedback: AirFeedbackServer?=null
     private var feedbackAddress: String?=null
     private val health = AirRecognitionHealth({ SystemClock.elapsedRealtime() }) {
@@ -37,16 +41,19 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
     private fun healthMessage():String=health.lastError
     private var wasEnabled = false
     init { AirRemoteTv.init(context) }
-    fun needsFrame(): Boolean = !closed && enabled(context) && !busy.get() && health.ready(SystemClock.elapsedRealtime()) && SystemClock.elapsedRealtime()-lastFrame>=intervalMs
-    @Synchronized fun offer(jpeg: ByteArray) {
+    fun needsFrame(): Boolean = !closed && enabled(context) && gate.available() && health.ready(SystemClock.elapsedRealtime()) && SystemClock.elapsedRealtime()-lastFrame>=intervalMs
+    @Synchronized fun offer(cameraFrame: ImageProxy) {
         val now = SystemClock.elapsedRealtime()
-        if (closed || !enabled(context) || now - lastFrame < intervalMs || !health.ready(now) || !busy.compareAndSet(false, true)) return
+        if (closed || !enabled(context) || now - lastFrame < intervalMs || !health.ready(now) || !gate.acquire()) { skipped++;return }
         lastFrame = now
+        try { val copyStart=SystemClock.elapsedRealtime();raw.copy(cameraFrame);copyMs=SystemClock.elapsedRealtime()-copyStart }
+        catch(e:Exception) { worker.execute { try { health.run(now) { throw e };recoveryStatus=health.lastError } finally { gate.release() } };return }
         worker.execute {
             var inferenceStart=0L
             try {
                 if (closed || !enabled(context) || SystemClock.elapsedRealtime() - now > 250 || !health.ready(now)) return@execute
                 health.run(now) frame@{
+                workload.thermal(now,thermalReport)
                 inferenceStart=SystemClock.elapsedRealtime()
                 inferenceState="Initializing model"
                 AirRemoteTv.connect(context)
@@ -58,17 +65,14 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                 } catch(e:IllegalArgumentException) { throw AirModelUnavailable(e) }
                 inferenceState="Model ready · processing"
                 val decodeStart=SystemClock.elapsedRealtime()
-                val decoded = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply { inSampleSize = 4 }) ?: throw IllegalArgumentException("Camera JPEG could not be decoded")
-                try {
-                val scale = minOf(1f, 320f / maxOf(decoded.width, decoded.height))
-                val bitmap = Bitmap.createScaledBitmap(decoded, (decoded.width * scale).toInt().coerceAtLeast(1), (decoded.height * scale).toInt().coerceAtLeast(1), true)
-                try {
-                    val image = BitmapImageBuilder(bitmap).build()
+                val prefsFrame=AirRemoteTv.prefs(context)
+                val maxSide=if(workload.thermal>=3) 480 else prefsFrame.getInt("input_size",640).let { if(it==480) 480 else 640 }
+                val image=raw.image(maxSide,prefsFrame.getBoolean("bitmap_input",false))
                     try {
                         val recognizeStart=SystemClock.elapsedRealtime()
                         val result = recognizer!!.recognizeForVideo(image, now)
                         if (closed || !enabled(context) || SystemClock.elapsedRealtime() - now > 1200) {
-                            gestures.reset();ownership.reset();armedMode=false
+                            session.update(SystemClock.elapsedRealtime(),emptyList(),AirRemoteTv.connected,calibration,intervalMs,.65f,50);armedMode=gestures.armed
                             recognition=if(closed || !enabled(context)) "Disabled · disarmed" else "Standby · inference too slow; sampling reduced"
                             return@frame
                         }
@@ -89,23 +93,30 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                             val x=if(prefs.getBoolean("mirror",true)) 1f-rawX else rawX
                             val y=palm.map { it.y() }.average().toFloat()
                             val size=kotlin.math.hypot(hand[0].x()-hand[9].x(),hand[0].y()-hand[9].y())
-                            AirOwnership.Hand(x,y,size,category?.categoryName().orEmpty(),category?.score() ?: 0f)
+                            val legacy=prefs.getBoolean("legacy",false)
+                            val points=hand.map { AirPointing.Point(it.x(),it.y()) }
+                            val direction=if(legacy) null else AirPointing.classify(points,prefs.getBoolean("mirror",true))
+                            AirOwnership.Hand(x,y,size,direction ?: category?.categoryName().orEmpty(),if(direction!=null) AirPointing.quality(points) else category?.score() ?: 0f)
                         }
-                        session.update(now,hands,AirRemoteTv.connected,calibrating,intervalMs,confidence,prefs.getInt("sensitivity",50))
+                        detectedGesture += " · direction " + hands.joinToString { it.gesture }
+                        session.update(now,hands,AirRemoteTv.connected,calibrating,intervalMs,confidence,prefs.getInt("sensitivity",50),prefs.getBoolean("legacy",false),prefs.getLong("point_hold",400))
                         armedMode=gestures.armed && ownership.claimed
+                        if(session.awaitingRelease) workload.reset()
+                        workload.observe(completed,!session.awaitingRelease && (AirRemoteTv.connected || calibrating) && hands.any { it.gesture=="Open_Palm" && it.confidence>=confidence },armedMode)
+                        eco=workload.stage==AirStage.ECO || workload.thermal>=3
+                        performance="${workload.stage}${if(workload.thermal>=2) " · Thermal Limited" else ""} · thermal $thermalReading · copy ${copyMs}ms · skipped $skipped"
                         session.accepted?.let { intendedCommand=it.name }
                         calibrationDetail="${gestures.movement}\nIntended command: $intendedCommand · ${if(calibrating) "CALIBRATION: no transmission" else "live"}"
-                        inferenceState="Model ready · %.1f fps · %d ms (decode/resize %d · inference %d)".format(java.util.Locale.US,observedFps,completed-inferenceStart,recognizeStart-decodeStart,completed-recognizeStart)
+                        inferenceState="Model ready · %.1f fps · %d ms (YUV→RGB %d · inference %d)".format(java.util.Locale.US,observedFps,completed-inferenceStart,recognizeStart-decodeStart,completed-recognizeStart)
                         recognition=session.status + " · %d ms · %.1f fps".format(java.util.Locale.US,rate.latencyMs.toInt(),observedFps)
 
                     } finally { image.close() }
-                } finally { if(bitmap !== decoded) bitmap.recycle() }
-                } finally { decoded.recycle() }
+
                 }
                 recoveryStatus=health.lastError
             } finally {
-                if(inferenceStart>0) { rate.measured(SystemClock.elapsedRealtime()-inferenceStart);intervalMs=rate.interval(armedMode) }
-                busy.set(false)
+                if(inferenceStart>0) { rate.measured(SystemClock.elapsedRealtime()-inferenceStart);intervalMs=workload.interval(rate.latencyMs) }
+                gate.release()
             }
         }
     }
@@ -113,6 +124,14 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
         if (closed) return
         val current = enabled(context)
         if (current) {
+            val now=SystemClock.elapsedRealtime()
+            if(now>=nextThermal) {
+                nextThermal=now+10_000
+                if(android.os.Build.VERSION.SDK_INT>=29) runCatching {
+                    val level=context.getSystemService(android.os.PowerManager::class.java).currentThermalStatus
+                    thermalReading=listOf("None","Light","Moderate","Severe","Critical","Emergency","Shutdown").getOrNull(level) ?: "Unknown";thermalReport=level
+                }.onFailure { thermalReading="Unavailable" }
+            }
             AirRemoteTv.connect(context)
             AirRemoteTv.onSent={ command -> if(!calibration) feedback?.post("SENT_${command.name}") }
             val address=com.mirror.app.core.LocalNetwork.address(context)
@@ -127,16 +146,18 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
         }
         if (wasEnabled && !current) {
             AirRemoteTv.stop();AirRemoteTv.onSent=null;feedback?.close();feedback=null;feedbackAddress=null; recognition = "Disabled"; inferenceState="Disabled";handDetected=false;detectedGesture="None"
-            worker.execute { gestures.reset();ownership.reset();armedMode=false;intervalMs=333; recognizer?.close(); recognizer = null; health.reset();recoveryStatus="" }
+            worker.execute { gestures.reset();ownership.reset();armedMode=false;intervalMs=400; recognizer?.close(); recognizer = null; raw.close();workload.reset();eco=true;health.reset();recoveryStatus="" }
         }
         wasEnabled = current
     }
     @Synchronized override fun close() {
         if (closed) return
         closed = true;AirRemoteTv.onSent=null;feedback?.close();feedback=null; AirRemoteTv.stop(); recognition = "Camera stopped · disarmed"
-        worker.execute { recognizer?.close(); recognizer = null; gestures.reset() }; worker.shutdown()
+        worker.execute { recognizer?.close(); recognizer = null;raw.close(); gestures.reset() }; worker.shutdown()
     }
     companion object {
+        @Volatile private var performance="Eco"
+        @Volatile var skipped=0L
         @Volatile private var recoveryStatus=""
         @Volatile var calibration=false
         @Volatile private var calibrationDetail=""
@@ -148,7 +169,7 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
         @Volatile private var lastInference = 0L
         fun diagnostics(): String {
             val fresh=SystemClock.elapsedRealtime()-lastInference<2000
-            return "Camera: ${if(CameraService.active) "service active" else "stopped"} · Inference: $inferenceState" +
+            return "$performance\nCamera ${"%.1f".format(java.util.Locale.US,CameraService.cameraFps)} fps: ${if(CameraService.active) "service active" else "stopped"} · Inference: $inferenceState" +
                 "\nHand detected: ${if(!fresh) "unknown (no recent result)" else if(handDetected) "Yes" else "No"} · Gesture: ${if(fresh) detectedGesture else "None"}" +
                 "\n$recognition${if(recoveryStatus.isEmpty()) "" else "\n$recoveryStatus"}${if(calibration) "\n$calibrationDetail" else ""}\nTV: ${if(AirRemoteTv.connected) "connected" else "disconnected"}\n${AirRemoteTv.lastCommand}" +
                 if(AirRemoteTv.lastFailure.isEmpty()) "" else "\nLast connection error: ${AirRemoteTv.lastFailure}"

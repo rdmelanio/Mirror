@@ -31,6 +31,7 @@ internal class AirGestures {
         candidate="Open_Palm";since=now;anchorX=x;anchorY=y;anchorAt=now;palmAt=now;history.add(Point(now,x,y))
         movement="Active · stabilize palm"
     }
+    fun accept(now:Long) { lastMotion=now }
     fun expired(now:Long)=armed && now-lastMotion>=30_000
     fun pause(now:Long) { if(!returning) anchorAt=-1;history.clear();candidate="";since=now;movement="Tracking paused · commands paused" }
     fun update(now:Long,gesture:String,confidence:Float,x:Float,y:Float,handSize:Float=.14f):Command? {
