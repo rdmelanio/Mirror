@@ -1,10 +1,24 @@
 package com.mirror.app.phone
 
 /** Production boundary shared by camera inference and sequence regression tests. */
-internal class AirControlSession(private val onClaim:()->Unit={},private val send:(AirGestures.Command)->Unit={}) {
+internal class AirControlSession(private val onClaim:()->Unit={},private val send:(AirGestures.Command)->Unit={},private val household:Boolean=false) {
     val gestures=AirGestures()
     val ownership=AirOwnership()
     val pointing=AirPointCommands()
+    private val home=AirHousehold(gestures,pointing,onClaim,send)
+    val diagnosticPose get()=if(household) home.currentPose else "None"
+    val diagnosticScore get()=if(household) home.currentScore else 0f
+    val sessionActive get()=if(household) home.active else gestures.armed
+    val trackingOwned get()=if(household) home.tracking==AirHousehold.Tracking.OWNED else ownership.claimed
+    val trackingState get()=if(household) home.tracking.name else if(ownership.claimed) "OWNED" else "NONE"
+    val claimProgress get()=if(household) home.claimProgress else ownership.progressMs
+    val activitySerial get()=if(household) home.activitySerial else lastActivityAt
+    val eventSerial get()=home.eventSerial
+    val event get()=home.event
+    fun processing(now:Long)=if(household) home.processing(now) else gestures.armed
+    fun pauseRecognition(now:Long) { if(household) { home.pause();syncHome() } else { gestures.reset();ownership.reset();pointing.reset() } }
+    fun heartbeat(now:Long) { if(household) { home.tick(now);syncHome() } }
+    private fun syncHome() { status=home.status;accepted=home.accepted;lastActivityAt=home.lastActivityAt;lastCommandAt=home.lastCommandAt;awaitingRelease=home.awaitingRelease }
     private var legacyWas=true
     var lastActivityAt=-1L;private set
     var lastCommandAt=-1L;private set
@@ -12,8 +26,13 @@ internal class AirControlSession(private val onClaim:()->Unit={},private val sen
     var accepted:AirGestures.Command?=null;private set
     var awaitingRelease=false;private set
     private var calibrationWas=false
-    fun reset() { lastActivityAt=-1;awaitingRelease=false;gestures.reset();ownership.reset();pointing.reset();status="Disarmed";accepted=null }
-    fun update(now:Long,hands:List<AirOwnership.Hand>,connected:Boolean,calibration:Boolean,intervalMs:Long,confidence:Float,sensitivity:Int,legacy:Boolean=true,holdMs:Long=400) {
+    fun reset() { if(household) home.reset();lastActivityAt=-1;awaitingRelease=false;gestures.reset();ownership.reset();pointing.reset();status="Disarmed";accepted=null }
+    fun update(now:Long,hands:List<AirOwnership.Hand>,connected:Boolean,calibration:Boolean,intervalMs:Long,confidence:Float,sensitivity:Int,legacy:Boolean=true,holdMs:Long=400,timeoutMs:Long=60_000) {
+        if(household) {
+            if(legacyWas!=legacy || calibrationWas!=calibration) { home.reset("mode changed");legacyWas=legacy;calibrationWas=calibration }
+            home.timeoutMs=timeoutMs.takeIf { it in listOf(30_000L,60_000L,120_000L,300_000L) } ?: 60_000L
+            home.update(now,hands,connected,calibration,confidence,sensitivity,legacy,holdMs);syncHome();return
+        }
         accepted=null
         if(legacyWas!=legacy) { reset();legacyWas=legacy }
         pointing.holdMs=holdMs

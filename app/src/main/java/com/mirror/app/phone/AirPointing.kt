@@ -44,15 +44,21 @@ internal class AirPointCommands {
     private var last=-1000L;private var previousAt=-1L;private var stablePose=""
     var activityAt=-1L;private set
     var activityStartedAt=-1L;private set
+    var pending=false;private set
+    private var lastGoodAt=-1L;private var misses=0
     var holdMs=400L
     var reason="Neutral";private set
-    fun reset() { candidate="";samples=0;latched="";releaseAt=-1;releaseSamples=0;last=-1000;previousAt=-1;stablePose="";activityAt=-1;activityStartedAt=-1 }
-    fun pause() { candidate="";samples=0;releaseAt=-1;releaseSamples=0;previousAt=-1 }
+    fun reset() { candidate="";samples=0;latched="";releaseAt=-1;releaseSamples=0;last=-1000;previousAt=-1;stablePose="";activityAt=-1;activityStartedAt=-1;pending=false;lastGoodAt=-1;misses=0 }
+    fun pause() { candidate="";samples=0;releaseAt=-1;releaseSamples=0;previousAt=-1;pending=false;misses=0 }
     fun update(now:Long,name:String,confidence:Float,threshold:Float):AirGestures.Command? {
         val custom=name in setOf("POINT_UP","POINT_DOWN","POINT_LEFT","POINT_RIGHT")
         // Custom labels are emitted only by validated geometry. Model probabilities gate model labels.
         val pose=if(custom) name else if(confidence>=threshold) { if(name=="Pointing_Up") "POINT_UP" else name } else ""
         val gap=if(previousAt<0) 0 else now-previousAt;previousAt=now
+        val unknown=pose.isEmpty() || pose=="None"
+        val bridge=unknown && candidate.isNotEmpty() && candidate!="None" && now-lastGoodAt<=650 && misses==0
+        if(bridge) { misses++;reason="Isolated classification dropout · retaining pending pose";return null }
+        if(!unknown) { lastGoodAt=now;misses=0 } else misses++
         if(pose!=candidate || gap>900) { candidate=pose;since=now;samples=0 };samples++
         var released=false
         if(latched.isNotEmpty()) {
@@ -73,6 +79,7 @@ internal class AirPointCommands {
             else -> null
         }
         if(command!=null && samples>=2 && now-since>=200 && stablePose!=pose) { stablePose=pose;activityAt=now;activityStartedAt=since }
+        pending=command!=null && pose!=latched
         val dwell=if(pose=="Victory") maxOf(800L,holdMs) else holdMs.coerceIn(250,1200)
         reason=when {
             released -> "Gesture released · ready"
@@ -81,7 +88,7 @@ internal class AirPointCommands {
             else -> "$pose detected · waiting for pose stability ${(now-since).coerceAtLeast(0)}/$dwell ms"
         }
         if(command!=null && pose!=latched && samples>=2 && now-since>=dwell && now-last>=650) {
-            latched=pose;releaseAt=-1;releaseSamples=0;last=now;reason="Command accepted · $command";return command
+            latched=pose;releaseAt=-1;releaseSamples=0;last=now;pending=false;reason="Command accepted · $command";return command
         }
         return null
     }

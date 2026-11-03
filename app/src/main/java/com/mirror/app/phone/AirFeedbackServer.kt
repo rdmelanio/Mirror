@@ -28,21 +28,24 @@ internal class AirFeedbackServer(private val security: PairingAuthority, bind: I
             workers.execute { try { socket.use { handle(it) } } catch (_:Exception) {} finally { clients.remove(socket);slots.release() } }
         } catch (_:Exception) { if(!closed) close() }
     },"Mirror-air-feedback").start() }
+    fun snapshot(value:JSONObject)=events.snapshot(value)
     fun post(event: String) = events.post(event)
     private fun handle(socket: Socket) {
         socket.soTimeout=2000
         val request=JSONObject(readLine(socket.getInputStream()))
         val nonce=request.getString("nonce");require(nonce.matches(Regex("[0-9a-f]{32}")))
         val after=request.getLong("after");require(after>=-1)
-        val body=AirFeedbackAuth.request(nonce,after)
+        val v2=request.optInt("version",1)>=2
+        val revision=if(v2) request.getLong("stateAfter") else null
+        val body=if(v2) AirFeedbackAuth.requestV2(nonce,after,revision!!) else AirFeedbackAuth.request(nonce,after)
         val key=security.list().firstOrNull { AirFeedbackAuth.valid(it.hash,body,request.optString("mac")) }?.hash ?: return
         synchronized(nonces) {
             val now=System.nanoTime()/1_000_000
             nonces.entries.removeIf { now-it.value>60_000 }
-            require(nonce !in nonces && nonces.size<128)
+            require(nonce !in nonces && nonces.size<512)
             nonces[nonce]=now
         }
-        val result=events.poll(after)
+        val result=events.poll(after,stateAfter=revision)
         if(closed || !allowedPeer(socket.inetAddress) || !security.isPaired(key)) return
         val json=JSONObject().put("body",result).put("mac",AirFeedbackAuth.sign(key,"$nonce:$result"))
         socket.getOutputStream().write((json.toString()+"\n").toByteArray(Charsets.UTF_8))

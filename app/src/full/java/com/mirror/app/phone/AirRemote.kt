@@ -25,8 +25,8 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
     @Volatile private var closed = false
     private var recognizer: GestureRecognizer? = null
     private val session = AirControlSession(
-        { if(!calibration) feedback?.post("ACTIVE") },
-        { if(!calibration) AirRemoteTv.send(it) })
+        {},
+        { if(!calibration) AirRemoteTv.send(it) },household=true)
     private val gestures get() = session.gestures
     private val ownership get() = session.ownership
     private val rate = AirInferenceRate()
@@ -35,12 +35,39 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
     @Volatile private var feedback: AirFeedbackServer?=null
     private var feedbackAddress: String?=null
     private val health = AirRecognitionHealth({ SystemClock.elapsedRealtime() }) {
-        gestures.reset();ownership.reset();armedMode=false;handDetected=false
+        session.pauseRecognition(SystemClock.elapsedRealtime());armedMode=session.sessionActive;handDetected=false
         recognition="Recognition error · ${healthMessage()}"
+        history.record("Recognition error",session.trackingState,"None",0f,null,"Paused",observedFps,rate.latencyMs,thermalReading,"inference recovery")
     }
     private fun healthMessage():String=health.lastError
     private var wasEnabled = false
-    init { AirRemoteTv.init(context) }
+    private var feedbackEvent=0L
+    private var progressShown=false
+    private var maintenanceQueued=java.util.concurrent.atomic.AtomicBoolean()
+    private fun publishState(now:Long) {
+        if(calibration) { feedbackEvent=session.eventSerial;return }
+        if(session.eventSerial>feedbackEvent) {
+            feedbackEvent=session.eventSerial
+            if(session.event in setOf("ACTIVE","TRANSFERRED","EXPIRED")) feedback?.post(session.event)
+        }
+        val progress=session.claimProgress
+        if(progress>=500 && !progressShown) { feedback?.post("CLAIMING");progressShown=true }
+        if(progress==0L) progressShown=false
+        val state=when {
+            !session.sessionActive -> if(session.awaitingRelease) "EXPIRED" else "STANDBY"
+            session.trackingState=="CONNECTION" -> "CONNECTION_UNAVAILABLE"
+            session.trackingState!="OWNED" -> "PAUSED"
+            session.processing(now) -> "ACTIVE"
+            else -> "IDLE"
+        }
+        feedback?.snapshot(org.json.JSONObject().put("state",state).put("active",session.sessionActive).put("tracking",session.trackingState)
+            .put("activity",session.activitySerial).put("progress",(progress/250)*250))
+    }
+    init {
+        AirRemoteTv.init(context)
+        val p=AirRemoteTv.prefs(context)
+        if(!p.contains("session_timeout")) p.edit().putLong("session_timeout",60_000).apply()
+    }
     fun needsFrame(): Boolean = !closed && enabled(context) && gate.available() && health.ready(SystemClock.elapsedRealtime()) && SystemClock.elapsedRealtime()-lastFrame>=intervalMs
     @Synchronized fun offer(cameraFrame: ImageProxy) {
         val now = SystemClock.elapsedRealtime()
@@ -72,7 +99,7 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                         val recognizeStart=SystemClock.elapsedRealtime()
                         val result = recognizer!!.recognizeForVideo(image, now)
                         if (closed || !enabled(context) || SystemClock.elapsedRealtime() - now > 1200) {
-                            session.update(SystemClock.elapsedRealtime(),emptyList(),AirRemoteTv.connected,calibration,intervalMs,.65f,50);armedMode=gestures.armed
+                            session.pauseRecognition(SystemClock.elapsedRealtime());armedMode=session.sessionActive
                             recognition=if(closed || !enabled(context)) "Disabled · disarmed" else "Standby · inference too slow; sampling reduced"
                             return@frame
                         }
@@ -99,10 +126,13 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                             AirOwnership.Hand(x,y,size,direction,category?.score() ?: 0f)
                         }
                         detectedGesture += " · direction " + hands.joinToString { it.gesture }
-                        session.update(now,hands,AirRemoteTv.connected,calibrating,intervalMs,confidence,prefs.getInt("sensitivity",50),prefs.getBoolean("legacy",false),prefs.getLong("point_hold",400))
-                        armedMode=gestures.armed && ownership.claimed
+                        session.update(now,hands,AirRemoteTv.connected,calibrating,intervalMs,confidence,prefs.getInt("sensitivity",50),prefs.getBoolean("legacy",false),prefs.getLong("point_hold",400),prefs.getLong("session_timeout",60_000))
+                        armedMode=session.sessionActive
                         if(session.awaitingRelease) workload.reset()
-                        workload.observe(completed,!session.awaitingRelease && (AirRemoteTv.connected || calibrating) && hands.any { it.gesture=="Open_Palm" && it.confidence>=confidence },armedMode)
+                        workload.observe(completed,!session.awaitingRelease && session.claimProgress>0,session.processing(completed))
+                        publishState(completed)
+                        history.record(if(calibration) "Calibration" else if(session.sessionActive) "Active" else "Standby",session.trackingState,session.diagnosticPose,session.diagnosticScore,session.accepted,
+                            if(AirRemoteTv.connected) "Connected" else "Disconnected",observedFps,rate.latencyMs,thermalReading,AirDiagnostics.reason(session.status))
                         eco=workload.stage==AirStage.ECO || workload.thermal>=3
                         performance="${workload.stage}${if(workload.thermal>=2) " · Thermal Limited" else ""} · thermal $thermalReading · copy ${copyMs}ms · skipped $skipped"
                         session.accepted?.let { intendedCommand=it.name }
@@ -132,8 +162,21 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                     thermalReading=listOf("None","Light","Moderate","Severe","Critical","Emergency","Shutdown").getOrNull(level) ?: "Unknown";thermalReport=level
                 }.onFailure { thermalReading="Unavailable" }
             }
+            if(maintenanceQueued.compareAndSet(false,true)) worker.execute {
+                try {
+                    session.heartbeat(SystemClock.elapsedRealtime());armedMode=session.sessionActive
+                    history.record(if(calibration) "Calibration" else if(session.sessionActive) "Active" else "Standby",session.trackingState,session.diagnosticPose,session.diagnosticScore,null,
+                        if(AirRemoteTv.connected) "Connected" else "Disconnected",observedFps,rate.latencyMs,thermalReading,AirDiagnostics.reason(session.status))
+                    if(!session.processing(SystemClock.elapsedRealtime())) workload.observe(SystemClock.elapsedRealtime(),session.claimProgress>0,false)
+                    intervalMs=workload.interval(rate.latencyMs);eco=workload.stage==AirStage.ECO || workload.thermal>=3
+                    publishState(SystemClock.elapsedRealtime())
+                } finally { maintenanceQueued.set(false) }
+            }
             AirRemoteTv.connect(context)
-            AirRemoteTv.onSent={ command -> if(!calibration) feedback?.post("SENT_${command.name}") }
+            AirRemoteTv.onSent={ command -> if(!calibration) {
+                feedback?.post("SENT_${command.name}")
+                history.record("Transmitted","Transport",command.name,1f,command,"Transmitted",observedFps,rate.latencyMs,thermalReading,AirDiagnostics.reason(session.status))
+            } }
             val address=com.mirror.app.core.LocalNetwork.address(context)
             if(address!=feedbackAddress) {
                 feedback?.close();feedback=null;feedbackAddress=null
@@ -146,16 +189,17 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
         }
         if (wasEnabled && !current) {
             AirRemoteTv.stop();AirRemoteTv.onSent=null;feedback?.close();feedback=null;feedbackAddress=null; recognition = "Disabled"; inferenceState="Disabled";handDetected=false;detectedGesture="None"
-            worker.execute { gestures.reset();ownership.reset();armedMode=false;intervalMs=400; recognizer?.close(); recognizer = null; raw.close();workload.reset();eco=true;health.reset();recoveryStatus="" }
+            worker.execute { session.reset();history.record("Disarmed","NONE","None",0f,null,"Disabled",observedFps,rate.latencyMs,thermalReading,"explicit disable");armedMode=false;intervalMs=400; recognizer?.close(); recognizer = null; raw.close();workload.reset();eco=true;health.reset();recoveryStatus="" }
         }
         wasEnabled = current
     }
     @Synchronized override fun close() {
         if (closed) return
         closed = true;AirRemoteTv.onSent=null;feedback?.close();feedback=null; AirRemoteTv.stop(); recognition = "Camera stopped · disarmed"
-        worker.execute { recognizer?.close(); recognizer = null;raw.close(); gestures.reset() }; worker.shutdown()
+        worker.execute { recognizer?.close(); recognizer = null;raw.close(); session.reset();history.record("Disarmed","NONE","None",0f,null,"Closed",observedFps,rate.latencyMs,thermalReading,"service shutdown") }; worker.shutdown()
     }
     companion object {
+        val history=AirDiagnostics { SystemClock.elapsedRealtime() }
         @Volatile private var performance="Eco"
         @Volatile var skipped=0L
         @Volatile private var recoveryStatus=""

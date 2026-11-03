@@ -19,7 +19,7 @@ internal class AirRemotePanel(private val activity: ComponentActivity, content: 
         AirRemoteTv.init(activity)
         val p = AirRemoteTv.prefs(activity)
         content.addView(activity.label("AIR REMOTE", 23f))
-        content.addView(activity.label("Hold an open palm two seconds to activate once. Default: point index UP/DOWN/LEFT/RIGHT; thumb up = OK, thumb down = Back, victory = Home (longer hold). Fist or open palm releases a held command. Tracking remains claimed until unsafe loss or 30 seconds idle. Eco sampling accelerates during activation and active control, limited by actual processing and temperature."))
+        content.addView(activity.label("Household Mode: hold an open palm about one second to claim or deliberately take over after the current controller stops. Default: point index UP/DOWN/LEFT/RIGHT; thumb up = OK, thumb down = Back, victory = Home (longer hold). Fist or open palm releases a held command. Tracking remains claimed through tracking pauses until the configured inactivity timeout. Eco sampling accelerates during activation and active control, limited by actual processing and temperature."))
         val enable = PhoneTheme.switch(activity).apply { text = "Enable Air Remote"; isChecked = AirRemote.enabled(activity) }
         enable.setOnCheckedChangeListener { _, checked ->
             if (checked && activity.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -47,6 +47,22 @@ internal class AirRemotePanel(private val activity: ComponentActivity, content: 
         testCommand=activity.action("TEST TV COMMAND · D-PAD RIGHT") {
             Toast.makeText(activity, AirRemoteTv.send(AirGestures.Command.RIGHT), Toast.LENGTH_SHORT).show()
         }.also { it.isEnabled=AirRemoteTv.connected;content.addView(it) }
+        content.addView(activity.label("Session inactivity timeout · Household Mode"))
+        val timeouts=listOf(30_000L,60_000L,120_000L,300_000L)
+        content.addView(Spinner(activity).apply {
+            adapter=ArrayAdapter(activity,android.R.layout.simple_spinner_dropdown_item,listOf("30 seconds","1 minute (default)","2 minutes","5 minutes"))
+            setSelection(timeouts.indexOf(p.getLong("session_timeout",60_000)).coerceAtLeast(0))
+            onItemSelectedListener=object:android.widget.AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent:android.widget.AdapterView<*>?,view:android.view.View?,position:Int,id:Long) { p.edit().putLong("session_timeout",timeouts[position]).apply() }
+                override fun onNothingSelected(parent:android.widget.AdapterView<*>?) {}
+            }
+        })
+        button("INSPECT / COPY RECENT DIAGNOSTICS") {
+            val text=AirRemote.history.text()
+            android.app.AlertDialog.Builder(activity).setTitle("Air Remote · last 60 seconds").setMessage(text)
+                .setPositiveButton("Copy") { _,_ -> activity.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(android.content.ClipData.newPlainText("Mirror diagnostics",text)) }
+                .setNegativeButton("Close",null).show()
+        }
         val confidenceLabel=activity.label("")
         fun confidenceText(value:Int) { confidenceLabel.text="Minimum Gesture Confidence: $value%" }
         confidenceText(AirConfidence.percent(p.getInt("confidence",65)))

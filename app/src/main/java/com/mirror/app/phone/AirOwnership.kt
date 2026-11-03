@@ -5,6 +5,8 @@ import kotlin.math.*
 /** Position/scale association only; never an identity or a biometric identifier. */
 internal class AirOwnership {
     private var velocityX=0f;private var velocityY=0f
+    var claimDurationMs=2000L
+    var claimSamples=5
     var graceMs=1400L
     private var missing=false
     var minimumConfidence = .65f
@@ -81,9 +83,9 @@ internal class AirOwnership {
             c.hand=hand;next.add(c)
         }
         candidates=next;lastSeen=now
-        progressMs=next.maxOfOrNull { (now-it.since).coerceAtMost(2000) } ?: 0
-        val winners = next.filter { now-it.since >= 2000 && now-it.lastGood<=400 &&
-            it.evidence.size>=5 && it.evidence.count { e -> e.second } >= 4 &&
+        progressMs=next.maxOfOrNull { (now-it.since).coerceAtMost(claimDurationMs) } ?: 0
+        val winners = next.filter { now-it.since >= claimDurationMs && now-it.lastGood<=400 &&
+            it.evidence.size>=claimSamples && it.evidence.count { e -> e.second } >= (claimSamples-1).coerceAtLeast(3) &&
             it.evidence.count { e -> e.second }.toFloat()/it.evidence.size >= .65f }.sortedBy { it.since }
         if (winners.isNotEmpty() && (winners.size==1 || winners[0].since < winners[1].since)) {
             owner=winners[0].hand;claimed=true;candidates.clear()
