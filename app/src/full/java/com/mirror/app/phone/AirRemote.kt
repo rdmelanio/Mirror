@@ -27,29 +27,36 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
     @Volatile private var intervalMs=333L
     @Volatile private var feedback: AirFeedbackServer?=null
     private var feedbackAddress: String?=null
-    private var failed = false
+    private val health = AirRecognitionHealth({ SystemClock.elapsedRealtime() }) {
+        gestures.reset();ownership.reset();armedMode=false;handDetected=false
+        recognition="Recognition error · ${healthMessage()}"
+    }
+    private fun healthMessage():String=health.lastError
     private var wasEnabled = false
     private var calibrationWas=false
     init { AirRemoteTv.init(context) }
-    fun needsFrame(): Boolean = !closed && enabled(context) && !busy.get() && SystemClock.elapsedRealtime()-lastFrame>=intervalMs
+    fun needsFrame(): Boolean = !closed && enabled(context) && !busy.get() && health.ready(SystemClock.elapsedRealtime()) && SystemClock.elapsedRealtime()-lastFrame>=intervalMs
     @Synchronized fun offer(jpeg: ByteArray) {
         val now = SystemClock.elapsedRealtime()
-        if (closed || !enabled(context) || now - lastFrame < intervalMs || !busy.compareAndSet(false, true)) return
+        if (closed || !enabled(context) || now - lastFrame < intervalMs || !health.ready(now) || !busy.compareAndSet(false, true)) return
         lastFrame = now
         worker.execute {
             var inferenceStart=0L
             try {
-                if (closed || !enabled(context) || SystemClock.elapsedRealtime() - now > 250 || failed) return@execute
+                if (closed || !enabled(context) || SystemClock.elapsedRealtime() - now > 250 || !health.ready(now)) return@execute
+                health.run(now) frame@{
                 inferenceStart=SystemClock.elapsedRealtime()
                 inferenceState="Initializing model"
                 AirRemoteTv.connect(context)
-                if (recognizer == null) recognizer = GestureRecognizer.createFromOptions(context,
+                if (recognizer == null) try { recognizer = GestureRecognizer.createFromOptions(context,
                     GestureRecognizer.GestureRecognizerOptions.builder()
                         .setBaseOptions(BaseOptions.builder().setModelAssetPath("gesture_recognizer.task").build())
                         .setRunningMode(RunningMode.VIDEO).setNumHands(4)
                         .setMinHandDetectionConfidence(.65f).setMinHandPresenceConfidence(.65f).setMinTrackingConfidence(.65f).build())
+                } catch(e:IllegalArgumentException) { throw AirModelUnavailable(e) }
                 inferenceState="Model ready · processing"
-                val decoded = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply { inSampleSize = 4 }) ?: return@execute
+                val decoded = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply { inSampleSize = 4 }) ?: throw IllegalArgumentException("Camera JPEG could not be decoded")
+                try {
                 val scale = minOf(1f, 320f / maxOf(decoded.width, decoded.height))
                 val bitmap = Bitmap.createScaledBitmap(decoded, (decoded.width * scale).toInt().coerceAtLeast(1), (decoded.height * scale).toInt().coerceAtLeast(1), true)
                 try {
@@ -59,7 +66,7 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                         if (closed || !enabled(context) || SystemClock.elapsedRealtime() - now > 1200) {
                             gestures.reset();ownership.reset();armedMode=false
                             recognition=if(closed || !enabled(context)) "Disabled · disarmed" else "Standby · inference too slow; sampling reduced"
-                            return@execute
+                            return@frame
                         }
                         val completed=SystemClock.elapsedRealtime()
                         if(lastResult>0) observedFps=1000.0/(completed-lastResult).coerceAtLeast(1)
@@ -106,14 +113,15 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                         recognition=when {
                             !AirRemoteTv.connected && !calibrating -> "Waiting for TV · standby"
                             armedMode -> "ACTIVE · Hand tracked"
-                            else -> "${detectedGesture} · Claiming %.1f/2.0 seconds".format(java.util.Locale.US,ownership.progressMs/1000.0)
+                            else -> AirRecognitionStatus.claiming(detectedGesture,ownership.progressMs)
                         } + " · ${rate.latencyMs.toInt()} ms · ${1000/intervalMs} fps"
 
                     } finally { image.close() }
-                } finally { bitmap.recycle(); if (bitmap !== decoded) decoded.recycle() }
-            } catch (e: Exception) { gestures.reset();ownership.reset();armedMode=false; failed = true; recognition = "Recognition unavailable: ${e.message}. Toggle Air Remote to retry." }
-            catch (e: LinkageError) { failed = true; recognition = "Recognition native library unavailable on this phone" }
-            finally {
+                } finally { if(bitmap !== decoded) bitmap.recycle() }
+                } finally { decoded.recycle() }
+                }
+                recoveryStatus=health.lastError
+            } finally {
                 if(inferenceStart>0) { rate.measured(SystemClock.elapsedRealtime()-inferenceStart);intervalMs=rate.interval(armedMode) }
                 busy.set(false)
             }
@@ -137,7 +145,7 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
         }
         if (wasEnabled && !current) {
             AirRemoteTv.stop();AirRemoteTv.onSent=null;feedback?.close();feedback=null;feedbackAddress=null; recognition = "Disabled"; inferenceState="Disabled";handDetected=false;detectedGesture="None"
-            worker.execute { gestures.reset();ownership.reset();armedMode=false;intervalMs=333; recognizer?.close(); recognizer = null; failed = false }
+            worker.execute { gestures.reset();ownership.reset();armedMode=false;intervalMs=333; recognizer?.close(); recognizer = null; health.reset();recoveryStatus="" }
         }
         wasEnabled = current
     }
@@ -147,6 +155,7 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
         worker.execute { recognizer?.close(); recognizer = null; gestures.reset() }; worker.shutdown()
     }
     companion object {
+        @Volatile private var recoveryStatus=""
         @Volatile var calibration=false
         @Volatile private var calibrationDetail=""
         @Volatile private var intendedCommand="None"
@@ -159,7 +168,7 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
             val fresh=SystemClock.elapsedRealtime()-lastInference<2000
             return "Camera: ${if(CameraService.active) "service active" else "stopped"} · Inference: $inferenceState" +
                 "\nHand detected: ${if(!fresh) "unknown (no recent result)" else if(handDetected) "Yes" else "No"} · Gesture: ${if(fresh) detectedGesture else "None"}" +
-                "\n$recognition${if(calibration) "\n$calibrationDetail" else ""}\nTV: ${if(AirRemoteTv.connected) "connected" else "disconnected"}\n${AirRemoteTv.lastCommand}" +
+                "\n$recognition${if(recoveryStatus.isEmpty()) "" else "\n$recoveryStatus"}${if(calibration) "\n$calibrationDetail" else ""}\nTV: ${if(AirRemoteTv.connected) "connected" else "disconnected"}\n${AirRemoteTv.lastCommand}" +
                 if(AirRemoteTv.lastFailure.isEmpty()) "" else "\nLast connection error: ${AirRemoteTv.lastFailure}"
         }
         private var lastStartAttempt=0L
