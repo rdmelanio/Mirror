@@ -63,6 +63,7 @@ androidComponents {
 }
 dependencies {
     implementation("com.google.android.material:material:1.13.0")
+    "fullImplementation"("com.google.mediapipe:tasks-vision:0.10.32")
     "fullImplementation"("org.mozilla.geckoview:geckoview-arm64-v8a:157.0.20261005135250")
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("androidx.camera:camera-camera2:1.4.2")
@@ -84,3 +85,13 @@ dependencies {
 }
 
 
+
+val verifyAirModel by tasks.registering {
+    doLast {
+        val model = file("src/full/assets/gesture_recognizer.task")
+        check(model.isFile && model.length() > 1_000_000) {
+            "Official MediaPipe model missing. Run python3 scripts/fetch-air-model.py (requires storage.googleapis.com)."
+        }
+    }
+}
+tasks.matching { it.name == "preFullReleaseBuild" || it.name == "preFullDebugBuild" }.configureEach { dependsOn(verifyAirModel) }

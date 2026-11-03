@@ -56,11 +56,14 @@ class CameraService : LifecycleService() {
     @Volatile private var cameraEpoch = 0
     private var idleSince = 0L
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
-    private val standby get() = mirrorPreferences().getBoolean("standby", true) && !standbyFallback
+    private var airRemote: AirRemote? = null
+    private val standby get() = !AirRemote.enabled(this) && mirrorPreferences().getBoolean("standby", true) && !standbyFallback
     private val maintenance = object : Runnable {
         override fun run() {
             if (destroyed) return
             reconcileWifi()
+            airRemote?.refresh()
+            if (AirRemote.enabled(this@CameraService) && boundAddress != null && !cameraRunning) startCamera()
             val viewers = server?.viewerNames().orEmpty()
             if (viewers.isEmpty()) {
                 if (idleSince == 0L) idleSince = android.os.SystemClock.elapsedRealtime()
@@ -89,6 +92,7 @@ class CameraService : LifecycleService() {
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             error = "Camera permission is required"; stopSelf(); return START_NOT_STICKY
         }
+        airRemote = AirRemote(applicationContext)
         starting = true; active = true; error = null; standbyFallback = mirrorPreferences().getBoolean("standbyFallback", false); stats = StreamStats()
         try {
             val manager = getSystemService(NotificationManager::class.java)
@@ -177,6 +181,7 @@ class CameraService : LifecycleService() {
                                 stats.rotationDegrees = 0
                                 stats.encoded((System.nanoTime() - start) / 1_000_000.0)
                                 if (!destroyed && cameraEpoch == epoch) server?.publish(jpeg, 0)
+                                airRemote?.offer(jpeg)
                                 if (++encodedFrames % 30 == 0 && stats.encodeMs > 25.0 && quality > 60) quality -= 2
                             }
                         } catch (failure: Exception) { error = "Camera frame failed: ${failure.message}" }
@@ -268,7 +273,7 @@ class CameraService : LifecycleService() {
         catch (_: Exception) { registration = null } // The address still works if a router blocks discovery.
     }
     override fun onDestroy() {
-        destroyed = true; active = false; cameraRunning = false
+        destroyed = true; airRemote?.close(); airRemote = null; active = false; cameraRunning = false
         ClockMirrorState.update(false, false, false)
         main.removeCallbacksAndMessages(null)
         networkCallback?.let { runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } }; networkCallback = null

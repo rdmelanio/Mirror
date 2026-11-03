@@ -15,7 +15,7 @@ import com.mirror.app.core.*
 open class PhoneSettingsActivity : ComponentActivity() {
     private val categories = linkedMapOf("style" to "Style & layout", "roster_link" to "Roster Link", "alarms" to "Departure alarms", "calendar" to "Duty & calendar",
         "weather" to "Weather", "info" to "Clock information", "display" to "Display protection", "camera" to "Camera & stream",
-        "pairing" to "Pairing & security", "tv_launch" to "TV launch", "setup" to "Android setup", "diagnostics" to "Diagnostics", "about" to "About Mirror")
+        "pairing" to "Pairing & security", "tv_launch" to "TV launch", "air_remote" to "Air Remote", "setup" to "Android setup", "diagnostics" to "Diagnostics", "about" to "About Mirror")
     private var selected: String? = null
     private var wide = false
     private var resumed = false
@@ -25,6 +25,7 @@ open class PhoneSettingsActivity : ComponentActivity() {
     private var titleChanged: (String) -> Unit = {}
     private val buttons = mutableMapOf<String, View>()
     private var clockPanel: ClockSettingsPanel? = null
+    private var airPanel: AirRemotePanel? = null
     private var tvPanel: TvLaunchPanel? = null
     private var controls: PhoneControlsPanel? = null
     private var alarmPanel: DepartureSettingsPanel? = null
@@ -70,12 +71,13 @@ open class PhoneSettingsActivity : ComponentActivity() {
     }
     private fun show(id: String) {
         if (id !in categories) return
-        stopPage(); clockPanel = null; controls = null; tvPanel = null; selected = id
+        stopPage(); clockPanel = null; controls = null; tvPanel = null; airPanel = null; selected = id
         details.removeAllViews()
         val content = if (id == "alarms" && alarmContent != null) alarmContent!! else LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         when (id) {
             "roster_link" -> content.addView(action(if (com.mirror.app.BuildConfig.ROSTER_ENABLED) "Open Roster Link" else "Install mirror-phone.apk for Roster Link") { com.mirror.app.phone.roster.RosterEntry.open(this) })
             "diagnostics" -> MenuDiagnosticsPanel.build(this, content)
+            "air_remote" -> airPanel = AirRemotePanel(this, content)
             "tv_launch" -> tvPanel = TvLaunchPanel(this, content)
             "alarms" -> if (alarmPanel == null) { alarmContent = content; alarmPanel = DepartureSettingsPanel(this, content) }
             "camera", "pairing" -> controls = PhoneControlsPanel(this, content, id)
@@ -101,10 +103,10 @@ open class PhoneSettingsActivity : ComponentActivity() {
     }
     private fun startPage() {
         if (selected == null) return
-        clockPanel?.start(); controls?.start(); tvPanel?.start()
+        clockPanel?.start(); controls?.start(); tvPanel?.start(); airPanel?.start()
         if (selected == "alarms") alarmPanel?.start()
     }
-    private fun stopPage() { clockPanel?.stop(); controls?.stop(); tvPanel?.stop(); alarmPanel?.stop() }
+    private fun stopPage() { clockPanel?.stop(); controls?.stop(); tvPanel?.stop(); airPanel?.stop(); alarmPanel?.stop() }
     override fun onResume() { super.onResume(); resumed = true; startPage() }
     override fun onPause() { resumed = false; stopPage(); super.onPause() }
     override fun onDestroy() { stopPage(); alarmPanel?.dispose(); super.onDestroy() }

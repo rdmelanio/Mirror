@@ -12,10 +12,13 @@ with zipfile.ZipFile(lite) as apk:
     for name in apk.namelist():
         if name.endswith('.dex'):
             assert b'Lorg/mozilla/geckoview/' not in apk.read(name), 'lite references Gecko classes'
+            assert b'Lcom/google/mediapipe/' not in apk.read(name), 'lite references MediaPipe classes'
 with zipfile.ZipFile(full) as apk:
     libraries = [name for name in apk.namelist() if name.endswith('.so')]
     assert libraries and all(name.startswith('lib/arm64-v8a/') for name in libraries), libraries
     assert 'lib/arm64-v8a/libxul.so' in libraries, 'full missing Gecko engine'
+    assert any('mediapipe' in name for name in libraries), 'full missing MediaPipe native library'
+    assert 'assets/gesture_recognizer.task' in apk.namelist(), 'full missing official gesture model'
     assert 'assets/ecrew/manifest.json' in apk.namelist(), 'full missing built-in extension'
     assert 'assets/ecrew/background.js' in apk.namelist(), 'full missing network capture'
     assert 'assets/ecrew/hooks.js' not in apk.namelist(), 'full contains page hooks'
