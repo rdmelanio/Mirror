@@ -19,6 +19,12 @@ internal class AirOwnership {
     var claimed = false; private set
     fun reset() { velocityX=0f;velocityY=0f;missing=false;progressMs=0; candidates.clear(); owner = null; claimed = false; lastSeen = -1; ambiguousSince = -1 }
     private fun distance(a: Hand, b: Hand) = hypot(a.x - b.x, a.y - b.y)
+    private fun predicted(before:Hand,gap:Long):Hand {
+        val dx=velocityX*(gap/1000f);val dy=velocityY*(gap/1000f)
+        // Extrapolation is only a local tie-breaker, never an expanding search for a new hand.
+        val scale=minOf(1f,.10f/hypot(dx,dy).coerceAtLeast(.0001f))
+        return Hand(before.x+dx*scale,before.y+dy*scale,before.size,"",0f)
+    }
     private fun matches(a: Hand, b: Hand, seconds: Float): Boolean =
         distance(a,b) <= minOf(.32f, .08f + a.size * .5f + seconds * 1.2f) &&
             b.size / a.size.coerceAtLeast(.02f) in .2f..3.5f
@@ -32,8 +38,7 @@ internal class AirOwnership {
             if (nearby.isEmpty()) {
                 if(valid.isNotEmpty()) {
                     // Size/centroid outliers near the previous trajectory are uncertain, not new owners.
-                    val seconds=gap/1000f
-                    val predicted=Hand(before.x+velocityX*seconds,before.y+velocityY*seconds,before.size,"",0f)
+                    val predicted=predicted(before,gap)
                     val plausible=valid.singleOrNull()?.let { distance(before,it)<=.20f && distance(predicted,it)<=.16f }
                     if(plausible!=true) { reset();return Selection(null,lost=true,reason="unmatched hand outside continuity corridor") }
                 }
@@ -48,7 +53,7 @@ internal class AirOwnership {
             if (ambiguousSince >= 0) { reset(); return Selection(null,lost=true,reason="identity continuity ambiguous; fresh claim required") }
             val recovered=missing;missing=false
             if(recovered && (distance(before,nearby[0])>.20f ||
-                distance(Hand(before.x+velocityX*(gap/1000f),before.y+velocityY*(gap/1000f),before.size,"",0f),nearby[0])>.16f)) {
+                distance(predicted(before,gap),nearby[0])>.16f)) {
                 reset();return Selection(null,lost=true,reason="reappearance outside tracked trajectory")
             }
             if(gap>0 && !recovered) {

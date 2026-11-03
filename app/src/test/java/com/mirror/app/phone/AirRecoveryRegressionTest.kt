@@ -95,4 +95,12 @@ class AirRecoveryRegressionTest {
         assertFalse(r.s.gestures.armed);assertTrue(sawIdleExpiry);assertEquals(1,r.sent.size)
     }
 
+    @Test fun handCanStopDuringBriefTrackingGapWithoutBeingRejectedByUnboundedPrediction() {
+        val r=Rig();r.claim()
+        for(x in listOf(.54f,.58f,.62f)) r.frame("Closed_Fist",.8f,x=x,dt=100)
+        r.s.update(r.now+700,emptyList(),true,false,400,.65f,50,false)
+        r.s.update(r.now+1100,listOf(AirOwnership.Hand(.62f,.5f,.1f,"Closed_Fist",.8f)),true,false,400,.65f,50,false)
+        assertTrue(r.s.gestures.armed);assertTrue(r.s.status.contains("recovered",true));assertEquals(1,r.claims)
+    }
+
 }
