@@ -26,9 +26,11 @@ class AirFeedbackService : Service() {
     private var after=-1L
     private var epoch=""
     private var source=""
+    private var feedbackAddress:String?=null
+    private var configuredSource=""
     private var failures=0
     private var discovery: CameraDiscovery?=null
-    private var lastDiscovery=0L
+    private var lastDiscovery=-60_000L
     override fun onBind(intent: Intent?)=null
     override fun onCreate() { super.onCreate();overlay=AirFeedbackOverlay(this) }
     override fun onStartCommand(intent: Intent?, flags: Int, id: Int): Int {
@@ -52,7 +54,9 @@ class AirFeedbackService : Service() {
             val settings=TvSettings(prefs)
             check(settings.cameraId.isNotEmpty()) { "Pair this TV with the Mirror phone first" }
             val token=ViewerPairing(prefs).token(settings.cameraId) ?: error("Mirror phone pairing is missing/revoked")
-            val uri=URI(settings.url)
+            val configured="${settings.cameraId}:${settings.url}"
+            if(configuredSource!=configured) { configuredSource=configured;feedbackAddress=null }
+            val uri=URI(feedbackAddress ?: settings.url)
             val host=TvTarget.host(uri.host.orEmpty())
             val selected="$host:${settings.cameraId}"
             if(source!=selected) { source=selected;after=-1;epoch="" }
@@ -92,7 +96,8 @@ class AirFeedbackService : Service() {
         discovery=CameraDiscovery(this) { _,address ->
             if(!stopped) worker.execute { runCatching {
                 val found=ViewerPairing(mirrorPreferences()).hello(address)
-                if(found?.id==id) mirrorPreferences().edit().putString("url",address).apply()
+                // A feedback discovery must never change the saved video target or expose its bearer token.
+                if(found?.id==id && TvSettings(mirrorPreferences()).cameraId==id) feedbackAddress=address
             } }
         }.also { it.start() }
         main.postDelayed({ discovery?.stop();discovery=null },12000)
