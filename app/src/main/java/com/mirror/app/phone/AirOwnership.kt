@@ -4,19 +4,20 @@ import kotlin.math.*
 
 /** Position/scale association only; never an identity or a biometric identifier. */
 internal class AirOwnership {
+    private var velocityX=0f;private var velocityY=0f
     var graceMs=1400L
     private var missing=false
     var minimumConfidence = .65f
     var progressMs = 0L; private set
     data class Hand(val x: Float, val y: Float, val size: Float, val gesture: String, val confidence: Float)
-    data class Selection(val hand: Hand?, val claimed: Boolean = false, val lost: Boolean = false, val ambiguous: Boolean = false, val paused: Boolean = false, val recovered: Boolean = false)
+    data class Selection(val hand: Hand?, val claimed: Boolean = false, val lost: Boolean = false, val ambiguous: Boolean = false, val paused: Boolean = false, val recovered: Boolean = false, val reason:String="")
     private data class Candidate(var hand: Hand, var since: Long, var anchorX: Float, var anchorY: Float, val evidence: MutableList<Pair<Long, Boolean>> = mutableListOf(), var lastGood: Long = since)
     private var candidates = mutableListOf<Candidate>()
     private var owner: Hand? = null
     private var lastSeen = -1L
     private var ambiguousSince = -1L
     var claimed = false; private set
-    fun reset() { missing=false;progressMs=0; candidates.clear(); owner = null; claimed = false; lastSeen = -1; ambiguousSince = -1 }
+    fun reset() { velocityX=0f;velocityY=0f;missing=false;progressMs=0; candidates.clear(); owner = null; claimed = false; lastSeen = -1; ambiguousSince = -1 }
     private fun distance(a: Hand, b: Hand) = hypot(a.x - b.x, a.y - b.y)
     private fun matches(a: Hand, b: Hand, seconds: Float): Boolean =
         distance(a,b) <= minOf(.32f, .08f + a.size * .5f + seconds * 1.2f) &&
@@ -25,21 +26,35 @@ internal class AirOwnership {
         val valid = hands.filter { it.x.isFinite() && it.y.isFinite() && it.size.isFinite() && it.size >= .02f }
         val gap = if (lastSeen < 0) 0 else now-lastSeen
         if (claimed) {
-            if (gap > graceMs) { reset(); return Selection(null,lost=true) }
+            if (gap > graceMs) { reset(); return Selection(null,lost=true,reason="tracking gap exceeded ${graceMs} ms") }
             val before = owner!!
             val nearby = valid.filter { matches(before,it,gap/1000f) }
             if (nearby.isEmpty()) {
-                if(valid.isNotEmpty()) { reset();return Selection(null,lost=true) }
+                if(valid.isNotEmpty()) {
+                    // Size/centroid outliers near the previous trajectory are uncertain, not new owners.
+                    val seconds=gap/1000f
+                    val predicted=Hand(before.x+velocityX*seconds,before.y+velocityY*seconds,before.size,"",0f)
+                    val plausible=valid.singleOrNull()?.let { distance(before,it)<=.20f && distance(predicted,it)<=.16f }
+                    if(plausible!=true) { reset();return Selection(null,lost=true,reason="unmatched hand outside continuity corridor") }
+                }
                 missing=true;return Selection(null,paused=true)
             }
             // Nearby crossing hands cannot be assigned safely. Freeze until separated; never reassign on loss.
             if (nearby.size != 1 || valid.any { it !== nearby[0] && distance(it,nearby[0]) < .12f }) {
                 if (ambiguousSince < 0) ambiguousSince = now
-                if (now-ambiguousSince > 600) { reset(); return Selection(null,lost=true) }
+                if (now-ambiguousSince > 600) { reset(); return Selection(null,lost=true,reason="multiple plausible hands persisted") }
                 return Selection(null,ambiguous=true)
             }
-            if (ambiguousSince >= 0) { reset(); return Selection(null,lost=true) }
+            if (ambiguousSince >= 0) { reset(); return Selection(null,lost=true,reason="identity continuity ambiguous; fresh claim required") }
             val recovered=missing;missing=false
+            if(recovered && (distance(before,nearby[0])>.20f ||
+                distance(Hand(before.x+velocityX*(gap/1000f),before.y+velocityY*(gap/1000f),before.size,"",0f),nearby[0])>.16f)) {
+                reset();return Selection(null,lost=true,reason="reappearance outside tracked trajectory")
+            }
+            if(gap>0 && !recovered) {
+                velocityX=(velocityX*.5f+(nearby[0].x-before.x)/(gap/1000f)*.5f).coerceIn(-.8f,.8f)
+                velocityY=(velocityY*.5f+(nearby[0].y-before.y)/(gap/1000f)*.5f).coerceIn(-.8f,.8f)
+            } else if(recovered) { velocityX=0f;velocityY=0f }
             owner = nearby[0]; lastSeen = now
             return Selection(owner,recovered=recovered)
         }

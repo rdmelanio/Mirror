@@ -48,7 +48,7 @@ class AirEcoPointTest {
         }
     }
     @Test fun pointingConfidenceDwellAndHomeSafety() {
-        val p=AirPointCommands();assertNull(p.update(0,"POINT_UP",.5f,.65f));assertNull(p.update(500,"POINT_UP",.5f,.65f))
+        val p=AirPointCommands();assertNull(p.update(0,"Pointing_Up",.5f,.65f));assertNull(p.update(500,"Pointing_Up",.5f,.65f))
         assertNull(p.update(1000,"Victory",.9f,.65f));assertNull(p.update(1500,"Victory",.9f,.65f))
         assertEquals(AirGestures.Command.HOME,p.update(1800,"Victory",.9f,.65f));assertNull(p.update(3000,"Victory",.9f,.65f))
     }

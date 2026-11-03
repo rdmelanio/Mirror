@@ -95,8 +95,8 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                             val size=kotlin.math.hypot(hand[0].x()-hand[9].x(),hand[0].y()-hand[9].y())
                             val legacy=prefs.getBoolean("legacy",false)
                             val points=hand.map { AirPointing.Point(it.x(),it.y()) }
-                            val direction=if(legacy) null else AirPointing.classify(points,prefs.getBoolean("mirror",true))
-                            AirOwnership.Hand(x,y,size,direction ?: category?.categoryName().orEmpty(),if(direction!=null) AirPointing.quality(points) else category?.score() ?: 0f)
+                            val direction=if(legacy) category?.categoryName().orEmpty() else AirPointing.resolve(points,prefs.getBoolean("mirror",true),category?.categoryName().orEmpty(),category?.score() ?: 0f,confidence)
+                            AirOwnership.Hand(x,y,size,direction,category?.score() ?: 0f)
                         }
                         detectedGesture += " · direction " + hands.joinToString { it.gesture }
                         session.update(now,hands,AirRemoteTv.connected,calibrating,intervalMs,confidence,prefs.getInt("sensitivity",50),prefs.getBoolean("legacy",false),prefs.getLong("point_hold",400))
@@ -106,7 +106,7 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                         eco=workload.stage==AirStage.ECO || workload.thermal>=3
                         performance="${workload.stage}${if(workload.thermal>=2) " · Thermal Limited" else ""} · thermal $thermalReading · copy ${copyMs}ms · skipped $skipped"
                         session.accepted?.let { intendedCommand=it.name }
-                        calibrationDetail="${gestures.movement}\nIntended command: $intendedCommand · ${if(calibrating) "CALIBRATION: no transmission" else "live"}"
+                        calibrationDetail="${session.status}\nIntended command: $intendedCommand · ${if(calibrating) "CALIBRATION: no transmission" else "live"}"
                         inferenceState="Model ready · %.1f fps · %d ms (YUV→RGB %d · inference %d)".format(java.util.Locale.US,observedFps,completed-inferenceStart,recognizeStart-decodeStart,completed-recognizeStart)
                         recognition=session.status + " · %d ms · %.1f fps".format(java.util.Locale.US,rate.latencyMs.toInt(),observedFps)
 
