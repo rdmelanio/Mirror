@@ -29,6 +29,7 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
     private var feedbackAddress: String?=null
     private var failed = false
     private var wasEnabled = false
+    private var calibrationWas=false
     init { AirRemoteTv.init(context) }
     fun needsFrame(): Boolean = !closed && enabled(context) && !busy.get() && SystemClock.elapsedRealtime()-lastFrame>=intervalMs
     @Synchronized fun offer(jpeg: ByteArray) {
@@ -48,14 +49,14 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                         .setRunningMode(RunningMode.VIDEO).setNumHands(4)
                         .setMinHandDetectionConfidence(.65f).setMinHandPresenceConfidence(.65f).setMinTrackingConfidence(.65f).build())
                 inferenceState="Model ready · processing"
-                val decoded = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply { inSampleSize = 2 }) ?: return@execute
-                val scale = 480f / maxOf(decoded.width, decoded.height)
+                val decoded = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply { inSampleSize = 4 }) ?: return@execute
+                val scale = minOf(1f, 320f / maxOf(decoded.width, decoded.height))
                 val bitmap = Bitmap.createScaledBitmap(decoded, (decoded.width * scale).toInt().coerceAtLeast(1), (decoded.height * scale).toInt().coerceAtLeast(1), true)
                 try {
                     val image = BitmapImageBuilder(bitmap).build()
                     try {
                         val result = recognizer!!.recognizeForVideo(image, now)
-                        if (closed || !enabled(context) || SystemClock.elapsedRealtime() - now > 500) {
+                        if (closed || !enabled(context) || SystemClock.elapsedRealtime() - now > 1200) {
                             gestures.reset();ownership.reset();armedMode=false
                             recognition=if(closed || !enabled(context)) "Disabled · disarmed" else "Standby · inference too slow; sampling reduced"
                             return@execute
@@ -68,8 +69,12 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                         handDetected=result.landmarks().isNotEmpty()
                         detectedGesture=names.joinToString { "${it.categoryName()} ${ (it.score()*100).toInt()}%" }.ifEmpty { "None" }
                         val prefs=AirRemoteTv.prefs(context)
+                        val calibrating=calibration
+                        if(calibrationWas!=calibrating) { gestures.reset();ownership.reset();armedMode=false;calibrationWas=calibrating }
+                        val confidence=AirConfidence.fraction(prefs.getInt("confidence",65))
+                        gestures.minimumConfidence=confidence;ownership.minimumConfidence=confidence
                         gestures.sensitivity=prefs.getInt("sensitivity",50)
-                        if(!AirRemoteTv.connected) { gestures.reset();ownership.reset();armedMode=false }
+                        if(!AirRemoteTv.connected && !calibrating) { gestures.reset();ownership.reset();armedMode=false }
                         val hands=result.landmarks().mapIndexed { index, hand ->
                             val category=result.gestures().getOrNull(index)?.maxByOrNull { it.score() }
                             val palm=listOf(0,5,9,13,17).map { hand[it] }
@@ -79,28 +84,29 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                             val size=kotlin.math.hypot(hand[0].x()-hand[9].x(),hand[0].y()-hand[9].y())
                             AirOwnership.Hand(x,y,size,category?.categoryName().orEmpty(),category?.score() ?: 0f)
                         }
-                        if(AirRemoteTv.connected) {
+                        if(AirRemoteTv.connected || calibrating) {
                             val selection=ownership.update(now,hands)
                             when {
                                 selection.lost -> { gestures.reset();armedMode=false }
                                 selection.ambiguous -> gestures.pause(now)
                                 selection.claimed -> {
                                     val hand=selection.hand!!;gestures.claim(now,hand.x,hand.y)
-                                    armedMode=true;feedback?.post("ACTIVE")
+                                    armedMode=true;if(!calibrating && !calibration) feedback?.post("ACTIVE")
                                 }
                                 selection.hand!=null -> {
                                     val hand=selection.hand
-                                    val command=gestures.update(now,hand.gesture,hand.confidence,hand.x,hand.y)
+                                    val command=gestures.update(now,hand.gesture,hand.confidence,hand.x,hand.y,hand.size)
                                     if(!gestures.armed) { ownership.reset();armedMode=false }
-                                    else command?.let { AirRemoteTv.send(it) }
+                                    else command?.let { intendedCommand=it.name; if(!calibrating && !calibration) AirRemoteTv.send(it) }
                                 }
                             }
                         }
+                        calibrationDetail="${gestures.movement}\nIntended command: $intendedCommand · ${if(calibrating) "CALIBRATION: no transmission" else "live"}"
                         inferenceState="Model ready · %.1f fps · %d ms".format(java.util.Locale.US,observedFps,completed-inferenceStart)
                         recognition=when {
-                            !AirRemoteTv.connected -> "Waiting for TV · standby"
-                            armedMode -> "● Active · tracked hand only"
-                            else -> "○ Standby · hold palm still 2 seconds"
+                            !AirRemoteTv.connected && !calibrating -> "Waiting for TV · standby"
+                            armedMode -> "ACTIVE · Hand tracked"
+                            else -> "${detectedGesture} · Claiming %.1f/2.0 seconds".format(java.util.Locale.US,ownership.progressMs/1000.0)
                         } + " · ${rate.latencyMs.toInt()} ms · ${1000/intervalMs} fps"
 
                     } finally { image.close() }
@@ -118,7 +124,7 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
         val current = enabled(context)
         if (current) {
             AirRemoteTv.connect(context)
-            AirRemoteTv.onSent={ command -> feedback?.post("SENT_${command.name}") }
+            AirRemoteTv.onSent={ command -> if(!calibration) feedback?.post("SENT_${command.name}") }
             val address=com.mirror.app.core.LocalNetwork.address(context)
             if(address!=feedbackAddress) {
                 feedback?.close();feedback=null;feedbackAddress=null
@@ -141,6 +147,9 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
         worker.execute { recognizer?.close(); recognizer = null; gestures.reset() }; worker.shutdown()
     }
     companion object {
+        @Volatile var calibration=false
+        @Volatile private var calibrationDetail=""
+        @Volatile private var intendedCommand="None"
         @Volatile var recognition = "Camera not started"
         @Volatile private var inferenceState = "Not initialized"
         @Volatile private var handDetected = false
@@ -150,7 +159,7 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
             val fresh=SystemClock.elapsedRealtime()-lastInference<2000
             return "Camera: ${if(CameraService.active) "service active" else "stopped"} · Inference: $inferenceState" +
                 "\nHand detected: ${if(!fresh) "unknown (no recent result)" else if(handDetected) "Yes" else "No"} · Gesture: ${if(fresh) detectedGesture else "None"}" +
-                "\n$recognition\nTV: ${if(AirRemoteTv.connected) "connected" else "disconnected"}\n${AirRemoteTv.lastCommand}" +
+                "\n$recognition${if(calibration) "\n$calibrationDetail" else ""}\nTV: ${if(AirRemoteTv.connected) "connected" else "disconnected"}\n${AirRemoteTv.lastCommand}" +
                 if(AirRemoteTv.lastFailure.isEmpty()) "" else "\nLast connection error: ${AirRemoteTv.lastFailure}"
         }
         private var lastStartAttempt=0L

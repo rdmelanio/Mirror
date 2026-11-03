@@ -14,7 +14,7 @@ internal class AirRemotePanel(private val activity: ComponentActivity, content: 
     private val handler = Handler(Looper.getMainLooper())
     private val state = activity.label("")
     private lateinit var testCommand: android.view.View
-    private val refresh = object : Runnable { override fun run() { state.text = "${AirRemoteTv.status}\n${AirRemote.diagnostics()}"; testCommand.isEnabled=AirRemoteTv.connected; testCommand.alpha=if(AirRemoteTv.connected) 1f else .45f; handler.postDelayed(this, 500) } }
+    private val refresh = object : Runnable { override fun run() { state.text = "${AirRemoteTv.status}\n${AirRemote.diagnostics()}"; testCommand.isEnabled=AirRemoteTv.connected && !AirRemote.calibration; testCommand.alpha=if(AirRemoteTv.connected) 1f else .45f; handler.postDelayed(this, 500) } }
     init {
         AirRemoteTv.init(activity)
         val p = AirRemoteTv.prefs(activity)
@@ -47,6 +47,22 @@ internal class AirRemotePanel(private val activity: ComponentActivity, content: 
         testCommand=activity.action("TEST TV COMMAND · D-PAD RIGHT") {
             Toast.makeText(activity, AirRemoteTv.send(AirGestures.Command.RIGHT), Toast.LENGTH_SHORT).show()
         }.also { it.isEnabled=AirRemoteTv.connected;content.addView(it) }
+        val confidenceLabel=activity.label("")
+        fun confidenceText(value:Int) { confidenceLabel.text="Minimum Gesture Confidence: $value%" }
+        confidenceText(AirConfidence.percent(p.getInt("confidence",65)))
+        content.addView(confidenceLabel)
+        content.addView(SeekBar(activity).apply {
+            max=9;progress=(AirConfidence.percent(p.getInt("confidence",65))-50)/5
+            setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar:SeekBar,value:Int,user:Boolean) { if(user) { val percent=50+5*value;p.edit().putInt("confidence",percent).apply();confidenceText(percent) } }
+                override fun onStartTrackingTouch(bar:SeekBar) {}
+                override fun onStopTrackingTouch(bar:SeekBar) {}
+            })
+        })
+        content.addView(PhoneTheme.switch(activity).apply {
+            text="Calibration · recognize without sending commands";isChecked=false
+            setOnCheckedChangeListener { _,value -> AirRemote.calibration=value }
+        })
         content.addView(activity.label("Sensitivity: lower = larger deliberate swipes. Calibrate below your TV by testing each direction."))
         content.addView(SeekBar(activity).apply {
             max = 100; progress = p.getInt("sensitivity", 50)
@@ -61,5 +77,5 @@ internal class AirRemotePanel(private val activity: ComponentActivity, content: 
         content.addView(activity.label("Requires Android TV Remote Service and the same Wi-Fi. Pairing is separate from TV launch / ADB. Opening Mirror Clock starts the enabled camera service while the phone UI is visible. After reboot or force-stop, reopen Mirror Clock once; Android may require foreground access. On TV, enable Temporary Air Remote feedback in Quick Menu and allow overlays once. Feedback requires the existing phone-camera pairing and shows transmission, not proof of TV execution."))
     }
     fun start() { handler.removeCallbacks(refresh); refresh.run() }
-    fun stop() { handler.removeCallbacks(refresh) }
+    fun stop() { handler.removeCallbacks(refresh);AirRemote.calibration=false }
 }

@@ -40,9 +40,9 @@ internal object AirFeedbackDisplay {
     val events=setOf("ACTIVE","SENT_LEFT","SENT_RIGHT","SENT_UP","SENT_DOWN","SENT_OK","SENT_BACK","SENT_HOME")
     fun caption(event: String): String? = when(event) {
         "ACTIVE" -> "Air Remote Active"
-        "SENT_LEFT" -> "← sent"; "SENT_RIGHT" -> "→ sent"; "SENT_UP" -> "↑ sent"; "SENT_DOWN" -> "↓ sent"
-        "SENT_OK" -> "OK sent"; "SENT_BACK" -> "Back sent"; "SENT_HOME" -> "Home sent"
+        "SENT_LEFT" -> "LEFT sent"; "SENT_RIGHT" -> "RIGHT sent"; "SENT_UP" -> "UP sent"; "SENT_DOWN" -> "DOWN sent"
+        "SENT_OK" -> "OK sent"; "SENT_BACK" -> "BACK sent"; "SENT_HOME" -> "HOME sent"
         else -> null
     }
-    fun duration(event: String) = if(event=="ACTIVE") 2000L else 600L
+    fun duration(event: String) = if(event=="ACTIVE") 2000L else 1200L
 }

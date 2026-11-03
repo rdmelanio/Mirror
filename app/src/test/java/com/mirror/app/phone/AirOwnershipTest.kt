@@ -39,7 +39,7 @@ class AirOwnershipTest {
     }
     @Test fun lostFramesDisarmAndResetAllowsAnotherPerson() {
         val o=AirOwnership();for(t in 0L..2000L step 250) o.update(t,listOf(hand()))
-        assertTrue(o.update(3000,listOf(hand())).lost)
+        assertTrue(o.update(3500,listOf(hand())).lost)
         for(t in 3250L..5250L step 250) o.update(t,listOf(hand(.8f)))
         assertTrue(o.claimed);o.reset();assertFalse(o.claimed)
     }

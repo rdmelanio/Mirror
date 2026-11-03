@@ -28,7 +28,7 @@ class AirFeedbackTest {
     @Test fun captionsAreTransientAndOnlyClaimTransmission() {
         assertEquals(2000L,AirFeedbackDisplay.duration("ACTIVE"))
         for(event in AirFeedbackDisplay.events.filter { it.startsWith("SENT_") }) {
-            assertEquals(600L,AirFeedbackDisplay.duration(event));assertTrue(AirFeedbackDisplay.caption(event)!!.contains("sent"))
+            assertEquals(1200L,AirFeedbackDisplay.duration(event));assertTrue(AirFeedbackDisplay.caption(event)!!.contains("sent"))
         }
         assertNull(AirFeedbackDisplay.caption("EXECUTED"));assertNull(AirFeedbackDisplay.caption("arbitrary markup"))
     }
@@ -36,16 +36,21 @@ class AirFeedbackTest {
         val security=PairingAuthority();val code=security.showCode()!!
         val token=security.pair(code,"tv","TV").token!!;val key=AirFeedbackAuth.key(token)
         AirFeedbackServer(security,InetAddress.getLoopbackAddress(),{true},0).use { server ->
-            fun request(secret: String): JSONObject? = Socket(InetAddress.getLoopbackAddress(),server.port).use { socket ->
+            fun request(secret: String, after: Long = -1): JSONObject? = Socket(InetAddress.getLoopbackAddress(),server.port).use { socket ->
                 socket.soTimeout=2000
                 val nonce=AirFeedbackAuth.nonce()
-                val json=JSONObject().put("nonce",nonce).put("after",-1).put("mac",AirFeedbackAuth.sign(secret,AirFeedbackAuth.request(nonce,-1)))
+                val json=JSONObject().put("nonce",nonce).put("after",after).put("mac",AirFeedbackAuth.sign(secret,AirFeedbackAuth.request(nonce,after)))
                 socket.getOutputStream().write((json.toString()+"\n").toByteArray())
                 runCatching { JSONObject(AirFeedbackServer.readLine(socket.getInputStream())) }.getOrNull()?.also {
                     assertTrue(AirFeedbackAuth.valid(key,"$nonce:${it.getString("body")}",it.getString("mac")))
                 }
             }
-            assertNotNull(request(key));assertNull(request(AirFeedbackAuth.key("unknown")))
+            assertNotNull(request(key))
+            server.post("SENT_RIGHT")
+            val received=request(key,0)!!
+            assertEquals("SENT_RIGHT",JSONObject(received.getString("body")).getString("event"))
+            assertEquals("RIGHT sent",AirFeedbackDisplay.caption("SENT_RIGHT"))
+            assertNull(request(AirFeedbackAuth.key("unknown")))
             security.remove(key);assertNull(request(key))
         }
     }

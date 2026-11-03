@@ -4,24 +4,26 @@ import kotlin.math.*
 
 /** Position/scale association only; never an identity or a biometric identifier. */
 internal class AirOwnership {
+    var minimumConfidence = .65f
+    var progressMs = 0L; private set
     data class Hand(val x: Float, val y: Float, val size: Float, val gesture: String, val confidence: Float)
     data class Selection(val hand: Hand?, val claimed: Boolean = false, val lost: Boolean = false, val ambiguous: Boolean = false)
-    private data class Candidate(var hand: Hand, var since: Long, var anchorX: Float, var anchorY: Float)
+    private data class Candidate(var hand: Hand, var since: Long, var anchorX: Float, var anchorY: Float, val evidence: MutableList<Pair<Long, Boolean>> = mutableListOf(), var lastGood: Long = since)
     private var candidates = mutableListOf<Candidate>()
     private var owner: Hand? = null
     private var lastSeen = -1L
     private var ambiguousSince = -1L
     var claimed = false; private set
-    fun reset() { candidates.clear(); owner = null; claimed = false; lastSeen = -1; ambiguousSince = -1 }
+    fun reset() { progressMs=0; candidates.clear(); owner = null; claimed = false; lastSeen = -1; ambiguousSince = -1 }
     private fun distance(a: Hand, b: Hand) = hypot(a.x - b.x, a.y - b.y)
     private fun matches(a: Hand, b: Hand, seconds: Float): Boolean =
-        distance(a,b) <= minOf(.22f, .065f + seconds * .9f) &&
+        distance(a,b) <= minOf(.32f, .07f + a.size * .5f + seconds * 1.2f) &&
             b.size / a.size.coerceAtLeast(.02f) in .55f..1.8f
     fun update(now: Long, hands: List<Hand>): Selection {
         val valid = hands.filter { it.x.isFinite() && it.y.isFinite() && it.size.isFinite() && it.size >= .02f }
         val gap = if (lastSeen < 0) 0 else now-lastSeen
         if (claimed) {
-            if (gap > 800) { reset(); return Selection(null,lost=true) }
+            if (gap > 1400) { reset(); return Selection(null,lost=true) }
             val before = owner!!
             val nearby = valid.filter { matches(before,it,gap/1000f) }
             if (nearby.isEmpty()) { reset(); return Selection(null,lost=true) }
@@ -35,18 +37,28 @@ internal class AirOwnership {
             owner = nearby[0]; lastSeen = now
             return Selection(owner)
         }
-        if (gap > 800) candidates.clear()
-        val palms = valid.filter { it.gesture == "Open_Palm" && it.confidence >= .8f }
+        if (gap > 1400) candidates.clear()
+        val palms = valid // Associate landmarks even when the classifier briefly loses the palm label.
         val next = mutableListOf<Candidate>()
         for (hand in palms) {
             val possible = candidates.filter { matches(it.hand,hand,(gap/1000f).coerceAtLeast(.1f)) }
             val old = possible.singleOrNull()?.takeIf { c -> palms.count { matches(c.hand,it,(gap/1000f).coerceAtLeast(.1f)) } == 1 }
+            if (valid.any { it !== hand && distance(it,hand) < .12f }) continue
+            val good = hand.gesture == "Open_Palm" && hand.confidence >= minimumConfidence
+            if (old == null && !good) continue
             val c = old ?: Candidate(hand,now,hand.x,hand.y)
-            if (hypot(hand.x-c.anchorX,hand.y-c.anchorY) > .07f) { c.since=now;c.anchorX=hand.x;c.anchorY=hand.y }
+            if (hypot(hand.x-c.anchorX,hand.y-c.anchorY) > .07f) { c.since=now;c.anchorX=hand.x;c.anchorY=hand.y;c.evidence.clear() }
+            if(good) c.lastGood=now
+            if(now-c.lastGood>650) continue
+            c.evidence.add(now to good)
+            c.evidence.removeAll { now-it.first>2400 }
             c.hand=hand;next.add(c)
         }
         candidates=next;lastSeen=now
-        val winners = next.filter { now-it.since >= 2000 }.sortedBy { it.since }
+        progressMs=next.maxOfOrNull { (now-it.since).coerceAtMost(2000) } ?: 0
+        val winners = next.filter { now-it.since >= 2000 && now-it.lastGood<=400 &&
+            it.evidence.size>=5 && it.evidence.count { e -> e.second } >= 4 &&
+            it.evidence.count { e -> e.second }.toFloat()/it.evidence.size >= .65f }.sortedBy { it.since }
         if (winners.isNotEmpty() && (winners.size==1 || winners[0].since < winners[1].since)) {
             owner=winners[0].hand;claimed=true;candidates.clear()
             return Selection(owner,claimed=true)
