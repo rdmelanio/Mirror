@@ -28,14 +28,39 @@ internal class AirRawFrame {
         val (w,h)=AirPixels.dimensions(maxOf(1,(uprightW*roi.width).toInt()),maxOf(1,(uprightH*roi.height).toInt()),0,maxSide)
         if(pixels.size<w*h) { val capacity=maxOf(w*h,maxSide*maxSide);pixels=IntArray(capacity);buffer=ByteBuffer.allocateDirect(capacity*3) }
         AirPixels.convert(yuv,width,height,rotation,w,h,pixels,roi)
-        if(bitmapCompatibility) return com.google.mediapipe.framework.image.BitmapImageBuilder(
-            android.graphics.Bitmap.createBitmap(pixels,w,h,android.graphics.Bitmap.Config.ARGB_8888)).build()
-        AirPixels.pack(pixels,buffer!!,w*h)
-        return wrap(buffer!!,w,h)
+        if(bitmapCompatibility) {
+            val bitmap=android.graphics.Bitmap.createBitmap(pixels,w,h,android.graphics.Bitmap.Config.ARGB_8888)
+            var built=false
+            try { return com.google.mediapipe.framework.image.BitmapImageBuilder(bitmap).build().also { built=true } }
+            finally { if(!built) bitmap.recycle() }
+        }
+        AirPixels.packRows(pixels,buffer!!,w,h)
+        return wrap(buffer!!,w,h,packed=false)
+    }
+    internal fun loadNv21(data:ByteArray,w:Int,h:Int,degrees:Int) {
+        require(data.size==w*h*3/2);width=w;height=h;rotation=degrees;yuv=data.copyOf()
     }
     fun close() { buffer=null;yuv=ByteArray(0);pixels=IntArray(0);scratch=ByteArray(0) }
     companion object {
-        fun wrap(buffer:ByteBuffer,width:Int,height:Int):MPImage =
-            ByteBufferImageBuilder(buffer,width,height,MPImage.IMAGE_FORMAT_RGB).build()
+        fun wrap(buffer:ByteBuffer,width:Int,height:Int,packed:Boolean=true):MPImage {
+            require(width>0 && height>0)
+            val stride=AirPixels.rgbStride(width);val count=stride*height
+            val storage=if(packed && stride!=width*3) {
+                require(buffer.limit()>=width*height*3)
+                ByteBuffer.allocateDirect(count).also { out ->
+                    val source=buffer.duplicate()
+                    for(row in 0 until height) {
+                        source.position(row*width*3);source.limit((row+1)*width*3);out.put(source);source.limit(buffer.limit())
+                        repeat(stride-width*3) { out.put(0) }
+                    }
+                    out.flip()
+                }
+            } else buffer
+            require(storage.capacity()>=count && storage.limit()>=count)
+            // PacketCreator checks capacity, not remaining(). A limited duplicate alone is insufficient.
+            val exact=storage.duplicate().apply { position(0);limit(count) }.slice()
+            check(exact.capacity()==count && exact.position()==0 && exact.limit()==count)
+            return ByteBufferImageBuilder(exact,width,height,MPImage.IMAGE_FORMAT_RGB).build()
+        }
     }
 }

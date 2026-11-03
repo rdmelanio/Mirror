@@ -11,6 +11,7 @@ internal class AirLaunchMailbox(private val clock:()->Long={System.nanoTime()/1_
         if(request?.let { clock()>=it.until }==true) { message="${request!!.app.name} · launch request expired";request=null }
         message
     }
+    @Synchronized fun cancel() { request?.let { message="${it.app.name} · launch request discarded: calibration / disabled" };request=null }
     @Synchronized fun supported()=peer.isNotEmpty() && clock()-peerAt<15_000
     @Synchronized fun authorize(key:String) { peer=key;peerAt=clock() }
     @Synchronized fun submit(app:AirApp):Boolean {

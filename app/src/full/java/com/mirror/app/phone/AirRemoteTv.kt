@@ -18,7 +18,9 @@ internal object AirRemoteTv {
     private val pairWorker = Executors.newSingleThreadExecutor()
     private val codes = ArrayBlockingQueue<String>(1)
     @Volatile var onSent: ((AirGestures.Command)->Unit)?=null
-    private val keys = AirKeyQueue()
+    @Volatile var onCommandEvent:((String,AirGestures.Command,Long)->Unit)?=null
+    @Volatile var commandsAllowed:()->Boolean={ true }
+    private val keys = AirKeyQueue(event={ stage,key,ms -> onCommandEvent?.invoke(stage,key,ms) })
     fun timings()=keys.summary()
     fun discardPending() { keys.clear();lastCommand="Pending commands discarded: calibration / navigation changed" }
     @Volatile private var wanted = false
@@ -78,12 +80,12 @@ internal object AirRemoteTv {
         lastCommand = "Pending commands discarded: connection closed"
         val old = socket; socket = null; runCatching { old?.close() }; keys.clear()
     }
-    @Synchronized fun send(command: AirGestures.Command): String {
+    @Synchronized fun send(command: AirGestures.Command,observedAt:Long=now()): String {
         val queued = "$command · queued"
         // Publish queued before offer: the worker may transmit immediately after offer succeeds.
         lastCommand = queued
-        if (!connected) lastCommand = "$command · discarded: remote session not ready"
-        else if (keys.offer(command,now())) return queued
+        if (!connected || !commandsAllowed()) { onCommandEvent?.invoke("REJECTED",command,0);lastCommand = "$command · discarded: remote session not ready / calibration" }
+        else if (keys.offer(command,now(),observedAt)) return queued
         else lastCommand = "$command · discarded: command queue busy"
         return lastCommand
     }
@@ -133,14 +135,14 @@ internal object AirRemoteTv {
         val nextKey=keys.take(now())
         if(keys.dropped>droppedBefore) lastCommand="Command discarded: queue expiry / capacity"
         nextKey?.let { key ->
-            if (connected) {
+            if (connected && commandsAllowed()) {
                 try {
                     val begin=now()
                     AirWire.write(s.outputStream, session.key(key.command))
                     keys.sent(key,now(),now()-begin)
                     lastCommand = "${key.command} · transmitted (execution not confirmed)"; onSent?.invoke(key.command)
-                } catch (e: Exception) { lastCommand = "${key.command} · transmission failed: ${e.message}"; throw e }
-            } else lastCommand = "${key.command} · discarded: disconnected"
+                } catch (e: Exception) { onCommandEvent?.invoke("REJECTED",key.command,(now()-key.at).coerceAtLeast(0));lastCommand = "${key.command} · transmission failed: ${e.message}"; throw e }
+            } else { onCommandEvent?.invoke("DISCARDED",key.command,(now()-key.at).coerceAtLeast(0));lastCommand = "${key.command} · discarded: disconnected / calibration" }
         }
     }
     fun pair(context: Context, address: String) {

@@ -9,6 +9,8 @@ internal object AirPointing {
         val ax=p[6].x-p[5].x;val ay=p[6].y-p[5].y;val bx=p[8].x-p[6].x;val by=p[8].y-p[6].y
         return ((ax*bx+ay*by)/(hypot(ax,ay)*hypot(bx,by)).coerceAtLeast(.00001f)).coerceIn(0f,1f)
     }
+    /** Finger configuration, not orientation. Diagonal index poses may navigate a joystick. */
+    fun indexPose(p:List<Point>):Boolean = inspect(p,false,false,true)!=null
     fun classify(p:List<Point>,mirrored:Boolean):String? = inspect(p,mirrored,false)
     /** Custom valid geometry wins. Native UP is allowed only with upright, single-index corroboration. */
     fun resolve(p:List<Point>,mirrored:Boolean,native:String,confidence:Float,threshold:Float):String {
@@ -16,7 +18,7 @@ internal object AirPointing {
         if(native!="Pointing_Up") return native
         return if(confidence>=threshold && inspect(p,mirrored,true)=="POINT_UP") native else ""
     }
-    private fun inspect(p:List<Point>,mirrored:Boolean,relaxed:Boolean):String? {
+    private fun inspect(p:List<Point>,mirrored:Boolean,relaxed:Boolean,configurationOnly:Boolean=false):String? {
         if(p.size!=21 || p.any { !it.x.isFinite() || !it.y.isFinite() }) return null
         fun d(a:Int,b:Int)=hypot(p[a].x-p[b].x,p[a].y-p[b].y)
         val size=d(0,9);if(size<.003f) return null
@@ -28,6 +30,7 @@ internal object AirPointing {
         if(!extended(5,6,8) || listOf(Triple(9,10,12),Triple(13,14,16),Triple(17,18,20)).any { extended(it.first,it.second,it.third) }) return null
         // An extended thumb plus index is a transition/ambiguous pose, not pointing.
         if(d(4,5)>size*.95f && d(4,2)>d(3,2)*1.6f) return null
+        if(configurationOnly) return "INDEX"
         val dx=(p[8].x-p[5].x)*(if(mirrored) -1 else 1);val dy=p[8].y-p[5].y
         if(hypot(dx,dy)<size*(if(relaxed) .45f else .6f)) return null
         return when {

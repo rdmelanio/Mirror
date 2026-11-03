@@ -8,6 +8,17 @@ internal object AirPixels {
         for(i in 0 until count) { val c=pixels[i]; buffer.put((c ushr 16).toByte());buffer.put((c ushr 8).toByte());buffer.put(c.toByte()) }
         buffer.flip()
     }
+    fun rgbStride(width:Int)=(width*3+3)/4*4
+    fun packRows(pixels:IntArray,buffer:java.nio.ByteBuffer,width:Int,height:Int) {
+        val stride=rgbStride(width)
+        require(pixels.size>=width*height && buffer.capacity()>=stride*height)
+        buffer.clear()
+        for(row in 0 until height) {
+            for(col in 0 until width) { val c=pixels[row*width+col];buffer.put((c ushr 16).toByte());buffer.put((c ushr 8).toByte());buffer.put(c.toByte()) }
+            repeat(stride-width*3) { buffer.put(0) }
+        }
+        buffer.flip()
+    }
     fun dimensions(w:Int,h:Int,rotation:Int,maxSide:Int):Pair<Int,Int> {
         val sideways=rotation%180!=0;val rw=if(sideways) h else w;val rh=if(sideways) w else h
         val scale=minOf(1.0,maxSide.toDouble()/maxOf(rw,rh))

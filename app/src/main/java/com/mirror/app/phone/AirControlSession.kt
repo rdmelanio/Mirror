@@ -17,6 +17,7 @@ internal class AirControlSession(private val onClaim:()->Unit={},private val sen
     val activitySerial get()=if(household) home.activitySerial else lastActivityAt
     val eventSerial get()=home.eventSerial
     val event get()=home.event
+    fun recovering(now:Long)=household && home.recoveryProcessing(now)
     fun processing(now:Long)=if(household) home.processing(now) else gestures.armed
     fun pauseRecognition(now:Long) { if(household) { home.pause();syncHome() } else { gestures.reset();ownership.reset();pointing.reset() } }
     fun heartbeat(now:Long) { if(household) { home.tick(now);syncHome() } }

@@ -1,6 +1,6 @@
 package com.mirror.app.phone
 
-internal enum class AirStage { ECO, PRE_ACTIVATION, ACTIVE }
+internal enum class AirStage { ECO, PRE_ACTIVATION, ACTIVE, RECOVERY }
 
 /** Thermal downgrade is immediate; recovery requires one minute at a lower reported level. */
 internal class AirWorkload {
@@ -12,12 +12,12 @@ internal class AirWorkload {
         if(reported>=thermal) { thermal=reported;lowerSince=-1 }
         else { if(lowerSince<0) lowerSince=now; if(now-lowerSince>=60_000) { thermal=reported;lowerSince=-1 } }
     }
-    fun observe(now:Long,crediblePalm:Boolean,claimed:Boolean) {
+    fun observe(now:Long,crediblePalm:Boolean,claimed:Boolean,recovery:Boolean=false) {
         if(crediblePalm) palmAt=now
-        stage=when { claimed -> AirStage.ACTIVE; palmAt>=0 && now-palmAt<=900 -> AirStage.PRE_ACTIVATION;else -> AirStage.ECO }
+        stage=when { recovery -> AirStage.RECOVERY; claimed -> AirStage.ACTIVE; palmAt>=0 && now-palmAt<=900 -> AirStage.PRE_ACTIVATION;else -> AirStage.ECO }
     }
     fun interval(processingMs:Double=0.0):Long {
-        val base=when(stage) { AirStage.ECO -> 400L;AirStage.PRE_ACTIVATION -> 100L;AirStage.ACTIVE -> 50L }
+        val base=when(stage) { AirStage.ECO -> 400L;AirStage.PRE_ACTIVATION,AirStage.RECOVERY -> 100L;AirStage.ACTIVE -> 50L }
         val thermalFloor=when { thermal>=4 -> if(stage==AirStage.ECO) 1500L else 750L;thermal>=3 -> if(stage==AirStage.ECO) 1000L else 333L;thermal>=2 -> if(stage==AirStage.ECO) 500L else 150L;else -> 0L }
         val thermalHeadroom=if(thermal>=2) (processingMs*(1.5+(thermal-2).coerceAtMost(4)*.5)).toLong() else 0L
         return maxOf(base,thermalFloor,thermalHeadroom)

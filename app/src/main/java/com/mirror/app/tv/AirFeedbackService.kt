@@ -69,6 +69,11 @@ class AirFeedbackService : Service() {
             val selected="$host:${settings.cameraId}"
             if(source!=selected) { source=selected;after=-1;stateAfter=-1;protocol=1;epoch="";main.post { visuals.disconnect();overlay.clear() } }
             val nonce=AirFeedbackAuth.nonce();val key=AirFeedbackAuth.key(token)
+            if(protocol>=3) {
+                val ack=if(launchAck.isEmpty()) JSONObject() else JSONObject(launchAck)
+                ack.put("listener",JSONObject().put("overlay",Settings.canDrawOverlays(this)))
+                launchAck=ack.toString()
+            }
             val signed=if(protocol>=3) AirFeedbackAuth.requestV3(nonce,after,stateAfter,launchAck) else if(protocol>=2) AirFeedbackAuth.requestV2(nonce,after,stateAfter) else AirFeedbackAuth.request(nonce,after)
             val request=JSONObject().put("nonce",nonce).put("after",after).put("mac",AirFeedbackAuth.sign(key,signed))
             if(protocol>=2) request.put("version",protocol).put("stateAfter",stateAfter)

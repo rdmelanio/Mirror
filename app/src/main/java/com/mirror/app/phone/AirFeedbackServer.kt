@@ -16,9 +16,27 @@ internal class AirFeedbackServer(private val security: PairingAuthority, bind: I
     val port get()=server.localPort
     private val events=AirFeedbackEvents()
     private val launches=AirLaunchMailbox()
-    fun launchSupported()=launches.supported()
-    fun launchStatus()=launches.status
-    fun launch(app:AirApp):Boolean=launches.submit(app).also { if(it) events.wake() }
+    fun launchSupported()=peerVersion>=3 && authenticatedAt>=0 && now()-authenticatedAt<15_000 && launches.supported()
+    @Volatile private var authenticatedAt=-1L
+    @Volatile private var rejectedAt=-1L
+    @Volatile private var peerVersion=0
+    @Volatile private var overlayPermission:Boolean?=null
+    private fun now()=System.nanoTime()/1_000_000
+    fun cancelLaunches()=launches.cancel()
+    fun launchStatus():String {
+        val state=when {
+            security.list().isEmpty() -> "TV companion not camera-paired with this phone; pair Mirror viewer on TV"
+            rejectedAt>authenticatedAt -> "Unauthenticated TV listener request; check Mirror viewer pairing with this phone"
+            authenticatedAt<0 -> "No TV companion contact; enable TV feedback listener, check viewer pairing and Wi-Fi"
+            now()-authenticatedAt>15_000 -> "TV companion offline or reconnecting; open Mirror on TV and check listener / Wi-Fi"
+            peerVersion<3 -> "Paired feedback listener; negotiating app capability — update TV APK if this persists"
+            overlayPermission==false -> "Shortcut listener connected; overlay permission missing — Android may block background launches"
+            else -> "Shortcut listener connected; app capability negotiated"
+        }
+        val last=launches.status
+        return state + if(AirApp.entries.any { last.startsWith(it.name) }) "\n$last" else ""
+    }
+    fun launch(app:AirApp):Boolean=(launchSupported() && launches.submit(app)).also { if(it) events.wake() }
     private val slots=Semaphore(2)
     private val clients=ConcurrentHashMap.newKeySet<Socket>()
     private val workers=Executors.newFixedThreadPool(2)
@@ -45,14 +63,18 @@ internal class AirFeedbackServer(private val security: PairingAuthority, bind: I
         if(version>=3) require(request.optString("capability")=="apps-v1" && ack.length<=512)
         val revision=if(v2) request.getLong("stateAfter") else null
         val body=if(version>=3) AirFeedbackAuth.requestV3(nonce,after,revision!!,ack) else if(v2) AirFeedbackAuth.requestV2(nonce,after,revision!!) else AirFeedbackAuth.request(nonce,after)
-        val key=security.list().firstOrNull { AirFeedbackAuth.valid(it.hash,body,request.optString("mac")) }?.hash ?: return
+        val key=security.list().firstOrNull { AirFeedbackAuth.valid(it.hash,body,request.optString("mac")) }?.hash ?: run { rejectedAt=now();return }
         synchronized(nonces) {
             val now=System.nanoTime()/1_000_000
             nonces.entries.removeIf { now-it.value>60_000 }
             require(nonce !in nonces && nonces.size<512)
             nonces[nonce]=now
         }
-        if(version>=3) { launches.authorize(key);if(ack.isNotEmpty()) launches.ack(key,JSONObject(ack)) }
+        authenticatedAt=now();peerVersion=version
+        if(version>=3) {
+            launches.authorize(key)
+            if(ack.isNotEmpty()) { val a=JSONObject(ack);launches.ack(key,a);a.optJSONObject("listener")?.let { overlayPermission=it.optBoolean("overlay") } }
+        }
         val value=JSONObject(events.poll(after,stateAfter=revision)).put("maxVersion",3)
         if(version>=3) { value.put("version",3).put("capability","apps-v1");launches.payload(key)?.let { value.put("launch",it) } }
         val result=value.toString()

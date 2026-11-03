@@ -13,6 +13,7 @@ android {
     compileSdkMinor = 1
     defaultConfig {
         applicationId = "com.mirror.app"
+        testInstrumentationRunner = "com.mirror.app.phone.AirImageInstrumentation"
         minSdk = 26
         targetSdk = 36
         versionCode = mirrorReleaseVersion.getProperty("mirrorVersionCode").toInt()
