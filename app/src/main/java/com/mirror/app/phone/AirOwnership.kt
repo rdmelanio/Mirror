@@ -7,6 +7,7 @@ internal class AirOwnership {
     private var velocityX=0f;private var velocityY=0f
     var claimDurationMs=2000L
     var claimSamples=5
+    var minimumHandSize=.02f
     var graceMs=1400L
     private var missing=false
     var minimumConfidence = .65f
@@ -31,7 +32,7 @@ internal class AirOwnership {
         distance(a,b) <= minOf(.32f, .08f + a.size * .5f + seconds * 1.2f) &&
             b.size / a.size.coerceAtLeast(.02f) in .2f..3.5f
     fun update(now: Long, hands: List<Hand>): Selection {
-        val valid = hands.filter { it.x.isFinite() && it.y.isFinite() && it.size.isFinite() && it.size >= .02f }
+        val valid = hands.filter { it.x.isFinite() && it.y.isFinite() && it.size.isFinite() && it.size >= minimumHandSize }
         val gap = if (lastSeen < 0) 0 else now-lastSeen
         if (claimed) {
             if (gap > graceMs) { reset(); return Selection(null,lost=true,reason="tracking gap exceeded ${graceMs} ms") }

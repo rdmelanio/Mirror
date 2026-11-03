@@ -4,7 +4,7 @@ import kotlin.math.*
 
 /** Spatial continuity is a safety heuristic, not personal identity. Session authority outlives observations. */
 internal class AirHousehold(private val gestures:AirGestures,private val pointing:AirPointCommands,
-    private val onClaim:()->Unit,private val send:(AirGestures.Command)->Unit) {
+    private val onClaim:()->Unit,private val send:(AirGestures.Command)->Unit,private val launch:(AirApp)->Unit={}) {
     enum class Tracking { NONE, OWNED, LOST, RECOVERING, AMBIGUOUS, CONNECTION }
     var active=false;private set
     var tracking=Tracking.NONE;private set
@@ -35,27 +35,40 @@ internal class AirHousehold(private val gestures:AirGestures,private val pointin
         }
     }
     private var owner:AirOwnership.Hand?=null
+    val trackedHand get()=owner.takeIf { tracking==Tracking.OWNED }
+    private val joystick=AirJoystick()
+    private val shortcuts=AirShortcuts()
+    var navigation=AirNavigation.POINTING
+    var joystickSensitivity=50
+    var apps=emptySet<AirApp>()
+    var appSupported=false
+    var acceptedApp:AirApp?=null;private set
+    private var navigationWas=AirNavigation.POINTING
+    private var modeRelease=false;private var modeNeutralAt=-1L
+    private var velocityX=0f;private var velocityY=0f
     private var seenAt=-1L
     private var recovery:AirOwnership.Hand?=null
     private var recoveryAt=-1L
     private var recoverySamples=0
     private var ambiguous=false
+    private var ambiguityOwner:AirOwnership.Hand?=null
+    private var rivals=emptyList<AirOwnership.Hand>()
     private var wasConnected=true
     private var pendingDeadline=-1L
-    private val claims=AirOwnership().apply { claimDurationMs=1000;claimSamples=3 }
+    private val claims=AirOwnership().apply { claimDurationMs=1000;claimSamples=3;minimumHandSize=.005f }
     private fun distance(a:AirOwnership.Hand,b:AirOwnership.Hand)=hypot(a.x-b.x,a.y-b.y)
     private fun plausible(a:AirOwnership.Hand,b:AirOwnership.Hand,gap:Long):Boolean =
-        distance(a,b)<=(if(gap>2000) .14f else .24f) && b.size/a.size.coerceAtLeast(.02f) in .18f..4f
+        (distance(a,b)<=(if(gap>2000) minOf(.14f,maxOf(.035f,a.size*1.5f)) else minOf(.24f,maxOf(.045f,a.size*2f))) || gap<=700 && distance(a.copy(x=a.x+velocityX*gap/1000,y=a.y+velocityY*gap/1000),b)<.12f) && b.size/a.size.coerceAtLeast(.02f) in .18f..4f
     private fun emit(value:String) { event=value;eventSerial++ }
     private fun interact(now:Long) { lastActivityAt=now;activitySerial++ }
     fun reset(reason:String="explicit reset") {
-        active=false;currentPose="None";currentScore=0f;blocked.clear();owner=null;seenAt=-1;recovery=null;recoverySamples=0;ambiguous=false;claims.reset();claimProgress=0
-        gestures.reset();pointing.reset();accepted=null;tracking=Tracking.NONE;pendingDeadline=-1;awaitingRelease=false
+        active=false;currentPose="None";currentScore=0f;blocked.clear();owner=null;seenAt=-1;recovery=null;recoverySamples=0;ambiguous=false;ambiguityOwner=null;rivals=emptyList();claims.reset();claimProgress=0
+        gestures.reset();pointing.reset();joystick.reset();shortcuts.reset();acceptedApp=null;velocityX=0f;velocityY=0f;accepted=null;tracking=Tracking.NONE;pendingDeadline=-1;awaitingRelease=false
         status="Disarmed · $reason"
     }
     fun pause(reason:String="recognition temporarily unavailable") {
         if(!active) return
-        pendingDeadline=-1;tracking=Tracking.LOST;gestures.pause(lastActivityAt);pointing.pause();recovery=null;recoverySamples=0
+        pendingDeadline=-1;joystick.reset();shortcuts.pause();tracking=Tracking.LOST;gestures.pause(lastActivityAt);pointing.pause();recovery=null;recoverySamples=0
         status="Tracking temporarily unavailable · $reason"
     }
     fun tick(now:Long) {
@@ -65,59 +78,99 @@ internal class AirHousehold(private val gestures:AirGestures,private val pointin
             reset("inactivity timeout");awaitingRelease=true;emit("EXPIRED")
         }
     }
-    fun processing(now:Long)=active && tracking==Tracking.OWNED && (now-lastActivityAt<2200 || pointing.pending)
+    fun processing(now:Long)=active && seenAt>=0 && now-seenAt<1000 && tracking!=Tracking.CONNECTION
     private fun install(now:Long,h:AirOwnership.Hand,transfer:Boolean,calibration:Boolean) {
         val initial=!active
         if(transfer && owner!=null) { blocked.add(Blocked(owner!!));while(blocked.size>8) blocked.removeAt(0) }
-        active=true;currentPose=h.gesture;currentScore=h.confidence;owner=h;seenAt=now;tracking=Tracking.OWNED;recovery=null;recoverySamples=0;ambiguous=false
-        claims.reset();claimProgress=0;pointing.reset();gestures.claim(now,h.x,h.y);gestures.trackingGraceMs=Long.MAX_VALUE
+        active=true;currentPose=h.gesture;currentScore=h.confidence;owner=h;seenAt=now;tracking=Tracking.OWNED;recovery=null;recoverySamples=0;ambiguous=false;ambiguityOwner=null;rivals=emptyList()
+        claims.reset();claimProgress=0;pointing.reset();joystick.reset();shortcuts.reset();gestures.claim(now,h.x,h.y);gestures.trackingGraceMs=Long.MAX_VALUE
         interact(now);status=if(transfer) "Control transferred · Active" else "Active · hand owned"
         emit(if(transfer) "TRANSFERRED" else "ACTIVE")
         if(initial && !calibration) onClaim()
     }
     fun update(now:Long,hands:List<AirOwnership.Hand>,connected:Boolean,calibration:Boolean,confidence:Float,sensitivity:Int,legacy:Boolean,holdMs:Long) {
-        accepted=null;currentPose="None";currentScore=0f;pointing.holdMs=holdMs;gestures.sensitivity=sensitivity;gestures.minimumConfidence=confidence
-        val valid=hands.filter { it.x.isFinite() && it.y.isFinite() && it.size.isFinite() && it.size>=.01f }
+        accepted=null;acceptedApp=null;currentPose="None";currentScore=0f;pointing.holdMs=holdMs;gestures.sensitivity=sensitivity;gestures.minimumConfidence=confidence
+        val valid=hands.filter { it.x.isFinite() && it.y.isFinite() && it.size.isFinite() && it.size>=.005f }
         updateBlocked(now,valid)
+        if(navigationWas!=navigation) {
+            pointing.reset();joystick.reset();shortcuts.pause();navigationWas=navigation;modeRelease=active;modeNeutralAt=-1
+        }
         if(awaitingRelease) {
             if(valid.any { it.gesture=="Open_Palm" }) { status="Disarmed · relax palm before a new claim";return }
             awaitingRelease=false
         }
-        if(connected!=wasConnected) { pointing.pause();gestures.pause(now);recovery=null;recoverySamples=0;wasConnected=connected;if(active) tracking=if(connected) Tracking.RECOVERING else Tracking.CONNECTION }
+        if(connected!=wasConnected) { joystick.reset();shortcuts.pause();pointing.pause();gestures.pause(now);recovery=null;recoverySamples=0;wasConnected=connected;if(active) tracking=if(connected) Tracking.RECOVERING else Tracking.CONNECTION }
         val ref=owner
         val nearby=if(ref==null) emptyList() else valid.filter { plausible(ref,it,now-seenAt) }
-        val uncertain=nearby.size>1 || nearby.singleOrNull()?.let { h -> valid.any { it!==h && distance(it,h)<.12f } }==true
+        val uncertain=nearby.size>1 || nearby.singleOrNull()?.let { h -> valid.any { it!==h && distance(it,h)<maxOf(.035f,minOf(.12f,h.size*1.2f)) } }==true
         val priorTracking=tracking
-        var selected=nearby.singleOrNull()?.takeUnless { uncertain || ambiguous }
-        if(uncertain) { ambiguous=true;selected=null }
+        var selected=nearby.singleOrNull()?.takeUnless { uncertain }
+        if(uncertain) {
+            if(!ambiguous && ref!=null) {
+                val ordered=nearby.sortedBy { distance(ref,it)+abs(ln(it.size/ref.size.coerceAtLeast(.01f)))*.025f }
+                val best=ordered.firstOrNull()
+                val first=best?.let { distance(ref,it)+abs(ln(it.size/ref.size.coerceAtLeast(.01f)))*.025f } ?: 1f
+                val second=ordered.getOrNull(1)?.let { distance(ref,it)+abs(ln(it.size/ref.size.coerceAtLeast(.01f)))*.025f } ?: 1f
+                ambiguityOwner=best.takeIf { second-first>=.018f }
+                rivals=nearby.filter { it!==ambiguityOwner }
+            }
+            ambiguous=true;selected=null;recovery=null;recoverySamples=0
+        } else if(ambiguous && selected!=null) {
+            // Evidence, not elapsed time: the remaining rival cannot inherit a paused owner's key.
+            val a=ambiguityOwner
+            if(a==null || distance(a,selected)>.10f || rivals.any { distance(it,selected)<=distance(a,selected)+.012f }) selected=null
+        }
         if(active && selected!=null && priorTracking!=Tracking.OWNED && priorTracking!=Tracking.CONNECTION) {
             // Recovery requires two spatially consistent observations. Nothing pending survives the gap.
             if(recovery==null || distance(recovery!!,selected)>.10f || now-recoveryAt>1200) { recovery=selected;recoveryAt=now;recoverySamples=0 }
             recoverySamples++
             if(recoverySamples<2 || now-recoveryAt<150) { selected=null;tracking=Tracking.RECOVERING }
-            else { pointing.pause();gestures.pause(now);status="Tracking recovered · Active" }
+            else { ambiguous=false;ambiguityOwner=null;rivals=emptyList();joystick.reset();shortcuts.pause();pointing.pause();gestures.pause(now);status="Tracking recovered · Active" }
         }
         if(active && selected!=null) {
             currentPose=selected.gesture;currentScore=selected.confidence
-            owner=selected;seenAt=now;tracking=Tracking.OWNED;recoverySamples=0;recovery=null
+            val before=owner
+            if(before!=null && seenAt>=0 && now>seenAt) {
+                velocityX=(velocityX*.5f+(selected.x-before.x)*1000/(now-seenAt)*.5f).coerceIn(-.5f,.5f)
+                velocityY=(velocityY*.5f+(selected.y-before.y)*1000/(now-seenAt)*.5f).coerceIn(-.5f,.5f)
+            }
+            owner=if(before==null || priorTracking!=Tracking.OWNED) selected else selected.copy(x=before.x*.25f+selected.x*.75f,y=before.y*.25f+selected.y*.75f,size=before.size*.35f+selected.size*.65f)
+            seenAt=now;tracking=Tracking.OWNED;recoverySamples=0;recovery=null
             // The old command interpreter's timeout is not the household session authority.
             gestures.activity(now)
             run {
-                val command=if(legacy) gestures.update(now,selected.gesture,selected.confidence,selected.x,selected.y,selected.size)
-                    else pointing.update(now,selected.gesture,selected.confidence,confidence)
+                if(modeRelease) {
+                    if(selected.gesture in setOf("Open_Palm","Closed_Fist","None","")) {
+                        if(modeNeutralAt<0) modeNeutralAt=now
+                        if(now-modeNeutralAt>=200) modeRelease=false
+                    } else modeNeutralAt=-1
+                    status="Active · navigation mode changed; relax hand before commands"
+                }
+                val useJoystick=!legacy && navigation==AirNavigation.JOYSTICK
+                val pointName=if(useJoystick && selected.gesture in setOf("POINT_UP","POINT_DOWN","POINT_LEFT","POINT_RIGHT","Pointing_Up")) "None" else selected.gesture
+                val command=if(modeRelease) null else if(legacy) gestures.update(now,selected.gesture,selected.confidence,selected.x,selected.y,selected.size)
+                    else {
+                        val move=if(useJoystick) joystick.update(now,selected,joystickSensitivity) else null
+                        val pose=pointing.update(now,pointName,selected.confidence,confidence)
+                        move ?: pose
+                    }
+                val app=if(!legacy && !modeRelease) shortcuts.update(now,selected.gesture,selected.confidence,confidence,apps) else null
+                if(app!=null && connected && appSupported && !calibration) { acceptedApp=app;interact(now);launch(app) }
+                if(shortcuts.pending && shortcuts.activityAt>lastActivityAt) interact(now)
+                if(useJoystick && joystick.activityAt>lastActivityAt) interact(now)
                 if(pointing.pending && pendingDeadline<0 && now-lastActivityAt<timeoutMs) pendingDeadline=lastActivityAt+timeoutMs+1400
                 if(!legacy && pointing.activityAt>lastActivityAt && pointing.activityStartedAt<=lastActivityAt+timeoutMs && now-lastActivityAt<=timeoutMs+1400) { interact(now);pendingDeadline=-1 }
                 if(command!=null && now-lastActivityAt<timeoutMs) {
                     interact(now);pendingDeadline=-1
                     if(connected || calibration) { accepted=command;lastCommandAt=now;if(!calibration) send(command) }
                 }
-                if(priorTracking==Tracking.OWNED) status="Active · hand owned · ${if(legacy) gestures.movement else pointing.reason}"
+                if(priorTracking==Tracking.OWNED) status="Active · hand owned · ${if(legacy) gestures.movement else if(shortcuts.pending) shortcuts.reason else if(useJoystick && selected.gesture in setOf("POINT_UP","Pointing_Up")) joystick.reason else pointing.reason}"
             }
             if(!connected && !calibration) { tracking=Tracking.CONNECTION;status="Session valid · TV transport unavailable; commands blocked" }
         } else if(active) {
             pendingDeadline=-1
             if(tracking!=Tracking.RECOVERING) tracking=if(ambiguous) Tracking.AMBIGUOUS else Tracking.LOST
-            pointing.pause();gestures.pause(now)
+            joystick.reset();shortcuts.pause();pointing.pause();gestures.pause(now)
             status=if(ambiguous) "Session valid · ambiguous ownership; commands blocked" else "Session valid · tracking temporarily unavailable"
         }
         // A background hand cannot compete with a controller who is still deliberately interacting.

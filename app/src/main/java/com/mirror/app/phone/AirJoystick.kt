@@ -1,0 +1,60 @@
+package com.mirror.app.phone
+
+import kotlin.math.*
+
+/** Upright, viewer-facing full-camera coordinates; crop motion never enters this state machine. */
+internal class AirJoystick {
+    private var anchor:AirOwnership.Hand?=null
+    private var since=-1L;private var samples=0;private var lastSeen=-1L
+    private var latched:AirGestures.Command?=null;private var firedAt=-1L;private var repeatedAt=-1L
+    private var filtered:AirOwnership.Hand?=null
+    var reason="Joystick neutral";private set
+    var activityAt=-1L;private set
+    var pending=false;private set
+    fun reset() { anchor=null;since=-1;samples=0;lastSeen=-1;latched=null;firedAt=-1;filtered=null;pending=false }
+    fun update(now:Long,h:AirOwnership.Hand,sensitivity:Int):AirGestures.Command? {
+        pending=false
+        if(h.gesture!="POINT_UP" && h.gesture!="Pointing_Up") {
+            // One isolated model dropout can retain the reference, but can never send a key.
+            if(h.gesture !in setOf("","None") || now-lastSeen>550) reset()
+            reason="Joystick released / waiting for upward index";return null
+        }
+        if(lastSeen>=0 && now-lastSeen>800) reset()
+        lastSeen=now
+        if(anchor==null) {
+            if(since<0) { since=now;filtered=h }
+            if(hypot(h.x-filtered!!.x,h.y-filtered!!.y)>maxOf(.025f,h.size*.6f)) { since=now;samples=0;filtered=h }
+            samples++
+            if(samples>=2 && now-since>=120) { anchor=h;filtered=h;activityAt=now }
+            reason="Joystick centering · hold index up";return null
+        }
+        val before=filtered!!
+        val f=h.copy(x=before.x*.25f+h.x*.75f,y=before.y*.25f+h.y*.75f)
+        filtered=f
+        val a=anchor!!;val dx=f.x-a.x;val dy=f.y-a.y
+        val threshold=maxOf(.012f,a.size*(1.05f-sensitivity.coerceIn(0,100)*.006f))
+        val radius=hypot(dx,dy)
+        if(radius<threshold*.45f) {
+            if(latched!=null) activityAt=now
+            latched=null;reason="Joystick centered · ready";return null
+        }
+        val direction=when {
+            abs(dx)>threshold && abs(dx)>abs(dy)*1.45f -> if(dx>0) AirGestures.Command.RIGHT else AirGestures.Command.LEFT
+            abs(dy)>threshold && abs(dy)>abs(dx)*1.45f -> if(dy>0) AirGestures.Command.DOWN else AirGestures.Command.UP
+            else -> null
+        }
+        pending=direction!=null && latched==null
+        // A direction change while outside center is not a fresh excursion.
+        if(direction!=null && latched==null) {
+            latched=direction;firedAt=now;repeatedAt=now;activityAt=now;pending=false
+            reason="Command accepted · joystick $direction";return direction
+        }
+        if(direction==latched && direction!=null && now-firedAt>=1000 && now-repeatedAt>=550) {
+            repeatedAt=now;activityAt=now;reason="Command accepted · bounded joystick repeat $direction";return direction
+        }
+        reason=if(latched!=null) "Joystick held · return to center or guarded repeat" else "Joystick dead zone / diagonal"
+        return null
+    }
+}
+
+internal enum class AirNavigation { JOYSTICK, POINTING }

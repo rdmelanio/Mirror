@@ -19,7 +19,7 @@ internal class AirRemotePanel(private val activity: ComponentActivity, content: 
         AirRemoteTv.init(activity)
         val p = AirRemoteTv.prefs(activity)
         content.addView(activity.label("AIR REMOTE", 23f))
-        content.addView(activity.label("Household Mode: hold an open palm about one second to claim or deliberately take over after the current controller stops. Default: point index UP/DOWN/LEFT/RIGHT; thumb up = OK, thumb down = Back, victory = Home (longer hold). Fist or open palm releases a held command. Tracking remains claimed through tracking pauses until the configured inactivity timeout. Eco sampling accelerates during activation and active control, limited by actual processing and temperature."))
+        content.addView(activity.label("Household Mode: hold an open palm about one second to claim or deliberately take over after the current controller stops. Default Air Joystick: hold index upward and move the whole hand; return to center to rearm. Directional Pointing is selectable; thumb up = OK, thumb down = Back, victory = Home (longer hold). Fist or open palm releases a held command. Tracking remains claimed through tracking pauses until the configured inactivity timeout. Eco sampling accelerates during activation and active control, limited by actual processing and temperature."))
         val enable = PhoneTheme.switch(activity).apply { text = "Enable Air Remote"; isChecked = AirRemote.enabled(activity) }
         enable.setOnCheckedChangeListener { _, checked ->
             if (checked && activity.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -83,6 +83,53 @@ internal class AirRemotePanel(private val activity: ComponentActivity, content: 
             text="Legacy Gesture Mode · swipes / fist OK";isChecked=p.getBoolean("legacy",false)
             setOnCheckedChangeListener { _,v -> p.edit().putBoolean("legacy",v).apply() }
         })
+        fun choices(title:String,key:String,values:List<String>,labels:List<String>,default:String) {
+            content.addView(activity.label(title))
+            content.addView(Spinner(activity).apply {
+                adapter=ArrayAdapter(activity,android.R.layout.simple_spinner_dropdown_item,labels)
+                setSelection(values.indexOf(p.getString(key,default)).coerceAtLeast(0))
+                onItemSelectedListener=object:AdapterView.OnItemSelectedListener {
+                    override fun onItemSelected(parent:AdapterView<*>?,view:android.view.View?,position:Int,id:Long) { if(p.getString(key,default)!=values[position]) AirRemoteTv.discardPending();p.edit().putString(key,values[position]).apply() }
+                    override fun onNothingSelected(parent:AdapterView<*>?) {}
+                }
+            })
+        }
+        choices("Navigation Mode (Legacy setting remains independent)","navigation",listOf("joystick","pointing"),listOf("Air Joystick (default)","Directional Pointing"),"joystick")
+        choices("Smart Hand Lock", "hand_lock",listOf("auto","wide","distance"),listOf("Auto (default)","Standard / wide scene","Long-distance optimized"),"auto")
+        val joyLabel=activity.label("")
+        fun joyText(v:Int) { joyLabel.text="Joystick sensitivity: $v · higher = smaller movement" }
+        joyText(p.getInt("joystick_sensitivity",50));content.addView(joyLabel)
+        content.addView(SeekBar(activity).apply {
+            max=100;progress=p.getInt("joystick_sensitivity",50)
+            setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar:SeekBar,v:Int,user:Boolean) { if(user) { p.edit().putInt("joystick_sensitivity",v).apply();joyText(v) } }
+                override fun onStartTrackingTouch(bar:SeekBar) {}
+                override fun onStopTrackingTouch(bar:SeekBar) {}
+            })
+        })
+        content.addView(activity.label("App shortcuts require the updated, paired TV listener. Shaka (thumb + pinky) = YouTube; three fingers = Netflix; long fist = Stremio. Hold deliberately; short fist stays neutral. Android can block background launches."))
+        for(app in AirApp.entries) content.addView(PhoneTheme.switch(activity).apply {
+            text="${app.name.lowercase().replaceFirstChar { it.uppercase() }} gesture";isChecked=p.getBoolean("app_${app.name}",true)
+            setOnCheckedChangeListener { _,v -> p.edit().putBoolean("app_${app.name}",v).apply() }
+        })
+        content.addView(PhoneTheme.switch(activity).apply {
+            text="Try GPU · automatic CPU fallback (benchmark on this phone first)";isChecked=p.getBoolean("gpu",false)
+            setOnCheckedChangeListener { _,v -> p.edit().putBoolean("gpu",v).apply() }
+        })
+        content.addView(PhoneTheme.switch(activity).apply {
+            text="Benchmark two hands instead of four · full household scans retained";isChecked=p.getInt("model_hands",4)==2
+            setOnCheckedChangeListener { _,v -> p.edit().putInt("model_hands",if(v) 2 else 4).apply() }
+        })
+        button("COMPARE CPU / GPU · CALIBRATION ONLY (~104 SECONDS)") {
+            AirBenchmark.start(android.os.SystemClock.elapsedRealtime())
+            Toast.makeText(activity,"Hold palm to claim, then try gestures. Keep this panel open. No commands sent during comparison.",Toast.LENGTH_LONG).show()
+        }
+        button("STOP / INSPECT BENCHMARK") {
+            AirBenchmark.stop()
+            val text=AirBenchmark.summary()
+            android.app.AlertDialog.Builder(activity).setTitle("Actual phone timings").setMessage(text)
+                .setPositiveButton("Copy") { _,_ -> activity.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(android.content.ClipData.newPlainText("Mirror benchmark",text)) }.setNegativeButton("Close",null).show()
+        }
         val dwell=activity.label("")
         fun holdText(ms:Long) { dwell.text="Pointing Hold Duration: $ms ms" }
         holdText(p.getLong("point_hold",400));content.addView(dwell)
@@ -120,5 +167,5 @@ internal class AirRemotePanel(private val activity: ComponentActivity, content: 
         content.addView(activity.label("Requires Android TV Remote Service and the same Wi-Fi. Pairing is separate from TV launch / ADB. Opening Mirror Clock starts the enabled camera service while the phone UI is visible. After reboot or force-stop, reopen Mirror Clock once; Android may require foreground access. On TV, enable Temporary Air Remote feedback in Quick Menu and allow overlays once. Feedback requires the existing phone-camera pairing and shows transmission, not proof of TV execution."))
     }
     fun start() { handler.removeCallbacks(refresh); refresh.run() }
-    fun stop() { handler.removeCallbacks(refresh);AirRemote.calibration=false }
+    fun stop() { handler.removeCallbacks(refresh);AirBenchmark.stop();AirRemote.calibration=false }
 }

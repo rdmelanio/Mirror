@@ -15,7 +15,7 @@ class AirFeedbackStateTest {
         val v=AirFeedbackView();v.accept(body(0,0),0);assertNull(v.current(0))
         v.accept(body(1,1),100);assertEquals("GREEN",v.current(100)!!.color)
         v.accept(body(1,1),3000);assertEquals(4100L,v.current(3000)!!.until)
-        v.accept(body(2,1,"LOST",age=3000),3100);assertEquals("AMBER",v.current(3100)!!.color)
+        v.accept(body(2,1,"LOST",age=3000),3100);assertEquals("GREEN",v.current(3100)!!.color);assertEquals("AMBER",v.current(3800)!!.color)
         v.accept(body(3,1,"LOST",age=6000,trackingAge=3000),6100);assertEquals(13100L,v.current(6100)!!.until)
         assertNull(v.current(13100));v.accept(body(4,1,"LOST",age=15_000,trackingAge=12_000),15100);assertNull(v.current(15100))
         v.accept(body(5,1,"OWNED",age=16_000),16100);assertNull(v.current(16100))

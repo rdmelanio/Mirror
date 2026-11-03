@@ -26,6 +26,8 @@ class AirFeedbackService : Service() {
     private val visuals=AirFeedbackView()
     private var stateAfter=-1L
     private var protocol=1
+    private var launchAck=""
+    private lateinit var launchReceiver:AirLaunchReceiver
     private val render=object:Runnable { override fun run() {
         if(!stopped) { overlay.render(visuals.current(SystemClock.elapsedRealtime()));main.postDelayed(this,250) }
     } }
@@ -38,7 +40,7 @@ class AirFeedbackService : Service() {
     private var discovery: CameraDiscovery?=null
     private var lastDiscovery=-60_000L
     override fun onBind(intent: Intent?)=null
-    override fun onCreate() { super.onCreate();overlay=AirFeedbackOverlay(this);main.post(render) }
+    override fun onCreate() { super.onCreate();launchReceiver=AirLaunchReceiver(mirrorPreferences().getString("airLaunchIds","").orEmpty().split(",").filter { it.isNotEmpty() });overlay=AirFeedbackOverlay(this);main.post(render) }
     override fun onStartCommand(intent: Intent?, flags: Int, id: Int): Int {
         if(!mirrorPreferences().getBoolean("airFeedback",false)) { stopSelf();return START_NOT_STICKY }
         try {
@@ -67,9 +69,10 @@ class AirFeedbackService : Service() {
             val selected="$host:${settings.cameraId}"
             if(source!=selected) { source=selected;after=-1;stateAfter=-1;protocol=1;epoch="";main.post { visuals.disconnect();overlay.clear() } }
             val nonce=AirFeedbackAuth.nonce();val key=AirFeedbackAuth.key(token)
-            val signed=if(protocol>=2) AirFeedbackAuth.requestV2(nonce,after,stateAfter) else AirFeedbackAuth.request(nonce,after)
+            val signed=if(protocol>=3) AirFeedbackAuth.requestV3(nonce,after,stateAfter,launchAck) else if(protocol>=2) AirFeedbackAuth.requestV2(nonce,after,stateAfter) else AirFeedbackAuth.request(nonce,after)
             val request=JSONObject().put("nonce",nonce).put("after",after).put("mac",AirFeedbackAuth.sign(key,signed))
-            if(protocol>=2) request.put("version",2).put("stateAfter",stateAfter)
+            if(protocol>=2) request.put("version",protocol).put("stateAfter",stateAfter)
+            if(protocol>=3) request.put("launchAck",launchAck).put("capability","apps-v1")
             val begin=SystemClock.elapsedRealtime()
             val value=Socket().use { s ->
                 socket=s;s.soTimeout=12000;s.connect(InetSocketAddress(host,8081),2500)
@@ -83,7 +86,21 @@ class AirFeedbackService : Service() {
             val transit=(SystemClock.elapsedRealtime()-begin-message.getLong("waitMs")).coerceAtLeast(0)
             val fresh=transit<=2000
             epoch=nextEpoch;after=sequence;failures=0
-            protocol=message.optInt("version",1)
+            protocol=message.optInt("maxVersion",message.optInt("version",1)).coerceIn(1,3)
+            message.optJSONObject("launch")?.let { payload ->
+                if(fresh && message.optString("capability")=="apps-v1") {
+                    val reservation=launchReceiver.reserve(payload,transit)
+                    if(reservation!=null) {
+                        val (id,target)=reservation
+                        // At most once even if the process dies immediately after startActivity.
+                        if(prefs.edit().putString("airLaunchIds",launchReceiver.saved().joinToString(",")).commit()) {
+                            val result=AirAppLauncher.launch(this,target)
+                            launchAck=JSONObject().put("id",id).put("result",result).toString()
+                            main.post { if(!stopped) visuals.launchResult(target.name,result,SystemClock.elapsedRealtime()) }
+                        }
+                    }
+                }
+            }
             val items=message.optJSONArray("events")
             if(items!=null) for(i in 0 until items.length()) after=maxOf(after,items.getJSONObject(i).getLong("id"))
             stateAfter=message.optJSONObject("snapshot")?.optLong("revision",-1) ?: -1

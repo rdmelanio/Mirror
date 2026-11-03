@@ -7,10 +7,14 @@ internal class AirFeedbackView {
     data class View(val text:String,val color:String,val until:Long)
     private var epoch="";private var cursor=-1L;private var revision=-1L
     private var activity=-1L;private var tracking="NONE"
+    private var uncertainAt=-1L;private var amberDeadline=-1L
     private var hand:View?=null;private var message:View?=null
     private val seen=java.util.ArrayDeque<Long>()
-    fun disconnect() { hand=null;message=null;epoch="";cursor=-1;revision=-1;activity=-1;tracking="NONE";seen.clear() }
+    fun disconnect() { uncertainAt=-1;amberDeadline=-1;hand=null;message=null;epoch="";cursor=-1;revision=-1;activity=-1;tracking="NONE";seen.clear() }
     fun current(now:Long):View? {
+        if(uncertainAt>=0 && now-uncertainAt>=650 && hand?.color=="GREEN" && hand!!.until>now) {
+            hand=if(amberDeadline>now) View("","AMBER",amberDeadline) else null
+        }
         if(message?.until?.let { it<=now }==true) message=null
         if(hand?.until?.let { it<=now }==true) hand=null
         return message ?: hand
@@ -31,13 +35,15 @@ internal class AirFeedbackView {
                 if(nextActivity>activity && age<4000 && snapshot.optBoolean("active") && nextTracking=="OWNED") {
                     hand=View("","GREEN",now+4000-age)
                 }
-                if(nextTracking!=tracking && nextTracking in setOf("LOST","RECOVERING","AMBIGUOUS","CONNECTION")) {
+                if(nextTracking!=tracking && uncertainAt<0 && nextTracking in setOf("LOST","RECOVERING","AMBIGUOUS","CONNECTION")) {
                     if(hand?.color=="GREEN" && hand!!.until>now) {
                         val lostAge=(snapshot.optLong("trackingAgeMs",0)+transitMs).coerceAtLeast(0)
-                        hand=if(lostAge<10_000) View("","AMBER",now+10_000-lostAge) else null
+                        uncertainAt=now-lostAge;amberDeadline=uncertainAt+10_000
+                        if(lostAge>=10_000) hand=null
                     }
                 }
-                if(!snapshot.optBoolean("active")) hand=null
+                if(!snapshot.optBoolean("active")) { hand=null;uncertainAt=-1 }
+                if(nextTracking=="OWNED") uncertainAt=-1
                 if(nextTracking=="OWNED" && tracking!="OWNED" && hand?.color=="AMBER") {
                     hand=if(age<4000) View("","GREEN",now+4000-age) else null
                 }
@@ -56,6 +62,11 @@ internal class AirFeedbackView {
             }
         } else if(!initial && body.optLong("seq")>cursor) show(body.optString("event"),now)
         cursor=maxOf(cursor,body.optLong("seq"))
+    }
+    fun launchResult(app:String,result:String,now:Long) {
+        if(app !in AirApp.entries.map { it.name }) return
+        val text=when(result) { "ATTEMPTED" -> "$app launch requested";"MISSING" -> "$app not installed";"BLOCKED" -> "$app launch blocked by Android";else -> "$app launch failed" }
+        message=View(text,"WHITE",now+1800)
     }
     private fun show(event:String,now:Long) {
         val text=AirFeedbackDisplay.caption(event) ?: return

@@ -18,7 +18,9 @@ internal object AirRemoteTv {
     private val pairWorker = Executors.newSingleThreadExecutor()
     private val codes = ArrayBlockingQueue<String>(1)
     @Volatile var onSent: ((AirGestures.Command)->Unit)?=null
-    private val keys = ArrayBlockingQueue<Pair<AirGestures.Command, Long>>(1)
+    private val keys = AirKeyQueue()
+    fun timings()=keys.summary()
+    fun discardPending() { keys.clear();lastCommand="Pending commands discarded: calibration / navigation changed" }
     @Volatile private var wanted = false
     @Volatile private var pairing = false
     @Volatile private var generation = 0
@@ -33,6 +35,7 @@ internal object AirRemoteTv {
     private var discovery:AirTargetDiscovery?=null
     private var app: Context? = null
     private var loop: java.util.concurrent.ScheduledFuture<*>? = null
+    private var loopEpoch=0
     fun prefs(context: Context) = context.getSharedPreferences("air_remote", Context.MODE_PRIVATE)
     @Synchronized fun init(context: Context) {
         if (app != null) return
@@ -43,17 +46,24 @@ internal object AirRemoteTv {
     private fun now() = android.os.SystemClock.elapsedRealtime()
     @Synchronized fun connect(context: Context) {
         init(context); wanted = true
-        if (loop == null || loop!!.isCancelled) loop = worker.scheduleWithFixedDelay({
-            runCatching { tick() }.onFailure {
-                disconnect()
-                if (wanted) { lastFailure = "${it.javaClass.simpleName}: ${it.message ?: "connection failed"}"; status = "Failed · $lastFailure · retrying in 5 seconds" }
-                nextConnect = now() + 5000
-                if(wanted) discovery?.scan()
+        if (loop == null || loop!!.isCancelled) { val epoch=++loopEpoch;loop = worker.schedule({ runLoop(epoch) },0,TimeUnit.MILLISECONDS) }
+    }
+    private fun runLoop(epoch:Int) {
+        try {
+            tick()
+        } catch(e:Exception) {
+            disconnect()
+            if(wanted) { lastFailure="${e.javaClass.simpleName}: ${e.message ?: "connection failed"}";status="Failed · $lastFailure · retrying in 5 seconds";discovery?.scan() }
+            nextConnect=now()+5000
+        } finally {
+            synchronized(this) {
+                // Do not spin a fast scheduler when unpaired, TV is off, or reconnect is backing off.
+                if(wanted && epoch==loopEpoch) loop=worker.schedule({ runLoop(epoch) },if(connected) 10 else if(socket!=null) 20 else 500,TimeUnit.MILLISECONDS)
             }
-        }, 0, 100, TimeUnit.MILLISECONDS)
+        }
     }
     @Synchronized fun stop() {
-        generation++; wanted = false;discovery?.stop();candidates.clear(); loop?.cancel(false); loop = null; disconnect()
+        generation++;loopEpoch++; wanted = false;discovery?.stop();candidates.clear(); loop?.cancel(false); loop = null; disconnect()
         if (!pairing) status = "Disconnected"
     }
     fun retry(context: Context, address: String) {
@@ -65,7 +75,7 @@ internal object AirRemoteTv {
         connect(context)
     }
     private fun disconnect() { connected = false;
-        if (keys.isNotEmpty()) lastCommand = "${keys.peek()?.first} · discarded: connection closed"
+        lastCommand = "Pending commands discarded: connection closed"
         val old = socket; socket = null; runCatching { old?.close() }; keys.clear()
     }
     @Synchronized fun send(command: AirGestures.Command): String {
@@ -73,7 +83,7 @@ internal object AirRemoteTv {
         // Publish queued before offer: the worker may transmit immediately after offer succeeds.
         lastCommand = queued
         if (!connected) lastCommand = "$command · discarded: remote session not ready"
-        else if (keys.offer(command to now())) return queued
+        else if (keys.offer(command,now())) return queued
         else lastCommand = "$command · discarded: command queue busy"
         return lastCommand
     }
@@ -105,7 +115,7 @@ internal object AirRemoteTv {
         }
         session.checkDeadline(now())
         val input = s.inputStream
-        s.soTimeout = 100
+        s.soTimeout = 20
         val first = try { input.read() } catch (_: java.net.SocketTimeoutException) { -2 }
         if (first == -1) error("TV disconnected")
         if (first >= 0) {
@@ -119,13 +129,18 @@ internal object AirRemoteTv {
         }
         check(now() - lastPacket < 30_000) { "TV stopped responding" }
         session.checkDeadline(now())
-        keys.poll()?.let { (key, at) ->
-            if (connected && now() - at < 500) {
+        val droppedBefore=keys.dropped
+        val nextKey=keys.take(now())
+        if(keys.dropped>droppedBefore) lastCommand="Command discarded: queue expiry / capacity"
+        nextKey?.let { key ->
+            if (connected) {
                 try {
-                    AirWire.write(s.outputStream, session.key(key))
-                    lastCommand = "$key · transmitted (execution not confirmed)"; onSent?.invoke(key)
-                } catch (e: Exception) { lastCommand = "$key · transmission failed: ${e.message}"; throw e }
-            } else lastCommand = "$key · discarded: expired or disconnected"
+                    val begin=now()
+                    AirWire.write(s.outputStream, session.key(key.command))
+                    keys.sent(key,now(),now()-begin)
+                    lastCommand = "${key.command} · transmitted (execution not confirmed)"; onSent?.invoke(key.command)
+                } catch (e: Exception) { lastCommand = "${key.command} · transmission failed: ${e.message}"; throw e }
+            } else lastCommand = "${key.command} · discarded: disconnected"
         }
     }
     fun pair(context: Context, address: String) {

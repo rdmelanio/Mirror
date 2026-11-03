@@ -5,13 +5,23 @@ internal class AirDiagnostics(private val clock:()->Long={System.nanoTime()/1_00
     private val rows=java.util.ArrayDeque<Pair<Long,String>>()
     private var prior="";private var at=-1000L
     @Synchronized fun record(state:String,tracking:String,pose:String,score:Float,accepted:AirGestures.Command?,transport:String,fps:Double,ms:Double,thermal:String,detail:String="") {
-        val labels=setOf("None","Open_Palm","Closed_Fist","Thumb_Up","Thumb_Down","Victory","Pointing_Up","POINT_UP","POINT_DOWN","POINT_LEFT","POINT_RIGHT")
+        val labels=setOf("None","Open_Palm","Closed_Fist","Thumb_Up","Thumb_Down","Victory","Pointing_Up","POINT_UP","POINT_DOWN","POINT_LEFT","POINT_RIGHT","SHAKA","THREE_FINGERS")
         val safePose=if(pose in labels) pose else "unknown"
         fun safe(v:String)=v.takeIf { it.matches(Regex("[A-Za-z_ ]{1,48}")) } ?: "unknown"
         val text="${safe(state)} | ${safe(tracking)} | $safePose ${(score.coerceIn(0f,1f)*100).toInt()}% | accepted=${accepted?.name ?: "none"} | ${safe(transport)} | fps=${fps.toInt()} latency=${ms.toInt()}ms thermal=${safe(thermal)} | ${safe(detail)}"
         val now=clock();trim(now)
         if(text==prior && now-at<2000 || now-at<250) return
         rows.add(now to text);prior=text;at=now;while(rows.size>180) rows.removeFirst()
+    }
+    @Synchronized fun launch(app:AirApp,stage:String) {
+        if(stage !in setOf("accepted","queued","discarded","attempted","blocked","missing","expired","failed")) return
+        val now=clock();trim(now);rows.add(now to "App ${app.name} | $stage");while(rows.size>180) rows.removeFirst()
+    }
+    @Synchronized fun performance(stage:String,delegate:String,crop:Boolean,joystick:Boolean,age:Long,rgb:Long,model:Long,decision:Long) {
+        if(stage !in AirStage.entries.map { it.name } || delegate !in setOf("CPU","GPU")) return
+        val now=clock();trim(now)
+        rows.add(now to "$stage | $delegate | ${if(crop) "ROI" else "wide"} | ${if(joystick) "joystick" else "pointing"} | age=${age.coerceIn(0,60000)} RGB=${rgb.coerceIn(0,60000)} model=${model.coerceIn(0,60000)} decision=${decision.coerceIn(0,60000)}ms")
+        while(rows.size>180) rows.removeFirst()
     }
     private fun trim(now:Long) { while(rows.isNotEmpty() && now-rows.first.first>60_000) rows.removeFirst() }
     @Synchronized fun text():String { val now=clock();trim(now);return rows.joinToString("\n") { "${(now-it.first)/1000}s ago | ${it.second}" }.ifEmpty { "No recent diagnostics" } }
@@ -30,7 +40,8 @@ internal class AirDiagnostics(private val clock:()->Long={System.nanoTime()/1_00
             status.contains("transferred") -> "control transferred"
             status.contains("Claiming") -> "claim pending"
             status.contains("Disarmed") -> "explicit reset"
-            else -> "tracking active"
+            status.startsWith("Standby") -> "standby no controller"
+            else -> "session observation"
         }
     }
 

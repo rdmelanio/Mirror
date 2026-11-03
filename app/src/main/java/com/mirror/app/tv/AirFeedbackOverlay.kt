@@ -79,6 +79,7 @@ internal class AirFeedbackOverlay(private val service:android.content.Context) {
     companion object {
         @Volatile var windowRejected=false
         private var activity:WeakReference<Activity>?=null
+        fun foreground()=activity?.get()?.let { !it.isFinishing && it.hasWindowFocus() }==true
         fun attach(value:Activity) { activity=WeakReference(value) }
         fun detach(value:Activity) { if(activity?.get()===value) activity=null }
     }

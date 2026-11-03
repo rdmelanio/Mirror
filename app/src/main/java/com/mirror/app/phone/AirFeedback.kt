@@ -16,6 +16,7 @@ internal object AirFeedbackAuth {
     fun valid(key: String, body: String, mac: String) = runCatching {
         MessageDigest.isEqual(sign(key,body).toByteArray(Charsets.US_ASCII),mac.toByteArray(Charsets.US_ASCII))
     }.getOrDefault(false)
+    fun requestV3(nonce:String,after:Long,revision:Long,ack:String)="air-feedback-v3:$nonce:$after:$revision:apps-v1:$ack"
     fun requestV2(nonce:String,after:Long,revision:Long)="air-feedback-v2:$nonce:$after:$revision"
     fun request(nonce: String, after: Long) = "air-feedback-v1:$nonce:$after"
 }
@@ -48,6 +49,7 @@ internal class AirFeedbackEvents(private val now: () -> Long = { System.nanoTime
             .put("snapshot",JSONObject(state.toString()).put("revision",revision).put("ageMs",now()-updated)
                 .put("interactionAgeMs",now()-activityAt).put("trackingAgeMs",now()-trackingAt)).toString()
     }
+    fun wake() { synchronized(lock) { revision++;updated=now();lock.notifyAll() } }
     fun close() { synchronized(lock) { closed=true;lock.notifyAll() } }
 }
 

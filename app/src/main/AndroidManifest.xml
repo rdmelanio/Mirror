@@ -23,6 +23,12 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <queries>
+        <package android:name="com.google.android.youtube.tv" />
+        <package android:name="com.netflix.ninja" />
+        <package android:name="com.stremio.one" />
+        <package android:name="com.stremio.two" />
+    </queries>
     <application android:label="@string/app_name" android:icon="@drawable/ic_mirror"
         android:banner="@drawable/tv_banner" android:theme="@style/AppTheme"
         android:allowBackup="false" android:supportsRtl="true" android:usesCleartextTraffic="true">

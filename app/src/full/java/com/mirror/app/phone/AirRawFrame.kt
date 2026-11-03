@@ -22,13 +22,15 @@ internal class AirRawFrame {
         YuvPlanes.copy(v.buffer,v.rowStride,v.pixelStride,left/2,top/2,width/2,height/2,yuv,width*height,2,scratch)
         YuvPlanes.copy(u.buffer,u.rowStride,u.pixelStride,left/2,top/2,width/2,height/2,yuv,width*height+1,2,scratch)
     }
-    fun image(maxSide:Int,bitmapCompatibility:Boolean=false):MPImage {
-        val (w,h)=AirPixels.dimensions(width,height,rotation,maxSide)
-        if(pixels.size!=w*h) { pixels=IntArray(w*h);buffer=ByteBuffer.allocateDirect(w*h*3) }
-        AirPixels.convert(yuv,width,height,rotation,w,h,pixels)
+    fun image(maxSide:Int,bitmapCompatibility:Boolean=false,roi:AirRoi=AirRoi.FULL):MPImage {
+        val uprightW=if(rotation%180==0) width else height
+        val uprightH=if(rotation%180==0) height else width
+        val (w,h)=AirPixels.dimensions(maxOf(1,(uprightW*roi.width).toInt()),maxOf(1,(uprightH*roi.height).toInt()),0,maxSide)
+        if(pixels.size<w*h) { val capacity=maxOf(w*h,maxSide*maxSide);pixels=IntArray(capacity);buffer=ByteBuffer.allocateDirect(capacity*3) }
+        AirPixels.convert(yuv,width,height,rotation,w,h,pixels,roi)
         if(bitmapCompatibility) return com.google.mediapipe.framework.image.BitmapImageBuilder(
             android.graphics.Bitmap.createBitmap(pixels,w,h,android.graphics.Bitmap.Config.ARGB_8888)).build()
-        AirPixels.pack(pixels,buffer!!)
+        AirPixels.pack(pixels,buffer!!,w*h)
         return wrap(buffer!!,w,h)
     }
     fun close() { buffer=null;yuv=ByteArray(0);pixels=IntArray(0);scratch=ByteArray(0) }

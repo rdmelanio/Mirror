@@ -1,11 +1,13 @@
 package com.mirror.app.phone
 
 /** Production boundary shared by camera inference and sequence regression tests. */
-internal class AirControlSession(private val onClaim:()->Unit={},private val send:(AirGestures.Command)->Unit={},private val household:Boolean=false) {
+internal class AirControlSession(private val onClaim:()->Unit={},private val send:(AirGestures.Command)->Unit={},private val household:Boolean=false,private val launch:(AirApp)->Unit={}) {
     val gestures=AirGestures()
     val ownership=AirOwnership()
     val pointing=AirPointCommands()
-    private val home=AirHousehold(gestures,pointing,onClaim,send)
+    private val home=AirHousehold(gestures,pointing,onClaim,send,launch)
+    val trackedHand get()=home.trackedHand
+    val acceptedApp get()=home.acceptedApp
     val diagnosticPose get()=if(household) home.currentPose else "None"
     val diagnosticScore get()=if(household) home.currentScore else 0f
     val sessionActive get()=if(household) home.active else gestures.armed
@@ -27,9 +29,10 @@ internal class AirControlSession(private val onClaim:()->Unit={},private val sen
     var awaitingRelease=false;private set
     private var calibrationWas=false
     fun reset() { if(household) home.reset();lastActivityAt=-1;awaitingRelease=false;gestures.reset();ownership.reset();pointing.reset();status="Disarmed";accepted=null }
-    fun update(now:Long,hands:List<AirOwnership.Hand>,connected:Boolean,calibration:Boolean,intervalMs:Long,confidence:Float,sensitivity:Int,legacy:Boolean=true,holdMs:Long=400,timeoutMs:Long=60_000) {
+    fun update(now:Long,hands:List<AirOwnership.Hand>,connected:Boolean,calibration:Boolean,intervalMs:Long,confidence:Float,sensitivity:Int,legacy:Boolean=true,holdMs:Long=400,timeoutMs:Long=60_000,navigation:AirNavigation=AirNavigation.POINTING,joystickSensitivity:Int=50,apps:Set<AirApp> = emptySet(),appSupported:Boolean=false) {
         if(household) {
             if(legacyWas!=legacy || calibrationWas!=calibration) { home.reset("mode changed");legacyWas=legacy;calibrationWas=calibration }
+            home.navigation=navigation;home.joystickSensitivity=joystickSensitivity;home.apps=apps;home.appSupported=appSupported
             home.timeoutMs=timeoutMs.takeIf { it in listOf(30_000L,60_000L,120_000L,300_000L) } ?: 60_000L
             home.update(now,hands,connected,calibration,confidence,sensitivity,legacy,holdMs);syncHome();return
         }

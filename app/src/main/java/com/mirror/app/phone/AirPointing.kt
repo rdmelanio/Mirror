@@ -19,7 +19,7 @@ internal object AirPointing {
     private fun inspect(p:List<Point>,mirrored:Boolean,relaxed:Boolean):String? {
         if(p.size!=21 || p.any { !it.x.isFinite() || !it.y.isFinite() }) return null
         fun d(a:Int,b:Int)=hypot(p[a].x-p[b].x,p[a].y-p[b].y)
-        val size=d(0,9);if(size<.015f) return null
+        val size=d(0,9);if(size<.003f) return null
         fun extended(mcp:Int,pip:Int,tip:Int):Boolean {
             val ax=p[pip].x-p[mcp].x;val ay=p[pip].y-p[mcp].y
             val bx=p[tip].x-p[pip].x;val by=p[tip].y-p[pip].y
@@ -80,14 +80,14 @@ internal class AirPointCommands {
         }
         if(command!=null && samples>=2 && now-since>=200 && stablePose!=pose) { stablePose=pose;activityAt=now;activityStartedAt=since }
         pending=command!=null && pose!=latched
-        val dwell=if(pose=="Victory") maxOf(800L,holdMs) else holdMs.coerceIn(250,1200)
+        val dwell=when(pose) { "Victory" -> maxOf(800L,holdMs);"Thumb_Up","Thumb_Down" -> 300L;else -> holdMs.coerceIn(250,1200) }
         reason=when {
             released -> "Gesture released · ready"
             command==null -> if(latched.isEmpty()) "Gesture released · ready" else "Classification / neutral uncertain · waiting for deliberate release evidence"
             pose==latched -> "Gesture held · waiting for release"
             else -> "$pose detected · waiting for pose stability ${(now-since).coerceAtLeast(0)}/$dwell ms"
         }
-        if(command!=null && pose!=latched && samples>=2 && now-since>=dwell && now-last>=650) {
+        if(command!=null && pose!=latched && samples>=2 && now-since>=dwell && now-last>=250) {
             latched=pose;releaseAt=-1;releaseSamples=0;last=now;pending=false;reason="Command accepted · $command";return command
         }
         return null
