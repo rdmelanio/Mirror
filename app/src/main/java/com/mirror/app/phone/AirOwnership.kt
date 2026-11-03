@@ -4,29 +4,34 @@ import kotlin.math.*
 
 /** Position/scale association only; never an identity or a biometric identifier. */
 internal class AirOwnership {
+    var graceMs=1400L
+    private var missing=false
     var minimumConfidence = .65f
     var progressMs = 0L; private set
     data class Hand(val x: Float, val y: Float, val size: Float, val gesture: String, val confidence: Float)
-    data class Selection(val hand: Hand?, val claimed: Boolean = false, val lost: Boolean = false, val ambiguous: Boolean = false)
+    data class Selection(val hand: Hand?, val claimed: Boolean = false, val lost: Boolean = false, val ambiguous: Boolean = false, val paused: Boolean = false, val recovered: Boolean = false)
     private data class Candidate(var hand: Hand, var since: Long, var anchorX: Float, var anchorY: Float, val evidence: MutableList<Pair<Long, Boolean>> = mutableListOf(), var lastGood: Long = since)
     private var candidates = mutableListOf<Candidate>()
     private var owner: Hand? = null
     private var lastSeen = -1L
     private var ambiguousSince = -1L
     var claimed = false; private set
-    fun reset() { progressMs=0; candidates.clear(); owner = null; claimed = false; lastSeen = -1; ambiguousSince = -1 }
+    fun reset() { missing=false;progressMs=0; candidates.clear(); owner = null; claimed = false; lastSeen = -1; ambiguousSince = -1 }
     private fun distance(a: Hand, b: Hand) = hypot(a.x - b.x, a.y - b.y)
     private fun matches(a: Hand, b: Hand, seconds: Float): Boolean =
-        distance(a,b) <= minOf(.32f, .07f + a.size * .5f + seconds * 1.2f) &&
-            b.size / a.size.coerceAtLeast(.02f) in .55f..1.8f
+        distance(a,b) <= minOf(.32f, .08f + a.size * .5f + seconds * 1.2f) &&
+            b.size / a.size.coerceAtLeast(.02f) in .2f..3.5f
     fun update(now: Long, hands: List<Hand>): Selection {
         val valid = hands.filter { it.x.isFinite() && it.y.isFinite() && it.size.isFinite() && it.size >= .02f }
         val gap = if (lastSeen < 0) 0 else now-lastSeen
         if (claimed) {
-            if (gap > 1400) { reset(); return Selection(null,lost=true) }
+            if (gap > graceMs) { reset(); return Selection(null,lost=true) }
             val before = owner!!
             val nearby = valid.filter { matches(before,it,gap/1000f) }
-            if (nearby.isEmpty()) { reset(); return Selection(null,lost=true) }
+            if (nearby.isEmpty()) {
+                if(valid.isNotEmpty()) { reset();return Selection(null,lost=true) }
+                missing=true;return Selection(null,paused=true)
+            }
             // Nearby crossing hands cannot be assigned safely. Freeze until separated; never reassign on loss.
             if (nearby.size != 1 || valid.any { it !== nearby[0] && distance(it,nearby[0]) < .12f }) {
                 if (ambiguousSince < 0) ambiguousSince = now
@@ -34,10 +39,11 @@ internal class AirOwnership {
                 return Selection(null,ambiguous=true)
             }
             if (ambiguousSince >= 0) { reset(); return Selection(null,lost=true) }
+            val recovered=missing;missing=false
             owner = nearby[0]; lastSeen = now
-            return Selection(owner)
+            return Selection(owner,recovered=recovered)
         }
-        if (gap > 1400) candidates.clear()
+        if (gap > graceMs) candidates.clear()
         val palms = valid // Associate landmarks even when the classifier briefly loses the palm label.
         val next = mutableListOf<Candidate>()
         for (hand in palms) {

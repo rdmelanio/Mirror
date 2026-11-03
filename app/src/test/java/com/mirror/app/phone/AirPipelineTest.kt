@@ -30,7 +30,8 @@ class AirPipelineTest {
                     .5f+when(expected) { AirGestures.Command.DOWN -> delta;AirGestures.Command.UP -> -delta;else -> 0f })
             }
             assertEquals(listOf(expected),sent)
-            val lost=owner.update(3400,emptyList());assertTrue(lost.lost);g.reset();assertFalse(g.armed)
+            val lost=owner.update(3400,emptyList());assertTrue(lost.paused);assertTrue(g.armed)
+            assertTrue(owner.update(5000,emptyList()).lost);g.reset();assertFalse(g.armed)
         }
     }
 }

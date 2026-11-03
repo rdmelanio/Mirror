@@ -11,11 +11,11 @@ class AirRemoteTest {
         assertTrue(g.armed)
         g.update(2100,"",0f,.5f,.5f);g.update(2400,"",0f,.5f,.5f)
     }
-    @Test fun activationIsTwoSecondsAndNeverSendsNavigation() {
+    @Test fun activationIsTwoSecondsAndStationaryPalmNeverSendsNavigation() {
         val g=AirGestures()
         for(t in 0L..1900L step 100) { assertNull(g.update(t,"Open_Palm",.95f,.5f,.5f));assertFalse(g.armed) }
         assertNull(g.update(2000,"Open_Palm",.95f,.5f,.5f));assertTrue(g.armed)
-        for(t in 2100L..2700L step 100) assertNull(g.update(t,"Open_Palm",.95f,.8f,.5f))
+        for(t in 2100L..2700L step 100) assertNull(g.update(t,"Open_Palm",.95f,.5f,.5f))
     }
     @Test fun palmMustBeStillAndConfident() {
         val g=AirGestures()

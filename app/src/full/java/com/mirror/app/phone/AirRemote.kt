@@ -20,8 +20,11 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
     private var observedFps = 0.0
     @Volatile private var closed = false
     private var recognizer: GestureRecognizer? = null
-    private val gestures = AirGestures()
-    private val ownership = AirOwnership()
+    private val session = AirControlSession(
+        { if(!calibration) feedback?.post("ACTIVE") },
+        { if(!calibration) AirRemoteTv.send(it) })
+    private val gestures get() = session.gestures
+    private val ownership get() = session.ownership
     private val rate = AirInferenceRate()
     @Volatile private var armedMode=false
     @Volatile private var intervalMs=333L
@@ -33,7 +36,6 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
     }
     private fun healthMessage():String=health.lastError
     private var wasEnabled = false
-    private var calibrationWas=false
     init { AirRemoteTv.init(context) }
     fun needsFrame(): Boolean = !closed && enabled(context) && !busy.get() && health.ready(SystemClock.elapsedRealtime()) && SystemClock.elapsedRealtime()-lastFrame>=intervalMs
     @Synchronized fun offer(jpeg: ByteArray) {
@@ -55,6 +57,7 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                         .setMinHandDetectionConfidence(.65f).setMinHandPresenceConfidence(.65f).setMinTrackingConfidence(.65f).build())
                 } catch(e:IllegalArgumentException) { throw AirModelUnavailable(e) }
                 inferenceState="Model ready · processing"
+                val decodeStart=SystemClock.elapsedRealtime()
                 val decoded = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply { inSampleSize = 4 }) ?: throw IllegalArgumentException("Camera JPEG could not be decoded")
                 try {
                 val scale = minOf(1f, 320f / maxOf(decoded.width, decoded.height))
@@ -62,6 +65,7 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                 try {
                     val image = BitmapImageBuilder(bitmap).build()
                     try {
+                        val recognizeStart=SystemClock.elapsedRealtime()
                         val result = recognizer!!.recognizeForVideo(image, now)
                         if (closed || !enabled(context) || SystemClock.elapsedRealtime() - now > 1200) {
                             gestures.reset();ownership.reset();armedMode=false
@@ -77,11 +81,7 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                         detectedGesture=names.joinToString { "${it.categoryName()} ${ (it.score()*100).toInt()}%" }.ifEmpty { "None" }
                         val prefs=AirRemoteTv.prefs(context)
                         val calibrating=calibration
-                        if(calibrationWas!=calibrating) { gestures.reset();ownership.reset();armedMode=false;calibrationWas=calibrating }
                         val confidence=AirConfidence.fraction(prefs.getInt("confidence",65))
-                        gestures.minimumConfidence=confidence;ownership.minimumConfidence=confidence
-                        gestures.sensitivity=prefs.getInt("sensitivity",50)
-                        if(!AirRemoteTv.connected && !calibrating) { gestures.reset();ownership.reset();armedMode=false }
                         val hands=result.landmarks().mapIndexed { index, hand ->
                             val category=result.gestures().getOrNull(index)?.maxByOrNull { it.score() }
                             val palm=listOf(0,5,9,13,17).map { hand[it] }
@@ -91,30 +91,12 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                             val size=kotlin.math.hypot(hand[0].x()-hand[9].x(),hand[0].y()-hand[9].y())
                             AirOwnership.Hand(x,y,size,category?.categoryName().orEmpty(),category?.score() ?: 0f)
                         }
-                        if(AirRemoteTv.connected || calibrating) {
-                            val selection=ownership.update(now,hands)
-                            when {
-                                selection.lost -> { gestures.reset();armedMode=false }
-                                selection.ambiguous -> gestures.pause(now)
-                                selection.claimed -> {
-                                    val hand=selection.hand!!;gestures.claim(now,hand.x,hand.y)
-                                    armedMode=true;if(!calibrating && !calibration) feedback?.post("ACTIVE")
-                                }
-                                selection.hand!=null -> {
-                                    val hand=selection.hand
-                                    val command=gestures.update(now,hand.gesture,hand.confidence,hand.x,hand.y,hand.size)
-                                    if(!gestures.armed) { ownership.reset();armedMode=false }
-                                    else command?.let { intendedCommand=it.name; if(!calibrating && !calibration) AirRemoteTv.send(it) }
-                                }
-                            }
-                        }
+                        session.update(now,hands,AirRemoteTv.connected,calibrating,intervalMs,confidence,prefs.getInt("sensitivity",50))
+                        armedMode=gestures.armed && ownership.claimed
+                        session.accepted?.let { intendedCommand=it.name }
                         calibrationDetail="${gestures.movement}\nIntended command: $intendedCommand · ${if(calibrating) "CALIBRATION: no transmission" else "live"}"
-                        inferenceState="Model ready · %.1f fps · %d ms".format(java.util.Locale.US,observedFps,completed-inferenceStart)
-                        recognition=when {
-                            !AirRemoteTv.connected && !calibrating -> "Waiting for TV · standby"
-                            armedMode -> "ACTIVE · Hand tracked"
-                            else -> AirRecognitionStatus.claiming(detectedGesture,ownership.progressMs)
-                        } + " · ${rate.latencyMs.toInt()} ms · ${1000/intervalMs} fps"
+                        inferenceState="Model ready · %.1f fps · %d ms (decode/resize %d · inference %d)".format(java.util.Locale.US,observedFps,completed-inferenceStart,recognizeStart-decodeStart,completed-recognizeStart)
+                        recognition=session.status + " · %d ms · %.1f fps".format(java.util.Locale.US,rate.latencyMs.toInt(),observedFps)
 
                     } finally { image.close() }
                 } finally { if(bitmap !== decoded) bitmap.recycle() }
