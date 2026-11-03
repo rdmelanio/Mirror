@@ -10,7 +10,7 @@ internal class AirSession {
             1 in message -> {
                 features = AirWire.value(AirWire.fields(message.getValue(1))[1]) and 3
                 check(features and 2 != 0) { "TV does not support remote keys" }
-                val info = AirWire.number(3, 1) + AirWire.text(4, "1") + AirWire.text(5, "com.mirror.app") + AirWire.text(6, "1.12.0")
+                val info = AirWire.number(3, 1) + AirWire.text(4, "1") + AirWire.text(5, "com.mirror.app") + AirWire.text(6, "1.12.1")
                 AirWire.bytes(1, AirWire.number(1, features) + AirWire.bytes(2, info))
             }
             2 in message -> AirWire.bytes(2, AirWire.number(1, features))

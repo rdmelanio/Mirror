@@ -17,16 +17,23 @@ internal class AirGestures {
     private var latched = false
     private var firedGesture = ""
     fun reset() { armed = false; candidate = ""; latched = false; firedGesture = ""; lastSeen = -1 }
+    fun claim(now: Long, x: Float, y: Float) {
+        reset(); armed = true; lastMotion = now; lastSeen = now; candidate = "Open_Palm"
+        originX=x;originY=y;since=now;lastAction=now
+        // Activation is not a swipe. Require a deliberate release/change before accepting a command.
+        latched=true;firedGesture="Open_Palm"
+    }
+    fun pause(now: Long) { candidate="";since=now;latched=true;firedGesture="";lastSeen=now }
     fun update(now: Long, gesture: String, confidence: Float, x: Float, y: Float): Command? {
-        if (armed && now - lastMotion >= 15_000) reset()
-        if (lastSeen >= 0 && now - lastSeen > 500) reset()
+        if (armed && now - lastMotion >= 30_000) reset()
+        if (lastSeen >= 0 && now - lastSeen > 800) reset()
         lastSeen = now
         val name = if (confidence >= .75f && x.isFinite() && y.isFinite()) gesture else ""
         if (name != candidate) { candidate = name; since = now; originX = x; originY = y }
         if (!armed) {
             if (name == "Open_Palm") {
                 if (abs(x - originX) > .07f || abs(y - originY) > .07f) { since = now; originX = x; originY = y }
-                if (now - since >= 900) { armed = true; lastMotion = now; originX = x; originY = y; since = now }
+                if (now - since >= 2000) { claim(now, x, y) }
             }
             return null
         }

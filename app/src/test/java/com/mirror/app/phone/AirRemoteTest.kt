@@ -6,40 +6,51 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 
 class AirRemoteTest {
-    private fun armed(): AirGestures = AirGestures().also { g -> for (t in 0L..900L step 100) g.update(t, "Open_Palm", .95f, .5f, .5f); assertTrue(g.armed) }
+    private fun armed(): AirGestures = AirGestures().also { g ->
+        for(t in 0L..2000L step 100) assertNull(g.update(t,"Open_Palm",.95f,.5f,.5f))
+        assertTrue(g.armed)
+        g.update(2100,"",0f,.5f,.5f);g.update(2400,"",0f,.5f,.5f)
+    }
+    @Test fun activationIsTwoSecondsAndNeverSendsNavigation() {
+        val g=AirGestures()
+        for(t in 0L..1900L step 100) { assertNull(g.update(t,"Open_Palm",.95f,.5f,.5f));assertFalse(g.armed) }
+        assertNull(g.update(2000,"Open_Palm",.95f,.5f,.5f));assertTrue(g.armed)
+        for(t in 2100L..2700L step 100) assertNull(g.update(t,"Open_Palm",.95f,.8f,.5f))
+    }
     @Test fun palmMustBeStillAndConfident() {
-        val g = AirGestures()
-        for (t in 0L..2000L step 100) g.update(t, "Open_Palm", .6f, .5f, .5f)
+        val g=AirGestures()
+        for(t in 0L..3000L step 100) g.update(t,"Open_Palm",.6f,.5f,.5f)
         assertFalse(g.armed)
-        for (t in 2100L..4100L step 100) g.update(t, "Open_Palm", .9f, if (t % 200 == 0L) .2f else .8f, .5f)
+        for(t in 3100L..6100L step 100) g.update(t,"Open_Palm",.9f,if(t%200==0L) .2f else .8f,.5f)
         assertFalse(g.armed)
     }
     @Test fun allDirectionsAndSingleSwipe() {
-        listOf(Triple(.8f,.5f,AirGestures.Command.RIGHT), Triple(.2f,.5f,AirGestures.Command.LEFT), Triple(.5f,.2f,AirGestures.Command.UP), Triple(.5f,.8f,AirGestures.Command.DOWN)).forEach { (x,y,key) ->
-            val g=armed(); assertEquals(key,g.update(1100,"Open_Palm",.9f,x,y))
-            for(t in 1200L..2200L step 100) assertNull(g.update(t,"Open_Palm",.9f,x,y))
+        listOf(Triple(.8f,.5f,AirGestures.Command.RIGHT),Triple(.2f,.5f,AirGestures.Command.LEFT),Triple(.5f,.2f,AirGestures.Command.UP),Triple(.5f,.8f,AirGestures.Command.DOWN)).forEach { (x,y,key) ->
+            val g=armed();g.update(2700,"Open_Palm",.9f,.5f,.5f)
+            assertEquals(key,g.update(3000,"Open_Palm",.9f,x,y))
+            for(t in 3100L..4100L step 100) assertNull(g.update(t,"Open_Palm",.9f,x,y))
         }
     }
     @Test fun staticGesturesDebounceLatchAndCooldown() {
-        for ((name,key) in listOf("Closed_Fist" to AirGestures.Command.OK,"Victory" to AirGestures.Command.BACK,"Thumb_Up" to AirGestures.Command.HOME)) {
-            val g=armed(); assertNull(g.update(1000,name,.9f,.5f,.5f)); assertNull(g.update(1200,name,.9f,.5f,.5f))
-            assertEquals(key,g.update(1300,name,.9f,.5f,.5f))
-            for(t in 1400L..2400L step 100) assertNull(g.update(t,name,.9f,.5f,.5f))
-            g.update(2500,"",0f,0f,0f); g.update(2800,"",0f,0f,0f); g.update(2900,name,.9f,.5f,.5f)
-            assertEquals(key,g.update(3200,name,.9f,.5f,.5f))
+        for((name,key) in listOf("Closed_Fist" to AirGestures.Command.OK,"Victory" to AirGestures.Command.BACK,"Thumb_Up" to AirGestures.Command.HOME)) {
+            val g=armed();assertNull(g.update(2700,name,.9f,.5f,.5f));assertNull(g.update(2900,name,.9f,.5f,.5f))
+            assertEquals(key,g.update(3000,name,.9f,.5f,.5f))
+            for(t in 3100L..4100L step 100) assertNull(g.update(t,name,.9f,.5f,.5f))
+            g.update(4200,"",0f,0f,0f);g.update(4500,"",0f,0f,0f);g.update(4600,name,.9f,.5f,.5f)
+            assertEquals(key,g.update(4900,name,.9f,.5f,.5f))
         }
     }
     @Test fun oneBadFrameDoesNotRepeatHeldGesture() {
-        val g=armed(); g.update(1000,"Closed_Fist",.9f,.5f,.5f)
-        assertEquals(AirGestures.Command.OK,g.update(1300,"Closed_Fist",.9f,.5f,.5f))
-        for(t in 1400L..1900L step 100) assertNull(g.update(t,"Closed_Fist",.9f,.5f,.5f))
-        g.update(2000,"",0f,0f,0f)
-        g.update(2100,"Closed_Fist",.9f,.5f,.5f)
-        assertNull(g.update(2500,"Closed_Fist",.9f,.5f,.5f))
+        val g=armed();g.update(2700,"Closed_Fist",.9f,.5f,.5f)
+        assertEquals(AirGestures.Command.OK,g.update(3000,"Closed_Fist",.9f,.5f,.5f))
+        for(t in 3100L..3700L step 100) assertNull(g.update(t,"Closed_Fist",.9f,.5f,.5f))
+        g.update(3800,"",0f,0f,0f);g.update(3900,"Closed_Fist",.9f,.5f,.5f)
+        assertNull(g.update(4200,"Closed_Fist",.9f,.5f,.5f))
     }
     @Test fun inactivityAndLostFramesRequireRearming() {
-        val g=armed(); assertNull(g.update(16000,"Closed_Fist",.9f,.5f,.5f)); assertFalse(g.armed)
-        val h=AirGestures(); h.update(0,"Open_Palm",.9f,.5f,.5f); h.update(1000,"Open_Palm",.9f,.5f,.5f); assertFalse(h.armed)
+        val g=armed();for(t in 2600L..31_600L step 400) g.update(t,"",0f,0f,0f)
+        assertTrue(g.armed);assertNull(g.update(32_000,"Closed_Fist",.9f,.5f,.5f));assertFalse(g.armed)
+        val h=AirGestures();h.update(0,"Open_Palm",.9f,.5f,.5f);h.update(1000,"Open_Palm",.9f,.5f,.5f);assertFalse(h.armed)
     }
     @Test fun commandWireAndPairingEnvelope() {
         for(key in AirGestures.Command.entries) {

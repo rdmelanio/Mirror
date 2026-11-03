@@ -57,13 +57,16 @@ class CameraService : LifecycleService() {
     private var idleSince = 0L
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var airRemote: AirRemote? = null
+    private var nextAirCameraAttempt=0L
     private val standby get() = !AirRemote.enabled(this) && mirrorPreferences().getBoolean("standby", true) && !standbyFallback
     private val maintenance = object : Runnable {
         override fun run() {
             if (destroyed) return
             reconcileWifi()
             airRemote?.refresh()
-            if (AirRemote.enabled(this@CameraService) && boundAddress != null && !cameraRunning) startCamera()
+            if (AirRemote.enabled(this@CameraService) && boundAddress != null && !cameraRunning && android.os.SystemClock.elapsedRealtime()>=nextAirCameraAttempt) {
+                nextAirCameraAttempt=android.os.SystemClock.elapsedRealtime()+15_000;startCamera()
+            }
             val viewers = server?.viewerNames().orEmpty()
             if (viewers.isEmpty()) {
                 if (idleSince == 0L) idleSince = android.os.SystemClock.elapsedRealtime()
@@ -176,6 +179,7 @@ class CameraService : LifecycleService() {
                     analysis.setAnalyzer(analyzer) { image ->
                         try {
                             if (!destroyed && cameraEpoch == epoch) {
+                                if (AirRemote.enabled(this@CameraService) && server?.viewerNames()?.isEmpty()==true && airRemote?.needsFrame()!=true) return@setAnalyzer
                                 val start = System.nanoTime()
                                 val jpeg = encoder.encode(image, quality, streamOrientation)
                                 stats.rotationDegrees = 0
@@ -191,7 +195,7 @@ class CameraService : LifecycleService() {
                     server?.controls = CameraControls(this, camera, capture)
                     cameraRunning = true; opening = false
                     camera.cameraInfo.cameraState.observe(this) { state ->
-                        if (cameraEpoch == epoch && state.error != null && server?.viewerNames()?.isNotEmpty() == true) {
+                        if (cameraEpoch == epoch && state.error != null && (server?.viewerNames()?.isNotEmpty() == true || AirRemote.enabled(this@CameraService))) {
                             standbyFailed(); stopCamera()
                         }
                     }

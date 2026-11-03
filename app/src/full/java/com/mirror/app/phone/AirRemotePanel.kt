@@ -18,7 +18,7 @@ internal class AirRemotePanel(private val activity: ComponentActivity, content: 
         AirRemoteTv.init(activity)
         val p = AirRemoteTv.prefs(activity)
         content.addView(activity.label("AIR REMOTE", 23f))
-        content.addView(activity.label("Hold an open palm still for one second to arm. Swipe with your palm for directions; fist = OK, victory = Back, thumb up = Home. Release each gesture before repeating. Disarms after 15 seconds without a command. Uses the running camera even outside Mirror on TV."))
+        content.addView(activity.label("Hold an open palm still for two seconds to claim control, then relax your hand briefly before gesturing. Swipe with your palm for directions; fist = OK, victory = Back, thumb up = Home. Release each gesture before repeating. Tracks that hand only; pauses for ambiguity and disarms on loss or 30 seconds without a command. Standby ~3 fps, active ~12 fps, adapted for performance. Uses the running camera even outside Mirror on TV."))
         val enable = PhoneTheme.switch(activity).apply { text = "Enable Air Remote"; isChecked = AirRemote.enabled(activity) }
         enable.setOnCheckedChangeListener { _, checked ->
             if (checked && activity.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -58,7 +58,7 @@ internal class AirRemotePanel(private val activity: ComponentActivity, content: 
         })
         content.addView(PhoneTheme.switch(activity).apply { text = "Mirror horizontal gestures (viewer-facing camera)"; isChecked = p.getBoolean("mirror", true); setOnCheckedChangeListener { _, value -> p.edit().putBoolean("mirror", value).apply() } })
         content.addView(state)
-        content.addView(activity.label("Requires Android TV Remote Service and the same Wi-Fi. Pairing is separate from TV launch / ADB. Start the camera from the phone after reboot. No automatic camera start at boot."))
+        content.addView(activity.label("Requires Android TV Remote Service and the same Wi-Fi. Pairing is separate from TV launch / ADB. Opening Mirror Clock starts the enabled camera service while the phone UI is visible. After reboot or force-stop, reopen Mirror Clock once; Android may require foreground access. On TV, enable Temporary Air Remote feedback in Quick Menu and allow overlays once. Feedback requires the existing phone-camera pairing and shows transmission, not proof of TV execution."))
     }
     fun start() { handler.removeCallbacks(refresh); refresh.run() }
     fun stop() { handler.removeCallbacks(refresh) }

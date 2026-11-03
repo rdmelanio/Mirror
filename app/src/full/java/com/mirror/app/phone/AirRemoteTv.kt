@@ -18,6 +18,7 @@ internal object AirRemoteTv {
     private val worker = Executors.newSingleThreadScheduledExecutor()
     private val pairWorker = Executors.newSingleThreadExecutor()
     private val codes = ArrayBlockingQueue<String>(1)
+    @Volatile var onSent: ((AirGestures.Command)->Unit)?=null
     private val keys = ArrayBlockingQueue<Pair<AirGestures.Command, Long>>(1)
     @Volatile private var wanted = false
     @Volatile private var pairing = false
@@ -26,12 +27,15 @@ internal object AirRemoteTv {
     private var nextConnect = 0L
     private var lastPacket = 0L
     private var session = AirSession()
+    private val candidates=java.util.concurrent.ConcurrentLinkedQueue<String>()
+    private var discovery:AirTargetDiscovery?=null
     private var app: Context? = null
     private var loop: java.util.concurrent.ScheduledFuture<*>? = null
     fun prefs(context: Context) = context.getSharedPreferences("air_remote", Context.MODE_PRIVATE)
     @Synchronized fun init(context: Context) {
         if (app != null) return
         app = context.applicationContext
+        discovery=AirTargetDiscovery(context.applicationContext) { host -> if(wanted && candidates.size<4 && host !in candidates) candidates.offer(host) }
     }
     private fun now() = android.os.SystemClock.elapsedRealtime()
     @Synchronized fun connect(context: Context) {
@@ -41,11 +45,12 @@ internal object AirRemoteTv {
                 disconnect()
                 if (wanted) status = "TV connection: ${it.message ?: "failed"}. Check Wi-Fi / pair again."
                 nextConnect = now() + 5000
+                if(wanted) discovery?.scan()
             }
         }, 0, 100, TimeUnit.MILLISECONDS)
     }
     @Synchronized fun stop() {
-        generation++; wanted = false; loop?.cancel(false); loop = null; keys.clear(); disconnect()
+        generation++; wanted = false;discovery?.stop();candidates.clear(); loop?.cancel(false); loop = null; keys.clear(); disconnect()
         if (!pairing) status = "Disconnected"
     }
     private fun disconnect() { connected = false; val old = socket; socket = null; runCatching { old?.close() }; keys.clear() }
@@ -82,8 +87,11 @@ internal object AirRemoteTv {
             nextConnect = now() + 5000
             val p = prefs(context); val pin = p.getString("pin", null) ?: run { status = "Pair TV first"; return }
             status = "Connecting…"
-            s = tls(context, p.getString("host", "").orEmpty(), 6466, pin)
+            val host=candidates.poll() ?: p.getString("host", "").orEmpty()
+            s = tls(context, host, 6466, pin)
             if (!wanted || pairing) { s.close(); return }
+            p.edit().putString("host",host).apply()
+            discovery?.stop();candidates.clear()
             socket = s; lastPacket = now(); session = AirSession(); status = "Negotiating remote…"
         }
         val input = s.inputStream
@@ -99,12 +107,12 @@ internal object AirRemoteTv {
             if (connected) status = "Connected · Android TV Remote"
         }
         check(now() - lastPacket < 30_000) { "TV stopped responding" }
-        keys.poll()?.let { (key, at) -> if (connected && now() - at < 500) AirWire.write(s.outputStream, session.key(key)) }
+        keys.poll()?.let { (key, at) -> if (connected && now() - at < 500) { AirWire.write(s.outputStream, session.key(key));onSent?.invoke(key) } }
     }
     fun pair(context: Context, address: String) {
         if (pairing) return
         val host = TvTarget.host(address)
-        init(context); pairing = true; val attempt = generation; codes.clear(); disconnect(); status = "Requesting pairing code on TV…"
+        init(context);discovery?.stop();candidates.clear(); pairing = true; val attempt = generation; codes.clear(); disconnect(); status = "Requesting pairing code on TV…"
         pairWorker.execute {
             try {
                 tls(context.applicationContext, host, 6467, null).use { s ->

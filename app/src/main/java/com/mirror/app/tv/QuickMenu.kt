@@ -104,6 +104,8 @@ class QuickMenu(private val activity: TvActivity) {
         results = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }; content.addView(results)
         heading("Change role")
         content.addView(activity.action("Change role") { stopDiscovery(); LauncherActivity.changeRole(activity) })
+        heading("Air Remote")
+        content.addView(activity.action("Temporary Air Remote feedback") { AirFeedbackSetup.show(activity) })
         heading("About")
         option("Show FPS", listOf("Off", "On"), { if (settings.showFps) 1 else 0 }) { settings.showFps = it == 1 }
         content.addView(activity.label("Mirror ${BuildConfig.VERSION_NAME}"))

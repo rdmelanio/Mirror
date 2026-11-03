@@ -150,13 +150,13 @@ class TvActivity : ComponentActivity() {
         toast("Left/Right: Mode   Up/Down: Zoom or Brightness   OK: Menu", 4000)
     }
     override fun onStart() {
-        super.onStart(); started = true; sleeping = false; sleepScreen.visibility = View.GONE; lastInteraction = SystemClock.elapsedRealtime(); feed.startFrames()
+        super.onStart(); AirFeedbackOverlay.attach(this);AirFeedbackService.resume(this); started = true; sleeping = false; sleepScreen.visibility = View.GONE; lastInteraction = SystemClock.elapsedRealtime(); feed.startFrames()
         failedSince = SystemClock.elapsedRealtime(); lastSample = failedSince
         feed.drawnFrames.set(0); handler.postDelayed(health, 1000)
         if (settings.url.isNotBlank()) connect() else discoverFirst()
     }
     override fun onStop() {
-        started = false; clearPairingScreen(); revoked = false; generation++; client?.stop(); client = null; remote?.close(); remote = null; feed.stopFrames()
+        AirFeedbackOverlay.detach(this); started = false; clearPairingScreen(); revoked = false; generation++; client?.stop(); client = null; remote?.close(); remote = null; feed.stopFrames()
         frozen = false; paused.visibility = View.GONE; closeCompare(); flash.visibility = View.GONE
         discovery?.stop(); discovery = null; menu.stopDiscovery()
         handler.removeCallbacks(health); failedSince = 0L

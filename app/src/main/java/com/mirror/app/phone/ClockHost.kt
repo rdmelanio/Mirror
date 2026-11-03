@@ -140,6 +140,8 @@ private fun immersive(window: Window) {
 }
 
 class ClockActivity : androidx.activity.ComponentActivity() {
+    private val airHandler=Handler(Looper.getMainLooper())
+    private val airCamera=object : Runnable { override fun run() { AirRemote.ensureCamera(this@ClockActivity);airHandler.postDelayed(this,10_000) } }
     private lateinit var controller: ClockController
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -159,8 +161,8 @@ class ClockActivity : androidx.activity.ComponentActivity() {
         }
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); wakeForDeparture() }
-    override fun onResume() { super.onResume(); wakeForDeparture(); immersive(window); controller.start() }
-    override fun onPause() { controller.stop(); super.onPause() }
+    override fun onResume() { super.onResume(); airHandler.post(airCamera); wakeForDeparture(); immersive(window); controller.start() }
+    override fun onPause() { airHandler.removeCallbacks(airCamera); controller.stop(); super.onPause() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) immersive(window) }
 }
 
