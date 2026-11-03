@@ -13,7 +13,8 @@ import com.mirror.app.core.*
 internal class AirRemotePanel(private val activity: ComponentActivity, content: LinearLayout) {
     private val handler = Handler(Looper.getMainLooper())
     private val state = activity.label("")
-    private val refresh = object : Runnable { override fun run() { state.text = "${AirRemoteTv.status}\n${AirRemote.recognition}"; handler.postDelayed(this, 500) } }
+    private lateinit var testCommand: android.view.View
+    private val refresh = object : Runnable { override fun run() { state.text = "${AirRemoteTv.status}\n${AirRemote.diagnostics()}"; testCommand.isEnabled=AirRemoteTv.connected; testCommand.alpha=if(AirRemoteTv.connected) 1f else .45f; handler.postDelayed(this, 500) } }
     init {
         AirRemoteTv.init(activity)
         val p = AirRemoteTv.prefs(activity)
@@ -35,18 +36,17 @@ internal class AirRemotePanel(private val activity: ComponentActivity, content: 
             }
         }
         content.addView(enable)
+        content.addView(activity.label("Pair once; submitting the code connects automatically. Saved pairing survives updates. Retry uses the saved certificate, including after an IP change."))
         content.addView(activity.label("TV local IPv4 address (Remote Service, not Wireless debugging)"))
         val address = EditText(activity).apply { setSingleLine(); setText(p.getString("host", TvLauncher.prefs(activity).getString("host", ""))) }; content.addView(address)
         fun button(text: String, action: () -> Unit) { content.addView(activity.action(text) { runCatching(action).onFailure { Toast.makeText(activity, it.message, Toast.LENGTH_LONG).show() } }) }
         button("PAIR TV · SHOW CODE ON TV") { AirRemoteTv.pair(activity, address.text.toString()) }
         val code = EditText(activity).apply { hint = "Six-character TV code"; setSingleLine(); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }; content.addView(code)
         button("SUBMIT PAIRING CODE") { val value = code.text.toString(); code.setText(""); AirRemoteTv.code(value) }
-        button("CONNECT TV") {
-            val host = TvTarget.host(address.text.toString())
-            check(host == p.getString("host", "")) { "Address changed: pair this TV first" }
-            AirRemoteTv.connect(activity)
-        }
-        button("TEST TV COMMAND · D-PAD RIGHT") { AirRemoteTv.send(AirGestures.Command.RIGHT) }
+        button("RECONNECT / RETRY SAVED TV") { AirRemoteTv.retry(activity, address.text.toString()) }
+        testCommand=activity.action("TEST TV COMMAND · D-PAD RIGHT") {
+            Toast.makeText(activity, AirRemoteTv.send(AirGestures.Command.RIGHT), Toast.LENGTH_SHORT).show()
+        }.also { it.isEnabled=AirRemoteTv.connected;content.addView(it) }
         content.addView(activity.label("Sensitivity: lower = larger deliberate swipes. Calibrate below your TV by testing each direction."))
         content.addView(SeekBar(activity).apply {
             max = 100; progress = p.getInt("sensitivity", 50)

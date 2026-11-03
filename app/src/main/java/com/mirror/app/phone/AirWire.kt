@@ -20,7 +20,7 @@ internal object AirWire {
         while (input.available() > 0) {
             val tag = readInt(input); require(tag ushr 3 > 0)
             result[tag ushr 3] = when (tag and 7) {
-                0 -> varint(readInt(input))
+                0 -> rawVarint(input)
                 2 -> { val n = readInt(input); require(n in 0..65536 && n <= input.available()); ByteArray(n).also { check(input.read(it) == n || n == 0) } }
                 1 -> ByteArray(8).also { check(input.read(it) == 8) }
                 5 -> ByteArray(4).also { check(input.read(it) == 4) }
@@ -28,6 +28,16 @@ internal object AirWire {
             }
         }
         return result
+    }
+    private fun rawVarint(input: InputStream): ByteArray {
+        val out = ByteArrayOutputStream()
+        repeat(10) { index ->
+            val b = input.read(); require(b >= 0) { "Truncated TV varint" }
+            require(index < 9 || b <= 1) { "Invalid TV varint" }
+            out.write(b)
+            if (b < 128) return out.toByteArray()
+        }
+        error("Invalid TV varint")
     }
     fun value(data: ByteArray?) = if (data == null) 0 else readInt(data.inputStream())
     fun readInt(input: InputStream): Int {

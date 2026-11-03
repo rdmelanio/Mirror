@@ -70,8 +70,8 @@ class AirRemoteTest {
     @Test fun remoteNegotiationPingAndNoCommandsBeforeHandshake() {
         val session = AirSession()
         try { session.key(AirGestures.Command.HOME); fail("unready") } catch (_:IllegalStateException) {}
-        val configure=session.receive(AirWire.bytes(1,AirWire.number(1,3)))!!
-        assertEquals(3,AirWire.value(AirWire.fields(AirWire.fields(configure).getValue(1))[1]))
+        val configure=session.receive(AirWire.bytes(1,AirWire.number(1,35)))!!
+        assertEquals(35,AirWire.value(AirWire.fields(AirWire.fields(configure).getValue(1))[1]))
         assertTrue(2 in AirWire.fields(session.receive(AirWire.bytes(2,AirWire.number(1,3)))!!))
         val ping=session.receive(AirWire.bytes(8,AirWire.number(1,987)))!!
         assertEquals(987,AirWire.value(AirWire.fields(AirWire.fields(ping).getValue(9))[1]))

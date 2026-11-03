@@ -2,7 +2,6 @@ package com.mirror.app.phone
 
 import android.content.Context
 import java.net.InetSocketAddress
-import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.cert.X509Certificate
 import java.security.interfaces.RSAPublicKey
@@ -24,7 +23,10 @@ internal object AirRemoteTv {
     @Volatile private var pairing = false
     @Volatile private var generation = 0
     @Volatile private var socket: SSLSocket? = null
-    private var nextConnect = 0L
+    @Volatile private var nextConnect = 0L
+    @Volatile private var retryRequested = false
+    @Volatile var lastCommand = "No command sent"; private set
+    @Volatile var lastFailure = ""; private set
     private var lastPacket = 0L
     private var session = AirSession()
     private val candidates=java.util.concurrent.ConcurrentLinkedQueue<String>()
@@ -35,6 +37,7 @@ internal object AirRemoteTv {
     @Synchronized fun init(context: Context) {
         if (app != null) return
         app = context.applicationContext
+        status = if (prefs(context).contains("pin")) "Paired · disconnected" else "Not paired"
         discovery=AirTargetDiscovery(context.applicationContext) { host -> if(wanted && candidates.size<4 && host !in candidates) candidates.offer(host) }
     }
     private fun now() = android.os.SystemClock.elapsedRealtime()
@@ -43,57 +46,64 @@ internal object AirRemoteTv {
         if (loop == null || loop!!.isCancelled) loop = worker.scheduleWithFixedDelay({
             runCatching { tick() }.onFailure {
                 disconnect()
-                if (wanted) status = "TV connection: ${it.message ?: "failed"}. Check Wi-Fi / pair again."
+                if (wanted) { lastFailure = "${it.javaClass.simpleName}: ${it.message ?: "connection failed"}"; status = "Failed · $lastFailure · retrying in 5 seconds" }
                 nextConnect = now() + 5000
                 if(wanted) discovery?.scan()
             }
         }, 0, 100, TimeUnit.MILLISECONDS)
     }
     @Synchronized fun stop() {
-        generation++; wanted = false;discovery?.stop();candidates.clear(); loop?.cancel(false); loop = null; keys.clear(); disconnect()
+        generation++; wanted = false;discovery?.stop();candidates.clear(); loop?.cancel(false); loop = null; disconnect()
         if (!pairing) status = "Disconnected"
     }
-    private fun disconnect() { connected = false; val old = socket; socket = null; runCatching { old?.close() }; keys.clear() }
-    fun send(command: AirGestures.Command) {
-        if (!connected) { status = "TV unavailable · gesture discarded"; return }
-        keys.offer(command to now())
+    fun retry(context: Context, address: String) {
+        init(context)
+        check(prefs(context).contains("pin")) { "Not paired: pair this TV once first" }
+        val host = TvTarget.host(address)
+        // Keep the saved identity/pin. A changed address must authenticate as the same paired TV.
+        candidates.clear(); candidates.offer(host); nextConnect = 0; retryRequested = true
+        connect(context)
+    }
+    private fun disconnect() { connected = false;
+        if (keys.isNotEmpty()) lastCommand = "${keys.peek()?.first} · discarded: connection closed"
+        val old = socket; socket = null; runCatching { old?.close() }; keys.clear()
+    }
+    @Synchronized fun send(command: AirGestures.Command): String {
+        val queued = "$command · queued"
+        // Publish queued before offer: the worker may transmit immediately after offer succeeds.
+        lastCommand = queued
+        if (!connected) lastCommand = "$command · discarded: remote session not ready"
+        else if (keys.offer(command to now())) return queued
+        else lastCommand = "$command · discarded: command queue busy"
+        return lastCommand
     }
     private fun tls(context: Context, host: String, port: Int, pin: String?): SSLSocket {
-        val identity = AirCredentials.load(context, create = true)
-        val store = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setKeyEntry("air", identity.key, CharArray(0), arrayOf(identity.certificate)) }
-        val km = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply { init(store, CharArray(0)) }
-        val trust = object : X509TrustManager {
-            override fun getAcceptedIssuers() = emptyArray<X509Certificate>()
-            override fun checkClientTrusted(chain: Array<X509Certificate>, auth: String) { error("Client trust unavailable") }
-            override fun checkServerTrusted(chain: Array<X509Certificate>, auth: String) {
-                require(chain.isNotEmpty())
-                // Bootstrap trust is authenticated by the TV-displayed pairing code before pin persistence.
-                if (pin != null) check(fingerprint(chain[0]) == pin) { "TV certificate changed; pair again" }
-            }
-        }
-        val ssl = SSLContext.getInstance("TLS").apply { init(km.keyManagers, arrayOf(trust), null) }
+        val identity = AirCredentials.load(context, create = pin == null)
+        val ssl = AirTls.context(identity.key, identity.certificate, pin)
         return (ssl.socketFactory.createSocket() as SSLSocket).also { s ->
             try { s.soTimeout = 8000; s.connect(InetSocketAddress(TvTarget.host(host), port), 4000); s.startHandshake() }
             catch (e: Exception) { s.close(); throw e }
         }
     }
-    private fun fingerprint(cert: X509Certificate) = MessageDigest.getInstance("SHA-256").digest(cert.encoded).joinToString("") { "%02x".format(it.toInt() and 255) }
     private fun tick() {
         if (!wanted || pairing) return
         val context = app ?: return
+        if (retryRequested) { retryRequested = false; disconnect(); nextConnect = 0 }
         var s = socket
         if (s == null) {
             if (now() < nextConnect) return
             nextConnect = now() + 5000
             val p = prefs(context); val pin = p.getString("pin", null) ?: run { status = "Pair TV first"; return }
-            status = "Connecting…"
+            status = "Paired · Connecting to TV…"
             val host=candidates.poll() ?: p.getString("host", "").orEmpty()
+            val attempt = generation
             s = tls(context, host, 6466, pin)
-            if (!wanted || pairing) { s.close(); return }
+            if (!wanted || pairing || attempt != generation) { s.close(); return }
             p.edit().putString("host",host).apply()
             discovery?.stop();candidates.clear()
-            socket = s; lastPacket = now(); session = AirSession(); status = "Negotiating remote…"
+            socket = s; lastPacket = now(); session = AirSession(now(), com.mirror.app.BuildConfig.VERSION_NAME); status = "Negotiating remote…"
         }
+        session.checkDeadline(now())
         val input = s.inputStream
         s.soTimeout = 100
         val first = try { input.read() } catch (_: java.net.SocketTimeoutException) { -2 }
@@ -104,15 +114,24 @@ internal object AirRemoteTv {
             val message = AirWire.read(framed); lastPacket = now()
             session.receive(message)?.let { AirWire.write(s.outputStream, it) }
             connected = session.ready
-            if (connected) status = "Connected · Android TV Remote"
+            if (connected) { status = "Connected · Android TV Remote"; lastFailure = "" }
+            else status = "Negotiating · ${session.stage}"
         }
         check(now() - lastPacket < 30_000) { "TV stopped responding" }
-        keys.poll()?.let { (key, at) -> if (connected && now() - at < 500) { AirWire.write(s.outputStream, session.key(key));onSent?.invoke(key) } }
+        session.checkDeadline(now())
+        keys.poll()?.let { (key, at) ->
+            if (connected && now() - at < 500) {
+                try {
+                    AirWire.write(s.outputStream, session.key(key))
+                    lastCommand = "$key · transmitted (execution not confirmed)"; onSent?.invoke(key)
+                } catch (e: Exception) { lastCommand = "$key · transmission failed: ${e.message}"; throw e }
+            } else lastCommand = "$key · discarded: expired or disconnected"
+        }
     }
     fun pair(context: Context, address: String) {
         if (pairing) return
         val host = TvTarget.host(address)
-        init(context);discovery?.stop();candidates.clear(); pairing = true; val attempt = generation; codes.clear(); disconnect(); status = "Requesting pairing code on TV…"
+        init(context);discovery?.stop();candidates.clear(); pairing = true; generation++; val attempt = generation; codes.clear(); disconnect(); status = "Requesting pairing code on TV…"
         pairWorker.execute {
             try {
                 tls(context.applicationContext, host, 6467, null).use { s ->
@@ -135,7 +154,7 @@ internal object AirRemoteTv {
                     val secret = MessageDigest.getInstance("SHA-256").digest(publicBytes(client) + publicBytes(server) + suffix)
                     check((secret[0].toInt() and 255) == code.substring(0, 2).toInt(16)) { "Incorrect TV code; start pairing again" }
                     exchange(40, AirWire.bytes(1, secret), 41)
-                    prefs(context).edit().putString("host", host).putString("pin", fingerprint(server)).apply()
+                    prefs(context).edit().putString("host", host).putString("pin", AirTls.fingerprint(server)).apply()
                     nextConnect = 0
                     if (attempt == generation) { status = "Paired · connecting…"; connect(context.applicationContext) } else status = "Paired · disconnected"
                 }
