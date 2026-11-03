@@ -51,7 +51,11 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                     val image = BitmapImageBuilder(bitmap).build()
                     try {
                         val result = recognizer!!.recognizeForVideo(image, now)
-                        if (closed || !enabled(context) || SystemClock.elapsedRealtime() - now > 500) { gestures.reset();ownership.reset();armedMode=false;return@execute }
+                        if (closed || !enabled(context) || SystemClock.elapsedRealtime() - now > 500) {
+                            gestures.reset();ownership.reset();armedMode=false
+                            recognition=if(closed || !enabled(context)) "Disabled · disarmed" else "Standby · inference too slow; sampling reduced"
+                            return@execute
+                        }
                         val prefs=AirRemoteTv.prefs(context)
                         gestures.sensitivity=prefs.getInt("sensitivity",50)
                         if(!AirRemoteTv.connected) { gestures.reset();ownership.reset();armedMode=false }
