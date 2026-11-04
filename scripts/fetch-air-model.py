@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-"""Fetch Google's versioned official Gesture Recognizer bundle, preserving TLS verification."""
-import pathlib
-import urllib.request
-import zipfile
-import io
+"""Fetch pinned official Google model bundles with TLS and SHA-256 verification."""
+import hashlib, json, pathlib, urllib.request, zipfile, io
 root = pathlib.Path(__file__).resolve().parents[1]
-url = 'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task'
-data = urllib.request.urlopen(url, timeout=90).read(32 * 1024 * 1024 + 1)
-assert 1_000_000 < len(data) < 32 * 1024 * 1024
-with zipfile.ZipFile(io.BytesIO(data)) as bundle:
-    assert {'hand_landmarker.task', 'hand_gesture_recognizer.task'} <= set(bundle.namelist())
-path = root / 'app/src/full/assets/gesture_recognizer.task'
-path.parent.mkdir(parents=True, exist_ok=True)
-path.write_bytes(data)
-print('Official MediaPipe model saved:', path, len(data), 'bytes')
+for model in json.loads((root / 'docs/air-models.json').read_text()):
+    data = urllib.request.urlopen(model['url'], timeout=90).read(32 * 1024 * 1024 + 1)
+    assert len(data) == model['bytes'] and hashlib.sha256(data).hexdigest() == model['sha256'], model['file']
+    with zipfile.ZipFile(io.BytesIO(data)) as bundle:
+        assert bundle.testzip() is None
+    path = root / 'app/src/full/assets' / model['file']
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    print('Verified official model:', model['file'], model['sha256'])

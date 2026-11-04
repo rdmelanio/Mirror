@@ -12,6 +12,9 @@ internal class AirRawFrame {
     private var pixels=IntArray(0)
     private var buffer:ByteBuffer?=null
     private var width=0;private var height=0;private var rotation=0
+    val geometryKey get()="$width/$height/$rotation"
+    val uprightWidth get()=if(rotation%180==0) width else height
+    val uprightHeight get()=if(rotation%180==0) height else width
     fun copy(image:ImageProxy) {
         width=image.cropRect.width() and -2;height=image.cropRect.height() and -2;rotation=image.imageInfo.rotationDegrees
         val n=width*height*3/2;if(yuv.size!=n) yuv=ByteArray(n)

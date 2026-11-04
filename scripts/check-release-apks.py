@@ -11,4 +11,5 @@ for apk in ['mirror.apk', 'mirror-phone.apk']:
     assert re.search(r"package: name='([^']+)'", info).group(1) == 'com.mirror.app'
     certs.append(re.search(r'Signer #1 certificate SHA-256 digest: (.+)', pathlib.Path(apk + '-signature.txt').read_text()).group(1))
 assert certs[0] == certs[1], 'flavors must retain identical signing'
+assert certs[0] == 'a33ac25448fd6b437c2b87456aef3c859d00775060d55f452482746142cc8a75', 'certificate must match published build-73'
 print('Both APKs verified:', props['mirrorVersionName'], props['mirrorVersionCode'], 'same applicationId and certificate')

@@ -8,6 +8,7 @@ import zipfile
 lite, full = map(pathlib.Path, sys.argv[1:])
 with zipfile.ZipFile(lite) as apk:
     assert not any(name.endswith('.so') for name in apk.namelist()), 'lite contains native code'
+    assert not any(name.endswith('.task') for name in apk.namelist()), 'lite contains vision models'
     assert not any(name.startswith('assets/ecrew/') for name in apk.namelist()), 'lite contains Firefox extension'
     for name in apk.namelist():
         if name.endswith('.dex'):
@@ -18,7 +19,8 @@ with zipfile.ZipFile(full) as apk:
     assert libraries and all(name.startswith('lib/arm64-v8a/') for name in libraries), libraries
     assert 'lib/arm64-v8a/libxul.so' in libraries, 'full missing Gecko engine'
     assert any('mediapipe' in name for name in libraries), 'full missing MediaPipe native library'
-    assert 'assets/gesture_recognizer.task' in apk.namelist(), 'full missing official gesture model'
+    for model in ('gesture_recognizer', 'pose_landmarker_lite', 'hand_landmarker'):
+        assert 'assets/' + model + '.task' in apk.namelist(), 'full missing official model ' + model
     assert 'assets/ecrew/manifest.json' in apk.namelist(), 'full missing built-in extension'
     assert 'assets/ecrew/background.js' in apk.namelist(), 'full missing network capture'
     assert 'assets/ecrew/hooks.js' not in apk.namelist(), 'full contains page hooks'

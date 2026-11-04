@@ -26,6 +26,8 @@ jobs:
           sdkmanager --list | awk '/platforms;android-[0-9]+[[:space:]]/ {print $1}' | sort -Vu
           sdkmanager 'platforms;android-37.1' 'build-tools;36.0.0'
       - uses: gradle/actions/setup-gradle@v4
+      - name: Fetch checksum-verified official vision models
+        run: python3 scripts/fetch-air-model.py
       - name: Bundle verified official B612 fonts
         run: python3 scripts/fetch-clock-fonts.py
       - name: Bundle Inter menu fonts
@@ -87,21 +89,30 @@ jobs:
           path: |
             mirror.apk
             mirror-phone.apk
+      - name: Refuse to overwrite an existing build tag
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/build-${{ github.run_number }}"; then
+            echo "Build tag already exists; refusing overwrite"
+            exit 1
+          else
+            test "$?" -eq 2
+          fi
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Mirror 1.12.10 — final candidate — build ${{ github.run_number }}
+          name: Mirror 1.12.11 — pose-guided candidate — build ${{ github.run_number }}
           target_commitish: ${{ github.sha }}
-          make_latest: true
+          make_latest: false
+          prerelease: true
           files: |
             mirror.apk
             mirror-phone.apk
 
 
-      - name: Verify both public latest APK downloads
+      - name: Verify both public candidate APK downloads
         run: |
           for apk in mirror.apk mirror-phone.apk; do
-            curl --fail --location --retry 5 --retry-delay 3 --output "published-$apk" "https://github.com/rdmelanio/Mirror/releases/latest/download/$apk"
+            curl --fail --location --retry 5 --retry-delay 3 --output "published-$apk" "https://github.com/rdmelanio/Mirror/releases/download/build-${{ github.run_number }}/$apk"
             cmp "$apk" "published-$apk"
             "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "published-$apk" > "$apk-info.txt"
           done

@@ -8,3 +8,7 @@ local.properties
 
 # Pinned fonts are verified/downloaded by scripts/fetch-clock-fonts.py.
 app/src/main/res/font/*.ttf
+
+# Official pose/hand models are fetched and checksum-verified before full builds.
+app/src/full/assets/pose_landmarker_lite.task
+app/src/full/assets/hand_landmarker.task

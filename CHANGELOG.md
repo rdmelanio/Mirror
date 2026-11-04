@@ -1,3 +1,10 @@
+## 1.12.11 (216) — Pose-guided candidate
+
+- Add official Lite Pose and Hand Landmarker engines with original-frame wrist-guided crops, adaptive body scheduling and compatibility/CPU fallback.
+- Bound stale household ambiguity and extend recovery sampling; recenter joystick safely after interruptions, with optional shoulder-relative continuity.
+- Add geometry/temporal evidence, engine/crop/body diagnostics and camera frame-stall recovery; retain authenticated TV feedback and one-minute sessions.
+- Pin official model checksums, isolate full-only assets, and publish as a candidate pending OnePlus 6T measurements. See [engineering notes](docs/air-remote-216.md).
+
 # Changelog
 
 ## 1.11.4 — eCrew clock duties and Glass cockpit menus

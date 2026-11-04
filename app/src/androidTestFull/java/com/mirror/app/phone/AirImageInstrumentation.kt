@@ -35,6 +35,19 @@ class AirImageInstrumentation:Instrumentation() {
                     if(bitmap) check(owned!!.isRecycled)
                 }
             }
+            model.close();model=null
+            // Native pose/hand model initialization, changing geometry, and repeated close/reopen.
+            // This is a lifecycle smoke test, not a distance or recognition-quality benchmark.
+            repeat(2) {
+                AirPoseEngine(targetContext,false,2,AirInputPolicy()).use { engine ->
+                    for((w,h) in listOf(1920 to 1080,1280 to 720)) for(rotation in listOf(0,90,180,270)) {
+                        raw.loadNv21(ByteArray(w*h*3/2) { if(it<w*h) 32 else 128.toByte() },w,h,rotation)
+                        val observation=engine.recognize(raw,++time*500,AirRoi.FULL,640,"auto",AirStage.RECOVERY,0,null,true,false)
+                        check(observation.hands.all { hand -> hand.points.size==21 && hand.points.all { p -> p.x.isFinite() && p.y.isFinite() } })
+                        count++
+                    }
+                }
+            }
             result.putString("stream","PASS: $count native recognizer calls; actual Direct RGB and Bitmap, rotations and variable ROI\n")
             finish(android.app.Activity.RESULT_OK,result)
         } catch(e:Throwable) {

@@ -1,3 +1,5 @@
+> **1.12.11 (216) pose-guided candidate:** see [architecture, verification and hardware limits](docs/air-remote-216.md). OnePlus 6T performance and 12-foot reliability require device measurements.
+
 # Mirror 1.11.2
 
 Mirror uses a phone camera and a Google TV mirror. Kotlin, Android Views, one

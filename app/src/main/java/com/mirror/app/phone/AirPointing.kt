@@ -42,7 +42,7 @@ internal object AirPointing {
 }
 
 internal class AirPointCommands {
-    private var candidate="";private var since=0L;private var samples=0
+    private var candidate="";private var since=0L;private var samples=0;private var evidence=0f
     private var latched="";private var releaseAt=-1L;private var releaseSamples=0
     private var last=-1000L;private var previousAt=-1L;private var stablePose=""
     var activityAt=-1L;private set
@@ -51,8 +51,8 @@ internal class AirPointCommands {
     private var lastGoodAt=-1L;private var misses=0
     var holdMs=400L
     var reason="Neutral";private set
-    fun reset() { candidate="";samples=0;latched="";releaseAt=-1;releaseSamples=0;last=-1000;previousAt=-1;stablePose="";activityAt=-1;activityStartedAt=-1;pending=false;lastGoodAt=-1;misses=0 }
-    fun pause() { candidate="";samples=0;releaseAt=-1;releaseSamples=0;previousAt=-1;pending=false;misses=0 }
+    fun reset() { candidate="";samples=0;evidence=0f;latched="";releaseAt=-1;releaseSamples=0;last=-1000;previousAt=-1;stablePose="";activityAt=-1;activityStartedAt=-1;pending=false;lastGoodAt=-1;misses=0 }
+    fun pause() { candidate="";samples=0;evidence=0f;releaseAt=-1;releaseSamples=0;previousAt=-1;pending=false;misses=0 }
     fun update(now:Long,name:String,confidence:Float,threshold:Float):AirGestures.Command? {
         val custom=name in setOf("POINT_UP","POINT_DOWN","POINT_LEFT","POINT_RIGHT")
         // Custom labels are emitted only by validated geometry. Model probabilities gate model labels.
@@ -62,7 +62,8 @@ internal class AirPointCommands {
         val bridge=unknown && candidate.isNotEmpty() && candidate!="None" && now-lastGoodAt<=650 && misses==0
         if(bridge) { misses++;reason="Isolated classification dropout · retaining pending pose";return null }
         if(!unknown) { lastGoodAt=now;misses=0 } else misses++
-        if(pose!=candidate || gap>900) { candidate=pose;since=now;samples=0 };samples++
+        if(pose!=candidate || gap>900) { candidate=pose;since=now;samples=0;evidence=0f };samples++
+        evidence+=if(custom) 1f else confidence.coerceIn(0f,1f)
         var released=false
         if(latched.isNotEmpty()) {
             val neutralObservation=name in setOf("","None","Open_Palm","Closed_Fist")
@@ -90,7 +91,7 @@ internal class AirPointCommands {
             pose==latched -> "Gesture held · waiting for release"
             else -> "$pose detected · waiting for pose stability ${(now-since).coerceAtLeast(0)}/$dwell ms"
         }
-        if(command!=null && pose!=latched && samples>=2 && now-since>=dwell && now-last>=250) {
+        if(command!=null && pose!=latched && samples>=2 && evidence>=1.3f && now-since>=dwell && now-last>=250) {
             latched=pose;releaseAt=-1;releaseSamples=0;last=now;pending=false;reason="Command accepted · $command";return command
         }
         return null

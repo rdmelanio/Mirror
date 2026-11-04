@@ -6,7 +6,7 @@ internal object AirSettingPolicy {
     val advancedKeys=setOf("gpu","model_hands","bitmap_input","input_mode","input_size")
     fun onePlus6T(manufacturer:String,model:String,device:String)=device.equals("fajita",true) ||
         manufacturer.equals("oneplus",true) && (model.uppercase().let { it.contains("A6010") || it.contains("A6013") || it.replace(" ","")=="ONEPLUS6T" })
-    fun recommended(onePlus:Boolean)=mapOf<String,Any>("navigation" to "joystick","hand_lock" to "auto","joystick_sensitivity" to 50,
+    fun recommended(onePlus:Boolean)=mapOf<String,Any>("vision_engine" to "pose","pose_persons" to 2,"navigation" to "joystick","hand_lock" to "auto","joystick_sensitivity" to 50,
         "input_mode" to "auto","gpu" to false,"model_hands" to if(onePlus) 2 else 4,"input_size" to 640,"legacy" to false,
         "confidence" to 65,"point_hold" to 400L,"session_timeout" to 60_000L,"app_YOUTUBE" to true,"app_NETFLIX" to true,"app_STREMIO" to true)
     data class Migration(val values:Map<String,Any>,val backup:Map<String,Any>,val changed:Boolean)

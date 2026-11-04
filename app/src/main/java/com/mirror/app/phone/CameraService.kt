@@ -67,6 +67,16 @@ class CameraService : LifecycleService() {
             if (AirRemote.enabled(this@CameraService) && boundAddress != null && !cameraRunning && android.os.SystemClock.elapsedRealtime()>=nextAirCameraAttempt) {
                 nextAirCameraAttempt=android.os.SystemClock.elapsedRealtime()+15_000;startCamera()
             }
+            val now=android.os.SystemClock.elapsedRealtime()
+            if(AirRemote.enabled(this@CameraService) && cameraRunning && lastCameraFrameAt>0 && now-lastCameraFrameAt>8000) {
+                cameraFps=0.0
+                note="Camera frames unavailable · service active · screen ${if(getSystemService(PowerManager::class.java).isInteractive) "on" else "locked/off"}"
+                if(stalledSince==0L) stalledSince=now
+                // Rebind an already-running foreground camera, with bounded retries under OS restrictions.
+                if(now-stalledSince>=7000 && now>=nextAirCameraAttempt) {
+                    nextAirCameraAttempt=now+30_000;stalledSince=now;stopCamera();startCamera()
+                }
+            } else stalledSince=0L
             val viewers = server?.viewerNames().orEmpty()
             demand()
             if (viewers.isEmpty()) {
@@ -82,6 +92,7 @@ class CameraService : LifecycleService() {
     private var appliedFps:android.util.Range<Int>?=null
     private var cameraFrames=0L
     private var cameraMeasuredAt=0L
+    private var stalledSince=0L
     private fun demand() {
         val viewers=server?.viewerNames()?.isNotEmpty()==true
         wifi?.let { if(AirWorkload.wifiPerformance(viewers) && !it.isHeld) it.acquire() else if(!viewers && it.isHeld) it.release() }
@@ -168,7 +179,7 @@ class CameraService : LifecycleService() {
                     provider = future.get()
                     val selector = if (front) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
                     require(provider!!.hasCamera(selector)) { "This device does not have the selected camera" }
-                    val selectedSize = if (fullHd) Size(1920, 1080) else Size(1280, 720)
+                    val selectedSize = if (fullHd || AirRemote.enabled(this@CameraService)) Size(1920, 1080) else Size(1280, 720)
                     val cameraInfo = selector.filter(provider!!.availableCameraInfos).first()
                     val ranges = Camera2CameraInfo.from(cameraInfo)
                         .getCameraCharacteristic(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES).orEmpty()
@@ -202,6 +213,8 @@ class CameraService : LifecycleService() {
                                 val measured=android.os.SystemClock.elapsedRealtime()
                                 if(cameraMeasuredAt==0L) cameraMeasuredAt=measured
                                 cameraFrames++
+                                lastCameraFrameAt=measured
+                                cameraResolution="${image.width}x${image.height} rotation=${image.imageInfo.rotationDegrees}"
                                 if(measured-cameraMeasuredAt>=1000) { cameraFps=cameraFrames*1000.0/(measured-cameraMeasuredAt);cameraFrames=0;cameraMeasuredAt=measured }
                                 if(AirRemote.enabled(this@CameraService)) airRemote?.offer(image)
                                 val viewers=server?.viewerNames()?.isNotEmpty()==true
@@ -318,6 +331,8 @@ class CameraService : LifecycleService() {
         super.onDestroy()
     }
     companion object {
+        @Volatile var cameraResolution="Unavailable"
+        @Volatile var lastCameraFrameAt=0L
         @Volatile var cameraFps=0.0
         @Volatile var stats = StreamStats()
         @Volatile var cameraRunning = false

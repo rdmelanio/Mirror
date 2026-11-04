@@ -16,8 +16,19 @@ internal class AirJoystick {
     private var suspendedAt=-1L
     private var resumeSamples=0
     val hasAnchor get()=anchor!=null
-    fun pause(now:Long) { if(suspendedAt<0) suspendedAt=now;pending=false;reason="Joystick: Tracking paused · center retained" }
-    fun update(now:Long,h:AirOwnership.Hand,sensitivity:Int):AirGestures.Command? {
+    fun pause(now:Long) {
+        if(suspendedAt<0) {
+            suspendedAt=now;anchor=null;filtered=null;since=-1;samples=0
+            latched=null;firedAt=-1;repeatedAt=-1;requireCenter=false
+        }
+        pending=false;reason="Joystick: Tracking paused · fresh center required"
+    }
+    private var shoulderMode:Boolean?=null
+    fun update(now:Long,observed:AirOwnership.Hand,sensitivity:Int):AirGestures.Command? {
+        val relative=observed.shoulder!=null
+        if(shoulderMode!=null && shoulderMode!=relative) pause(now)
+        shoulderMode=relative
+        val h=observed.shoulder?.let { observed.copy(x=observed.x-it.x,y=observed.y-it.y) } ?: observed
         pending=false
         if(!h.indexValid || h.gesture in setOf("Thumb_Up","Thumb_Down","Victory","SHAKA","THREE_FINGERS","Closed_Fist","Open_Palm")) {
             // One isolated model dropout can retain the reference, but can never send a key.
@@ -30,8 +41,8 @@ internal class AirJoystick {
             else {
                 resumeSamples++
                 if(resumeSamples<2) { reason="Joystick: Recovery in progress · waiting for fresh index evidence";return null }
-                // Keep center but suppress old held/repeat state. Only a centered hand can rearm.
-                if(anchor!=null) { requireCenter=true;latched=null }
+                // Establish a fresh stable center; never replay the old excursion.
+                anchor=null;filtered=null;since=-1;samples=0;latched=null;requireCenter=false
                 suspendedAt=-1;resumeSamples=0
             }
         }
@@ -40,7 +51,7 @@ internal class AirJoystick {
             if(since<0) { since=now;filtered=h }
             if(hypot(h.x-filtered!!.x,h.y-filtered!!.y)>maxOf(.025f,h.size*.6f)) { since=now;samples=0;filtered=h }
             samples++
-            if(samples>=2 && now-since>=120) { anchor=h;filtered=h;activityAt=now }
+            if(samples>=2 && now-since>=120) { anchor=h;filtered=h }
             reason=if(anchor==null) "Joystick: Index valid · centering" else "Joystick: Center established · neutral / waiting for movement";return null
         }
         val before=filtered!!

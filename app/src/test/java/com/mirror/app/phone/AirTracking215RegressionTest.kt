@@ -17,14 +17,14 @@ class AirTracking215RegressionTest {
         for(t in 2450L..4200 step 350) s.update(t,listOf(hand("Closed_Fist",.5f)),true,false,350,.65f,50,false,400,60_000,AirNavigation.JOYSTICK)
         assertTrue(s.sessionActive);assertTrue("Fresh evidence at the original center resolves a previous matching tie",s.trackingOwned)
     }
-    @Test fun briefOcclusionRetainsTheOriginalNeutralCenterAndDoesNotReplayMovement() {
+    @Test fun briefOcclusionEstablishesFreshNeutralCenterAndDoesNotReplayMovement() {
         val sent=mutableListOf<AirGestures.Command>();val s=AirControlSession(send={sent.add(it)},household=true);claim(s)
         var t=1400L
         fun f(h:AirOwnership.Hand?) { t+=350;s.update(t,listOfNotNull(h),true,false,350,.65f,50,false,400,60_000,AirNavigation.JOYSTICK) }
         repeat(3) { f(hand()) };repeat(2) { f(null) }
         repeat(4) { f(hand(x=.51f)) };assertTrue(sent.isEmpty());assertTrue(s.sessionActive)
-        f(hand()) // Revalidate the retained center, not a silently moved anchor.
-        f(hand(x=.519f))
+        f(hand(x=.51f)) // Fresh stable center replaces the obsolete pre-loss position.
+        f(hand(x=.535f))
         assertEquals(listOf(AirGestures.Command.RIGHT),sent)
     }
 }

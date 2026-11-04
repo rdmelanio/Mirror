@@ -31,6 +31,13 @@ internal class AirDiagnostics(private val clock:()->Long={System.nanoTime()/1_00
         rows.add(now to "$stage | $delegate | ${if(crop) "ROI" else "wide"} | ${if(joystick) "joystick" else "pointing"} | age=${age.coerceIn(0,60000)} RGB=${rgb.coerceIn(0,60000)} model=${model.coerceIn(0,60000)} decision=${decision.coerceIn(0,60000)}ms")
         while(rows.size>180) rows.removeFirst()
     }
+    @Synchronized fun vision(engine:String,width:Int,height:Int,persons:Int,hands:Int,poseMs:Long,handMs:Long,stage:String) {
+        if(engine !in setOf("Pose Guided","Compatibility")) return
+        val now=clock();trim(now)
+        val safeStage=stage.substringBefore(" ·").takeIf { it.matches(Regex("[A-Za-z ,]+")) } ?: "Unknown"
+        rows.add(now to "$engine | camera=${width.coerceIn(0,8192)}x${height.coerceIn(0,8192)} persons=${persons.coerceIn(0,2)} hands=${hands.coerceIn(0,4)} pose=${poseMs.coerceIn(0,60000)}ms hand=${handMs.coerceIn(0,60000)}ms | $safeStage")
+        while(rows.size>180) rows.removeFirst()
+    }
     private fun trim(now:Long) { while(rows.isNotEmpty() && now-rows.first.first>60_000) rows.removeFirst() }
     @Synchronized fun text():String { val now=clock();trim(now);return rows.joinToString("\n") { "${(now-it.first)/1000}s ago | ${it.second}" }.ifEmpty { "No recent diagnostics" } }
     companion object {

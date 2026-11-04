@@ -51,6 +51,8 @@ internal class AirHousehold(private val gestures:AirGestures,private val pointin
     private var recoveryAt=-1L
     private var recoverySamples=0
     private var ambiguous=false
+    private var competitionAt=-1L
+    private var singleSince=-1L
     private var ambiguityOwner:AirOwnership.Hand?=null
     private var rivals=emptyList<AirOwnership.Hand>()
     private var wasConnected=true
@@ -58,6 +60,7 @@ internal class AirHousehold(private val gestures:AirGestures,private val pointin
     private val claims=AirOwnership().apply { claimDurationMs=1000;claimSamples=3;minimumHandSize=.005f }
     private fun distance(a:AirOwnership.Hand,b:AirOwnership.Hand)=hypot(a.x-b.x,a.y-b.y)
     private fun plausible(a:AirOwnership.Hand,b:AirOwnership.Hand,gap:Long):Boolean {
+        if(a.bodyId!=null && b.bodyId!=null && a.bodyId!=b.bodyId) return false
         val dt=gap.coerceIn(0,2400)/1000f
         val speed=hypot(velocityX,velocityY)
         val radius=(maxOf(.045f,a.size*2f)+minOf(.07f,dt*.035f+speed*dt*.6f)).coerceAtMost(.24f)
@@ -68,7 +71,7 @@ internal class AirHousehold(private val gestures:AirGestures,private val pointin
     private fun emit(value:String) { event=value;eventSerial++ }
     private fun interact(now:Long) { lastActivityAt=now;activitySerial++ }
     fun reset(reason:String="explicit reset") {
-        active=false;currentPose="None";currentScore=0f;blocked.clear();owner=null;seenAt=-1;recovery=null;recoverySamples=0;ambiguous=false;ambiguityOwner=null;rivals=emptyList();claims.reset();claimProgress=0
+        active=false;currentPose="None";currentScore=0f;blocked.clear();owner=null;seenAt=-1;recovery=null;recoverySamples=0;ambiguous=false;ambiguityOwner=null;rivals=emptyList();competitionAt=-1;singleSince=-1;claims.reset();claimProgress=0
         gestures.reset();pointing.reset();joystick.reset();shortcuts.reset();acceptedApp=null;velocityX=0f;velocityY=0f;accepted=null;tracking=Tracking.NONE;pendingDeadline=-1;awaitingRelease=false
         status="Disarmed · $reason"
     }
@@ -84,7 +87,7 @@ internal class AirHousehold(private val gestures:AirGestures,private val pointin
             reset("inactivity timeout");awaitingRelease=true;emit("EXPIRED")
         }
     }
-    fun recoveryProcessing(now:Long)=active && seenAt>=0 && now-seenAt in 0..2400 && tracking in setOf(Tracking.LOST,Tracking.RECOVERING,Tracking.AMBIGUOUS)
+    fun recoveryProcessing(now:Long)=active && seenAt>=0 && now-seenAt in 0..12_000 && tracking in setOf(Tracking.LOST,Tracking.RECOVERING,Tracking.AMBIGUOUS)
     fun processing(now:Long)=active && seenAt>=0 && now-seenAt<2400 && tracking!=Tracking.CONNECTION
     private fun install(now:Long,h:AirOwnership.Hand,transfer:Boolean,calibration:Boolean) {
         val initial=!active
@@ -111,6 +114,8 @@ internal class AirHousehold(private val gestures:AirGestures,private val pointin
         val nearby=if(ref==null) emptyList() else valid.filter { plausible(ref,it,now-seenAt) }
         val uncertain=nearby.size>1 || nearby.singleOrNull()?.let { h -> valid.any { it!==h && distance(it,h)<maxOf(.035f,minOf(.12f,h.size*1.2f)) } }==true
         val priorTracking=tracking
+        if(valid.size>1) { competitionAt=now;singleSince=-1 }
+        else if(valid.size==1) { if(singleSince<0) singleSince=now } else singleSince=-1
         var selected=nearby.singleOrNull()?.takeUnless { uncertain }
         var resolvingTie=false
         if(uncertain) {
@@ -137,6 +142,18 @@ internal class AirHousehold(private val gestures:AirGestures,private val pointin
             }
             val reference=a
             if(reference==null || distance(reference,selected)>.10f || !resolvingTie && rivals.any { distance(it,selected)<=distance(reference,selected)+.012f }) selected=null
+        }
+        // Bounded scene evidence replaces stale spatial rivals, never a current competitor.
+        // A distant household member still needs a palm; allow natural seated repositioning.
+        if(active && selected==null && !uncertain && valid.size==1 && ref!=null &&
+            now-seenAt>=600 && (competitionAt<0 || now-competitionAt>=2400) &&
+            singleSince>=0 && now-singleSince>=400) {
+            val only=valid.single()
+            if((only.bodyCount<=1 || ref.bodyId!=null && ref.bodyId==only.bodyId) &&
+                (ref.bodyId==null || only.bodyId==null || ref.bodyId==only.bodyId || now-seenAt>6000 && only.bodyCount<=1) &&
+                (distance(ref,only)<=.32f || ref.bodyId!=null && ref.bodyId==only.bodyId) && only.size/ref.size.coerceAtLeast(.005f) in .35f..2.8f) {
+                selected=only;resolvingTie=true
+            }
         }
         if(active && selected!=null && priorTracking!=Tracking.OWNED && priorTracking!=Tracking.CONNECTION) {
             // Recovery requires two spatially consistent observations. Nothing pending survives the gap.

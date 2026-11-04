@@ -1,5 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
+import java.security.MessageDigest
 
 plugins { id("com.android.application") }
 
@@ -89,9 +90,13 @@ dependencies {
 
 val verifyAirModel by tasks.registering {
     doLast {
-        val model = file("src/full/assets/gesture_recognizer.task")
-        check(model.isFile && model.length() > 1_000_000) {
-            "Official MediaPipe model missing. Run python3 scripts/fetch-air-model.py (requires storage.googleapis.com)."
+        val manifest = groovy.json.JsonSlurper().parse(rootProject.file("docs/air-models.json")) as List<*>
+        manifest.forEach { entry ->
+            val item = entry as Map<*, *>
+            val model = file("src/full/assets/${item["file"]}")
+            check(model.isFile) { "Official model missing: $model; run scripts/fetch-air-model.py" }
+            val digest = MessageDigest.getInstance("SHA-256").digest(model.readBytes()).joinToString("") { "%02x".format(it) }
+            check(digest == item["sha256"]) { "Model checksum mismatch: $model" }
         }
     }
 }
