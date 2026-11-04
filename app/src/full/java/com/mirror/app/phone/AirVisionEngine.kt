@@ -91,9 +91,11 @@ internal class AirPoseEngine(context:Context,gpu:Boolean,persons:Int,private val
             val start=SystemClock.elapsedRealtime();var inference=start
             val result=input.process(inputMode,{ bitmap -> raw.image(if(region.roi==AirRoi.FULL) maxSide else 384,bitmap,region.roi) }) { image -> inference=SystemClock.elapsedRealtime();hand!!.detect(image) }
             conversion+=inference-start;handMs+=SystemClock.elapsedRealtime()-inference
+            val earlierCrops=found.toList()
             result.landmarks().forEach { p ->
                 val full=p.map { region.roi.full(AirPointing.Point(it.x(),it.y())) }
-                if(found.any { hypot(it.points[0].x-full[0].x,it.points[0].y-full[0].y)<.035f }) return@forEach
+                // Never collapse separate detections from this model call, or different bodies.
+                if(region.body!=null && earlierCrops.any { it.body==region.body && AirHandGeometry.sameObservation(it.points,full) }) return@forEach
                 val geometry=AirHandGeometry.classify(full.map { AirPointing.Point(it.x*aspect,it.y) })
                 val matched=guided.filter { r -> full[0].x in r.roi.left..r.roi.right && full[0].y in r.roi.top..r.roi.bottom }.mapNotNull { it.body }.distinct().singleOrNull()
                 val association=guided.firstOrNull { it.body==matched }

@@ -43,4 +43,10 @@ class Air216GeometryTest {
   assertEquals("POINT_RIGHT",AirPointing.resolve(uncertain,false,"POINT_RIGHT",.85f,.65f))
  }
 
+ @Test fun nearWristsDoNotMakeDifferentFingerObservationsDuplicates() {
+  val a=pose("POINT_UP");val b=pose("Closed_Fist")
+  assertEquals(a[0],b[0]);assertFalse(AirHandGeometry.sameObservation(a,b))
+  assertTrue(AirHandGeometry.sameObservation(a,a.map { AirPointing.Point(it.x+.001f,it.y) }))
+ }
+
 }

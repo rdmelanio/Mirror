@@ -5,6 +5,8 @@ import kotlin.math.*
 /** Geometry evidence, not model probability. Works in upright source-pixel aspect ratio. */
 internal object AirHandGeometry {
     data class Pose(val name:String,val evidence:Float)
+    fun sameObservation(a:List<AirPointing.Point>,b:List<AirPointing.Point>):Boolean =
+        a.size==21 && b.size==21 && a.indices.all { hypot(a[it].x-b[it].x,a[it].y-b[it].y)<.008f }
     fun classify(p:List<AirPointing.Point>):Pose {
         if(p.size!=21 || p.any { !it.x.isFinite() || !it.y.isFinite() }) return Pose("None",0f)
         fun d(a:Int,b:Int)=hypot(p[a].x-p[b].x,p[a].y-p[b].y)
