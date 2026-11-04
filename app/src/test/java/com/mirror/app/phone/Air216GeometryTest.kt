@@ -36,4 +36,11 @@ class Air216GeometryTest {
   assertEquals(AirGestures.Command.OK,p.update(350,"Thumb_Up",.9f,.65f))
   for(t in 500L..2000 step 150) assertNull(p.update(t,"Thumb_Up",.9f,.65f))
  }
+ @Test fun aspectValidatedDirectionFallbackStillMirrorsHorizontally() {
+  val uncertain=List(21) { AirPointing.Point(.5f,.5f) }
+  assertEquals("POINT_LEFT",AirPointing.resolve(uncertain,true,"POINT_RIGHT",.85f,.65f))
+  assertEquals("POINT_RIGHT",AirPointing.resolve(uncertain,true,"POINT_LEFT",.85f,.65f))
+  assertEquals("POINT_RIGHT",AirPointing.resolve(uncertain,false,"POINT_RIGHT",.85f,.65f))
+ }
+
 }

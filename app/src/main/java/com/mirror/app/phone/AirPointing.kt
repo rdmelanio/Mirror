@@ -15,6 +15,10 @@ internal object AirPointing {
     /** Custom valid geometry wins. Native UP is allowed only with upright, single-index corroboration. */
     fun resolve(p:List<Point>,mirrored:Boolean,native:String,confidence:Float,threshold:Float):String {
         classify(p,mirrored)?.let { return it }
+        // Pose-engine geometry uses source-pixel aspect ratio. If normalized geometry
+        // is inconclusive, its validated horizontal label still needs viewer mirroring.
+        if(mirrored && native=="POINT_LEFT") return "POINT_RIGHT"
+        if(mirrored && native=="POINT_RIGHT") return "POINT_LEFT"
         if(native!="Pointing_Up") return native
         return if(confidence>=threshold && inspect(p,mirrored,true)=="POINT_UP") native else ""
     }
