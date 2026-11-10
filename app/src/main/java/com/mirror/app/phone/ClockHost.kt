@@ -55,6 +55,7 @@ class ClockController(private val context: Context, private val view: ClockView,
         com.mirror.app.phone.roster.EcrewFirefox.foregroundOpened(context, view)
         com.mirror.app.phone.roster.RosterWork.onOpen(context)
         if (running) return
+        view.keepScreenOn = true
         running = true; policy = ClockLightPolicy(); view.settings = ClockSettings.load(context)
         ClockSettings.prefs(context).registerOnSharedPreferenceChangeListener(preferencesChanged)
         com.mirror.app.phone.roster.RosterStore.prefs(context).registerOnSharedPreferenceChangeListener(rosterChanged)
@@ -77,6 +78,7 @@ class ClockController(private val context: Context, private val view: ClockView,
     fun stop() {
         if (!running) return
         com.mirror.app.phone.roster.EcrewFirefox.foregroundClosed(view)
+        view.keepScreenOn = false
         running = false; view.saveSize(); view.stopInteraction(); calendar.stop(); sensors.unregisterListener(this); handler.removeCallbacksAndMessages(null)
         ClockSettings.prefs(context).unregisterOnSharedPreferenceChangeListener(preferencesChanged)
         DepartureAlerts.prefs(context).unregisterOnSharedPreferenceChangeListener(alertChanged)

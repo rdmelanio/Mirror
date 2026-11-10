@@ -46,9 +46,10 @@ object EcrewFirefox {
         val settings = GeckoRuntimeSettings.Builder()
             .arguments(arrayOf("-profile", profile.absolutePath))
             .configFilePath(config.absolutePath)
-            .remoteDebuggingEnabled(false).consoleOutput(false).loginAutofillEnabled(false)
+            .remoteDebuggingEnabled(false).consoleOutput(false).loginAutofillEnabled(true)
             .crashHandler(null).build()
         return GeckoRuntime.create(c.applicationContext, settings).also { runtime ->
+            runtime.setAutocompleteStorageDelegate(EcrewLoginStore(c.applicationContext))
             shared = runtime
             runtime.notifyTelemetryPrefChanged(false)
             extension = runtime.webExtensionController.ensureBuiltIn("resource://android/assets/ecrew/", "ecrew@mirror.local")
@@ -67,6 +68,7 @@ object EcrewFirefox {
         return browser
     }
     fun clearLocal(c: Context, done: () -> Unit) {
+        EcrewLoginStore.clear(c)
         // Local clear must not create a runtime, session, browser or network request.
         val existing = shared
         if (existing == null) {
@@ -188,6 +190,16 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
     }
     init {
         check(Looper.myLooper() == Looper.getMainLooper())
+        session.promptDelegate = object : GeckoSession.PromptDelegate {
+            override fun onLoginSelect(s:GeckoSession, request:GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSelectOption>):GeckoResult<GeckoSession.PromptDelegate.PromptResponse> {
+                val option=request.options.singleOrNull()?.takeIf { EcrewLoginStore.trusted(it.value.origin) && EcrewLoginStore.trusted(it.value.formActionOrigin) }
+                return GeckoResult.fromValue(if(option!=null && !loggingOut && EcrewLoginStore.trusted(url)) request.confirm(option) else request.dismiss())
+            }
+            override fun onLoginSave(s:GeckoSession, request:GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSaveOption>):GeckoResult<GeckoSession.PromptDelegate.PromptResponse> {
+                val option=request.options.firstOrNull { EcrewLoginStore.trusted(it.value.origin) && EcrewLoginStore.trusted(it.value.formActionOrigin) }
+                return GeckoResult.fromValue(if(option!=null && !background && !loggingOut) request.confirm(option) else request.dismiss())
+            }
+        }
         session.navigationDelegate = object : GeckoSession.NavigationDelegate {
             override fun onLoadRequest(s: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny> {
                 val popup = request.target == GeckoSession.NavigationDelegate.TARGET_WINDOW_NEW

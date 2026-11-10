@@ -1,3 +1,10 @@
+## 1.12.12 (217) — Clock and login candidate
+
+- Keep the main phone Clock preview awake as well as full Clock mode; reinforce the visible-view wake request.
+- Consolidate low-power Clock brightness under Clock settings and clarify compatibility-only hand count.
+- Enable eCrew password saving and autofill with exact HTTPS-origin checks, Android Keystore encryption and no-backup storage. Explicit logout forgets the saved login. Session expiry/MFA still follows eCrew policy.
+- Login persistence and screen wake behavior require on-device verification.
+
 ## 1.12.11 (216) — Pose-guided candidate
 
 - Add official Lite Pose and Hand Landmarker engines with original-frame wrist-guided crops, adaptive body scheduling and compatibility/CPU fallback.

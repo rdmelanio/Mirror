@@ -88,7 +88,7 @@ class PhoneActivity : Activity() {
             if (LocalNetwork.address(this) == null) "\nConnect to your TV's Wi-Fi" else ""
     }
     override fun onResume() {
-        super.onResume(); controller.start(); handler.post(refresh)
+        super.onResume(); window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); controller.start(); handler.post(refresh)
         com.mirror.app.phone.roster.RosterWork.onOpen(this)
         if (ClockSettings.load(this).departureEnabled) DepartureAlerts.configure(this)
         if (CameraService.active && CameraService.standbyFallback) startService(Intent(this, CameraService::class.java).setAction(CameraService.RETRY))

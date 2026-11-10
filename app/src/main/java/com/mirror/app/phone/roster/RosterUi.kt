@@ -68,7 +68,7 @@ class ECrewActivity : ComponentActivity() {
         top.addView(action("Reload") { browser?.reload() }, LinearLayout.LayoutParams(-2, -2))
         if (useFirefox) {
             top.addView(action("Fetch roster now") { firefox?.start() }, LinearLayout.LayoutParams(-2, -2))
-            top.addView(action("Log out of eCrew") { firefox?.logoutFromTap() }, LinearLayout.LayoutParams(-2, -2))
+            top.addView(action("Log out and forget saved login") { firefox?.logoutFromTap() }, LinearLayout.LayoutParams(-2, -2))
         } else {
             top.addView(action("Run probe") { web?.let { EcrewProbe.runFromTap(this, it, browser?.instanceId.orEmpty(), browserMode.name) } }, LinearLayout.LayoutParams(-2, -2))
             top.addView(action("Copy log") { copyRosterLog() }, LinearLayout.LayoutParams(-2, -2))

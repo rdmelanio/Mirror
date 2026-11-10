@@ -39,8 +39,8 @@ prefs:
   network.trr.mode: 5
   dom.push.enabled: false
   identity.fxaccounts.enabled: false
-  signon.rememberSignons: false
-  signon.autofillForms: false
+  signon.rememberSignons: true
+  signon.autofillForms: true
   signon.management.page.enabled: false
   geckoview.console.enabled: false
   consoleservice.logcat: false

@@ -134,6 +134,9 @@ class ClockSettingsPanel(private val activity: Activity, private val content: Li
         toggle("Away · fully black after sustained darkness without viewers", { settings.away }) { save(settings.copy(away = it)) }
         choice("Away hours", listOf("4", "8", "12", "24"), { settings.awayHours.toString() }) { save(settings.copy(awayHours = it.toInt())) }
         content.addView(activity.label("Away resumes as soon as light rises above 5 lux. Camera streaming and standby continue while the clock is black."))
+        val airPrefs=activity.getSharedPreferences("air_remote", android.content.Context.MODE_PRIVATE)
+        toggle("Low-power brightness · limit Clock to 8%", { airPrefs.getBoolean("dim_clock",false) }) { airPrefs.edit().putBoolean("dim_clock",it).apply() }
+        content.addView(activity.label("Clock stays awake while visible. Away mode only makes the display black; it does not lock the phone."))
         toggle("Dim while LIVE", { settings.dimLive }) { save(settings.copy(dimLive = it)) }
         }
         if (category == "about") {
