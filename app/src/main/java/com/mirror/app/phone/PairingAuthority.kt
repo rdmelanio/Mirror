@@ -71,7 +71,10 @@ class PairingAuthority(saved: String = "{}", private val persist: (String) -> Un
         if (deviceId.isBlank() || name.isBlank()) return PairResult(400, error = "Device identity is required")
         val token = randomToken(); val hash = tokenHash(token)
         devices[hash] = Device(hash, name.take(80).filter { !it.isISOControl() }, now())
-        save(); return PairResult(200, token)
+        try { save() } catch (failure: Exception) { devices.remove(hash); throw failure }
+        // This method and showCode share the monitor: only one requester can issue a token.
+        hideCode()
+        return PairResult(200, token)
     }
     @Synchronized fun authenticate(token: String): Device? {
         if (token.length !in 40..64) return null
@@ -86,15 +89,43 @@ class PairingAuthority(saved: String = "{}", private val persist: (String) -> Un
         synchronized(this) { devices.remove(hash); save() }
         onRevoked?.invoke(hash)
     }
+    private var browserFailures = 0
+    private var browserRetryAt = 0L
+    private fun passwordHash(password: String, salt: String): String {
+        val spec = javax.crypto.spec.PBEKeySpec(password.toCharArray(), Base64.getUrlDecoder().decode(salt), 210_000, 256)
+        return try { Base64.getEncoder().encodeToString(javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded) }
+        finally { spec.clearPassword() }
+    }
     @Synchronized fun setBrowserPassword(password: String?) {
-        if (password == null) { state.remove("browserSalt"); state.remove("browserHash") }
-        else { val salt = randomToken(); state.put("browserSalt", salt).put("browserHash", tokenHash(salt + password)) }
-        save()
+        if (password == null) { state.remove("browserSalt"); state.remove("browserHash"); state.remove("browserKdf") }
+        else {
+            require(password.length in 1..1024)
+            val salt = randomToken()
+            state.put("browserSalt", salt).put("browserHash", passwordHash(password, salt)).put("browserKdf", "pbkdf2-sha256-210000")
+        }
+        save(); browserFailures=0; browserRetryAt=0
     }
     @Synchronized fun browserEnabled(): Boolean = state.has("browserHash")
     @Synchronized fun browserAuth(header: String): Boolean {
-        if (!browserEnabled() || !header.startsWith("Basic ", true)) return false
-        val password = runCatching { String(Base64.getDecoder().decode(header.substring(6)), Charsets.UTF_8).substringAfter(':', "") }.getOrNull() ?: return false
-        return MessageDigest.isEqual(state.getString("browserHash").toByteArray(), tokenHash(state.getString("browserSalt") + password).toByteArray())
+        if (!browserEnabled() || elapsed()<browserRetryAt) return false
+        val credentials = if(header.length<=4096 && header.startsWith("Basic ", true))
+            runCatching { String(Base64.getDecoder().decode(header.substring(6)), Charsets.UTF_8) }.getOrNull() else null
+        val separator=credentials?.indexOf(':') ?: -1
+        val valid=runCatching {
+            if(separator<0 || credentials!!.substring(0,separator)!="mirror") return@runCatching false
+            val password=credentials.substring(separator+1)
+            if(password.length !in 1..1024) return@runCatching false
+            val salt=state.getString("browserSalt")
+            val legacy=!state.has("browserKdf")
+            if(!legacy && state.optString("browserKdf")!="pbkdf2-sha256-210000") return@runCatching false
+            val actual=if(legacy) tokenHash(salt+password) else passwordHash(password,salt)
+            val matches=MessageDigest.isEqual(state.getString("browserHash").toByteArray(Charsets.UTF_8),actual.toByteArray(Charsets.UTF_8))
+            // Upgrade only after proving the existing password; no credential reset.
+            if(matches && legacy) setBrowserPassword(password)
+            matches
+        }.getOrDefault(false)
+        if(valid) browserFailures=0
+        else if(++browserFailures>=5) { browserRetryAt=elapsed()+1000; browserFailures=0 }
+        return valid
     }
 }

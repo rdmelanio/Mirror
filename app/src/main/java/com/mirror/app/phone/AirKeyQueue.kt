@@ -1,7 +1,7 @@
 package com.mirror.app.phone
 
 /** Bounded FIFO of fresh keys. Connection generation changes clear it; nothing survives reconnect. */
-internal class AirKeyQueue(private val capacity:Int=2,private val expiryMs:Long=400,private val event:(String,AirGestures.Command,Long)->Unit={_,_,_->}) {
+internal class AirKeyQueue(private val capacity:Int=2,private val expiryMs:Long=400,private val observationExpiryMs:Long=1000,private val event:(String,AirGestures.Command,Long)->Unit={_,_,_->}) {
     data class Key(val command:AirGestures.Command,val at:Long,val observedAt:Long=at)
     private val queue=java.util.ArrayDeque<Key>()
     var dropped=0L;private set
@@ -11,16 +11,25 @@ internal class AirKeyQueue(private val capacity:Int=2,private val expiryMs:Long=
     private val frameDelays=java.util.ArrayDeque<Long>()
     private val delays=java.util.ArrayDeque<Long>()
     @Synchronized fun offer(command:AirGestures.Command,now:Long,observedAt:Long=now):Boolean {
+        val age=now-observedAt
+        if(age<0 || age>observationExpiryMs) { dropped++;event(if(age<0) "CLOCK_GAP" else "OBSERVATION_EXPIRED",command,age.coerceAtLeast(0));return false }
         if(queue.size>=capacity) { dropped++;event("REJECTED",command,0);return false };frameToQueueMs=(now-observedAt).coerceAtLeast(0);queue.add(Key(command,now,observedAt));event("QUEUED",command,frameToQueueMs);return true
     }
     @Synchronized fun take(now:Long):Key? {
         while(queue.isNotEmpty()) {
             val key=queue.removeFirst();queueMs=(now-key.at).coerceAtLeast(0)
-            if(queueMs<=expiryMs) return key
-            dropped++;event("EXPIRED",key.command,queueMs)
+            val observationAge=now-key.observedAt
+            val reason=when {
+                now<key.at || observationAge<0 -> "CLOCK_GAP"
+                observationAge>observationExpiryMs -> "OBSERVATION_EXPIRED"
+                queueMs>expiryMs -> "EXPIRED"
+                else -> return key
+            }
+            dropped++;event(reason,key.command,queueMs)
         }
         return null
     }
+    @Synchronized fun pending():Boolean = queue.isNotEmpty()
     @Synchronized fun clear() { dropped+=queue.size;queue.forEach { event("DISCARDED",it.command,0) };queue.clear() }
     @Synchronized fun sent(key:Key,end:Long,duration:Long) {
         frameDelays.add((end-key.observedAt).coerceAtLeast(0));while(frameDelays.size>64) frameDelays.removeFirst();transmitMs=duration.coerceAtLeast(0);event("TRANSMITTED",key.command,(end-key.at).coerceAtLeast(0));delays.add((end-key.at).coerceAtLeast(0));while(delays.size>64) delays.removeFirst()

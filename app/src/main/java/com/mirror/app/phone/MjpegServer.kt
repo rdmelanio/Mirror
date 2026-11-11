@@ -16,7 +16,8 @@ class MjpegServer(private val name: String, private val stats: StreamStats,
                   private val security: PairingAuthority, private val bindAddress: java.net.InetAddress,
                   private val blocked: (String) -> Unit = {}, private val viewersChanged: (List<String>) -> Unit = {},
                   private val allowAddress: (java.net.InetAddress) -> Boolean = ::isLanAddress,
-                  private val listenPort: Int = 8080) {
+                  private val listenPort: Int = 8080,
+                  private val socketFactory: javax.net.ServerSocketFactory = javax.net.ServerSocketFactory.getDefault()) {
     @Volatile var controls: ControlEndpoint? = null
     private val monitor = Object()
     private data class Frame(val jpeg: ByteArray, val rotation: Int)
@@ -28,6 +29,7 @@ class MjpegServer(private val name: String, private val stats: StreamStats,
     private val watchdog = Executors.newSingleThreadScheduledExecutor()
     private val sockets = ConcurrentHashMap<Socket, Long>()
     private val streams = Semaphore(2)
+    private val readingRequests = ConcurrentHashMap<Socket, Long>()
     private data class Viewer(val hash: String?, val name: String)
     private val authorized = ConcurrentHashMap<Socket, String>()
     private val viewers = ConcurrentHashMap<Socket, Viewer>()
@@ -43,7 +45,7 @@ class MjpegServer(private val name: String, private val stats: StreamStats,
         }
     }
     fun start() {
-        val socket = ServerSocket().apply { reuseAddress = true; bind(java.net.InetSocketAddress(bindAddress, listenPort)) }
+        val socket = socketFactory.createServerSocket().apply { reuseAddress = true; bind(java.net.InetSocketAddress(bindAddress, listenPort)) }
         server = socket; running = true
         security.onRevoked = { hash ->
             authorized.forEach { (client, tokenHash) -> if (tokenHash == hash) runCatching { client.close() } }
@@ -52,17 +54,19 @@ class MjpegServer(private val name: String, private val stats: StreamStats,
         var sampledAt = System.nanoTime()
         watchdog.scheduleAtFixedRate({
             val now = System.nanoTime()
-            stats.sample((now - sampledAt) / 1_000_000_000.0); sampledAt = now
+            if(now-sampledAt>=TimeUnit.SECONDS.toNanos(1)) { stats.sample((now - sampledAt) / 1_000_000_000.0); sampledAt = now }
             sockets.forEach { (client, lastWrite) ->
-                if (now - lastWrite > TimeUnit.SECONDS.toNanos(15)) runCatching { client.close() }
+                val deadline=readingRequests[client]
+                if ((deadline!=null && now>=deadline) || now - lastWrite > TimeUnit.SECONDS.toNanos(15)) runCatching { client.close() }
             }
-        }, 1, 1, TimeUnit.SECONDS)
+        }, 100, 100, TimeUnit.MILLISECONDS)
         Thread({
             while (running) {
                 try {
-                    val client = socket.accept().apply { soTimeout = 5000; tcpNoDelay = true }
+                    val client = socket.accept().apply { soTimeout = 1500; tcpNoDelay = true }
                     if (!allowAddress(client.inetAddress) || sockets.size >= 4) { client.close(); continue }
                     sockets[client] = System.nanoTime()
+                    readingRequests[client] = System.nanoTime()+TimeUnit.SECONDS.toNanos(2)
                     workers.execute { handle(client) }
                 } catch (_: Exception) { if (running) close() }
             }
@@ -115,6 +119,7 @@ class MjpegServer(private val name: String, private val stats: StreamStats,
                     } catch (_: Exception) { response("400 Bad Request", "application/json", "{}"); }
                     return
                 }
+                readingRequests.remove(client)
                 val device = headers["x-mirror-token"]?.let { security.authenticate(it) }
                 val browser = device == null && request[0] == "GET" && path in listOf("/video", "/status") &&
                     security.browserAuth(headers["authorization"].orEmpty())
@@ -199,7 +204,7 @@ class MjpegServer(private val name: String, private val stats: StreamStats,
         } catch (_: Exception) { /* Disconnects are normal, including sleeping viewers. */ }
         finally {
             if (slot) { streams.release(); stats.clients.decrementAndGet(); viewers.remove(socket); viewersChanged(viewerNames()) }
-            authorized.remove(socket); sockets.remove(socket); runCatching { socket.close() }
+            authorized.remove(socket); readingRequests.remove(socket); sockets.remove(socket); runCatching { socket.close() }
         }
     }
     private fun readLine(input: java.io.InputStream): String {

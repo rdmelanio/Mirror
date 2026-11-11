@@ -129,7 +129,7 @@ internal class AirRemotePanel(private val activity:ComponentActivity,private val
         val disclosure=button(content,"ADVANCED · SHOW") {} as TextView
         disclosure.setOnClickListener { val show=advanced.visibility!=android.view.View.VISIBLE;advanced.visibility=if(show) android.view.View.VISIBLE else android.view.View.GONE;disclosure.text=if(show) "ADVANCED · HIDE" else "ADVANCED · SHOW" }
         content.addView(advanced)
-        slider(advanced,"Gesture acceptance threshold","confidence",65,50,95,5,"Native gesture-classification threshold; does not gate validated pointing geometry. Immediate; preserves claim duration and ownership safety.",suffix="%")
+        slider(advanced,"Gesture acceptance threshold","confidence",65,50,95,5,"Compatibility: model classification threshold. Pose Guided: required consistency of validated palm geometry across claim frames (at least 65%). Geometry is not a probability. One-second claim and ownership checks still apply.",suffix="%")
         slider(advanced,"Directional Pointing Hold","point_hold",400,250,1200,50,"Applies to Directional Pointing; Home retains a longer deliberate hold. Immediate; no camera restart.",longValue=true,suffix=" ms")
         advanced.addView(preciseJoystick)
         slider(preciseJoystick,"Precise Joystick Sensitivity","joystick_sensitivity",50,0,100,1,"Joystick only: higher values need smaller movement. Immediate; use Basic presets for normal use.")

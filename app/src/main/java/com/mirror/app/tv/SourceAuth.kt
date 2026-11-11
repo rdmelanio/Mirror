@@ -7,9 +7,13 @@ import java.net.URL
 import java.util.Base64
 import java.util.UUID
 
-data class SourceAuth(val token: String? = null, val username: String = "", val password: String = "") {
+data class SourceAuth(val token: String? = null, val username: String = "", val password: String = "", val trustedFingerprint: String? = null) {
     fun apply(http: HttpURLConnection) {
         http.instanceFollowRedirects = false
+        trustedFingerprint?.let {
+            require(http is javax.net.ssl.HttpsURLConnection) { "Pinned camera requires HTTPS; HTTP downgrade refused" }
+            com.mirror.app.core.LocalCameraTls.apply(http,it)
+        }
         if (token != null) http.setRequestProperty("X-Mirror-Token", token)
         else if (username.isNotEmpty() || password.isNotEmpty()) http.setRequestProperty("Authorization", "Basic " +
             Base64.getEncoder().encodeToString("$username:$password".toByteArray(Charsets.UTF_8)))
@@ -37,6 +41,15 @@ class ViewerPairing(private val prefs: SharedPreferences) {
         } catch (_: org.json.JSONException) { return null }
         finally { http.disconnect() }
     }
+    fun commit(camera: Camera, token: String): Boolean {
+        require(token.matches(Regex("[A-Za-z0-9_-]{43}")))
+        val key="token.${camera.id}"
+        val previous=prefs.getString(key,null)
+        if(prefs.edit().putString(key, token).commit()) return true
+        // SharedPreferences updates memory even when its disk commit fails.
+        prefs.edit().also { if(previous==null) it.remove(key) else it.putString(key,previous) }.commit()
+        return false
+    }
     fun pair(address: String, camera: Camera, code: String, name: String): String {
         val http = endpoint(address, "/pair")
         try {
@@ -49,7 +62,6 @@ class ViewerPairing(private val prefs: SharedPreferences) {
             check(response == 200 && body != null) { body?.optString("error", "Pairing failed") ?: "Pairing failed" }
             val token = body.getString("token")
             require(token.matches(Regex("[A-Za-z0-9_-]{43}"))) { "Invalid camera token" }
-            prefs.edit().putString("token.${camera.id}", token).commit()
             return token
         } finally { http.disconnect() }
     }

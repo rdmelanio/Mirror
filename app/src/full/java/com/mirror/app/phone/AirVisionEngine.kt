@@ -11,7 +11,7 @@ import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
 import kotlin.math.hypot
 
 internal interface AirVisionEngine:AutoCloseable {
-    data class Hand(val points:List<AirPointing.Point>,val name:String,val score:Float,val body:Int?=null,val shoulder:AirPointing.Point?=null)
+    data class Hand(val points:List<AirPointing.Point>,val name:String,val score:Float,val body:Int?=null,val shoulder:AirPointing.Point?=null,val geometricEvidence:Boolean=false)
     data class Result(val hands:List<Hand>,val diagnostic:String,val poseMs:Long=0,val handMs:Long=0,val conversionMs:Long=0,val persons:Int=0)
     fun recognize(raw:AirRawFrame,now:Long,roi:AirRoi,maxSide:Int,inputMode:String,stage:AirStage,thermal:Int,owner:AirOwnership.Hand?,mirrored:Boolean,wideInput:Boolean):Result
 }
@@ -99,7 +99,7 @@ internal class AirPoseEngine(context:Context,gpu:Boolean,persons:Int,private val
                 val geometry=AirHandGeometry.classify(full.map { AirPointing.Point(it.x*aspect,it.y) })
                 val matched=guided.filter { r -> full[0].x in r.roi.left..r.roi.right && full[0].y in r.roi.top..r.roi.bottom }.mapNotNull { it.body }.distinct().singleOrNull()
                 val association=guided.firstOrNull { it.body==matched }
-                found.add(AirVisionEngine.Hand(full,geometry.name,geometry.evidence,matched ?: region.body.takeIf { id -> regions.bodies.any { it.id==id && now-it.at<=2400 } },association?.shoulder ?: region.shoulder.takeIf { regions.bodies.any { it.id==region.body && now-it.at<=2400 } }))
+                found.add(AirVisionEngine.Hand(full,geometry.name,geometry.evidence,matched ?: region.body.takeIf { id -> regions.bodies.any { it.id==id && now-it.at<=2400 } },association?.shoulder ?: region.shoulder.takeIf { regions.bodies.any { it.id==region.body && now-it.at<=2400 } },geometricEvidence=true))
             }
         }
         if(found.isNotEmpty()) { previous=found;previousAt=now }

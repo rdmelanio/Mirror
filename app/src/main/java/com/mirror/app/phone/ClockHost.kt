@@ -185,3 +185,16 @@ class MirrorClockDream : DreamService() {
 
 class ClockSettingsActivity : PhoneSettingsActivity()
 
+
+/** Narrow entry for Android Dream settings; no arbitrary settings category or roster access. */
+class DreamClockSettingsActivity : android.app.Activity() {
+    private var panel: ClockSettingsPanel? = null
+    override fun onCreate(state: android.os.Bundle?) {
+        PhoneTheme.install(this); super.onCreate(state)
+        val content=android.widget.LinearLayout(this).apply { orientation=android.widget.LinearLayout.VERTICAL }
+        panel=ClockSettingsPanel(this,content,"style")
+        setContentView(android.widget.ScrollView(this).apply { addView(content) })
+    }
+    override fun onResume() { super.onResume();panel?.start() }
+    override fun onPause() { panel?.stop();super.onPause() }
+}

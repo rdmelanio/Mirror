@@ -7,7 +7,7 @@ import java.net.URI
 class EcrewAutomation(private val now: () -> Long, private val send: (String, Int) -> Unit,
     private val pending: (Boolean) -> Unit, private val finished: (Boolean, String) -> Unit,
     private val changed: (String) -> Unit = {}, private val timedOut: (String) -> Unit = {}) {
-    enum class Step { IDLE, OPEN_MY_SCHEDULE, CHECK_PENDING_CHANGES, CLICK_PRINT, WAIT_VIEWER, OPEN_EXPORT, CHOOSE_PDF, CAPTURE_PDF, EXIT, PARSE, NEXT_PERIOD }
+    enum class Step { IDLE, STRUCTURED_CAPTURE, OPEN_MY_SCHEDULE, CHECK_PENDING_CHANGES, CLICK_PRINT, WAIT_VIEWER, OPEN_EXPORT, CHOOSE_PDF, CAPTURE_PDF, EXIT, PARSE, NEXT_PERIOD }
     var step = Step.IDLE; private set
     var request = 0; private set
     var active = false; private set
@@ -22,6 +22,7 @@ class EcrewAutomation(private val now: () -> Long, private val send: (String, In
     private var since = 0L
     private var sentAt = Long.MIN_VALUE
     private var next = false
+    private var structured = false
     private var captured = false
     private var parsed = false
     private var captureStart = 0
@@ -29,23 +30,26 @@ class EcrewAutomation(private val now: () -> Long, private val send: (String, In
     private var nextAfterExit = false
     fun start(): Boolean {
         if (active) return false
-        active = true; started = clock(); next = false; captured = false; awaitingParse = false
+        structured=false;active = true; started = clock(); next = false; captured = false; awaitingParse = false
         move(Step.OPEN_MY_SCHEDULE); return true
     }
+    fun startStructured():Boolean { if(!start()) return false;structured=true;return true }
     fun manualPrint() {
+        structured=false
         if (active && step == Step.PARSE) return
         active = true; started = clock(); next = true; captured = false; awaitingParse = false
         move(Step.WAIT_VIEWER); captureStart = request
     }
-    fun scheduleDataSaved() { if (active) captured = true }
+    fun scheduleDataSaved() { /* Raw capture is not a committed roster. */ }
     private fun move(value: Step) { step = value; since = clock(); sentAt = Long.MIN_VALUE; request++; if (value == Step.CLICK_PRINT) captureStart = request; changed(value.name) }
     fun acceptsPdf(id: Int) = captureAllowed && id in captureStart..request
     fun tick() {
         if (!active || paused) return
-        val limit = if (step == Step.CAPTURE_PDF) 60_000 else 25_000
+        val limit = if (step in listOf(Step.CAPTURE_PDF,Step.WAIT_VIEWER,Step.STRUCTURED_CAPTURE)) 60_000 else 25_000
         if (clock() - started >= 240_000 || clock() - since >= limit) { timedOut(step.name); stop(false, "timeout; manual Print or import available"); return }
         if (sentAt != Long.MIN_VALUE && clock() - sentAt < 1500) return
         val command = when (step) {
+            Step.STRUCTURED_CAPTURE -> "storageSnapshot"
             Step.OPEN_MY_SCHEDULE -> "openSchedule"
             Step.CHECK_PENDING_CHANGES -> "checkPending"
             Step.CLICK_PRINT -> "print"
@@ -63,7 +67,7 @@ class EcrewAutomation(private val now: () -> Long, private val send: (String, In
         if (!active || paused || id != request) return
         if (result == "terminated" || result == "login") { stop(false, "session expired"); return }
         when (step) {
-            Step.OPEN_MY_SCHEDULE -> if (result == "schedule") move(Step.CHECK_PENDING_CHANGES)
+            Step.OPEN_MY_SCHEDULE -> if (result == "schedule") move(if(structured) Step.STRUCTURED_CAPTURE else Step.CHECK_PENDING_CHANGES)
             Step.CHECK_PENDING_CHANGES -> if (result in listOf("pending", "clear")) { pending(result == "pending"); move(Step.CLICK_PRINT) }
             Step.CLICK_PRINT -> if (result == "printed") move(Step.WAIT_VIEWER)
             Step.WAIT_VIEWER -> if (result == "preview") move(Step.OPEN_EXPORT)

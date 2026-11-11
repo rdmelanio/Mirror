@@ -39,6 +39,7 @@ class PhoneControlsPanel(private val activity: Activity, private val content: Li
             content.addView(activity.label("Pairing & security", 25f))
             content.addView(activity.action("Pair new TV") { showPairing() })
             content.addView(activity.action("Paired devices") { showDevices() })
+            content.addView(activity.label("Legacy LAN connection: camera video and login credentials use unencrypted HTTP. Use only a trusted network."))
             val browser = activity.action("Allow browser viewing: ${if (security.browserEnabled()) "On" else "Off"}") {}
             browser.setOnClickListener {
                 if (security.browserEnabled()) { security.setBrowserPassword(null); browser.text = "Allow browser viewing: Off" }

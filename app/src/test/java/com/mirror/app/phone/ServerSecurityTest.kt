@@ -52,11 +52,26 @@ class ServerSecurityTest {
             assertTrue(result.startsWith("HTTP/1.1 200"))
             val token = JSONObject(result.substringAfter("\r\n\r\n")).getString("token")
             assertNotNull(security.authenticate(token))
-            val wrong = if (code == "000000") "000001" else "000000"
+            assertTrue(request("/pair", method = "POST", body = body(code)).startsWith("HTTP/1.1 403"))
+            val secondCode = security.showCode()!!
+            val wrong = if (secondCode == "000000") "000001" else "000000"
             repeat(4) { assertTrue(request("/pair", method = "POST", body = body(wrong)).startsWith("HTTP/1.1 403")) }
             assertTrue(request("/pair", method = "POST", body = body(wrong)).startsWith("HTTP/1.1 429"))
             assertTrue(request("/pair", method = "POST", body = body(code)).contains("Too many attempts"))
         } finally { server.close() }
+    }
+    @Test fun incompleteClientsHaveAnAbsoluteDeadlineAndReleaseAllWorkers() {
+        val server=MjpegServer("Camera",StreamStats(),PairingAuthority(),InetAddress.getByName("127.0.0.1"),allowAddress={it.isLoopbackAddress},listenPort=0)
+        server.start();port=server.port
+        val sockets=List(4) { Socket("127.0.0.1",port).apply { soTimeout=3500;getOutputStream().write("GET /hello HTTP/1.1\r\nX-Slow: ".toByteArray()) } }
+        val drip=java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
+        try {
+            drip.scheduleAtFixedRate({ sockets.forEach { runCatching { it.getOutputStream().write('a'.code) } } },100,100,java.util.concurrent.TimeUnit.MILLISECONDS)
+            val start=System.nanoTime()
+            sockets.forEach { assertEquals(-1,it.getInputStream().read()) }
+            assertTrue((System.nanoTime()-start)/1_000_000<3000)
+            assertTrue(request("/hello").startsWith("HTTP/1.1 200"))
+        } finally { drip.shutdownNow();sockets.forEach { it.close() };server.close() }
     }
     @Test fun privateAddressesOnly() {
         listOf("10.0.0.1", "172.16.0.1", "172.31.255.254", "192.168.1.1", "fd00::1", "fe80::1").forEach {

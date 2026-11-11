@@ -32,10 +32,10 @@ class EcrewExportWindowTest {
         now = 59_999; machine.tick(); assertTrue(machine.active)
         now = 60_000; machine.tick(); assertFalse(machine.active)
     }
-    @Test fun capturedScheduleMakesFailedPdfFetchCountAsDataCaptured() {
+    @Test fun rawScheduleCaptureCannotTurnFailedRosterFetchIntoSuccess() {
         var result = false
         val machine = EcrewAutomation({ 0L }, { _, _ -> }, {}, { success, _ -> result = success })
         machine.start(); machine.scheduleDataSaved(); machine.stop(reason = "PDF timeout")
-        assertTrue(result)
+        assertFalse(result)
     }
 }

@@ -40,7 +40,7 @@ object EcrewScheduleData {
         if (!RosterStore.phone(c)) return false
         val metadata = storageMetadata(entries) ?: return false
         write(File(directory(c), "localStorage.json"), JSONObject().put("capturedAt", System.currentTimeMillis()).put("afterCrewScheduleLoad", afterSchedule).put("localStorage", entries).toString().toByteArray())
-        metadata.forEach { CaptureLog.add(c, "LOCAL_STORAGE", it) }
+        CaptureLog.add(c, "LOCAL_STORAGE", "entries=${metadata.size}; values and key names omitted")
         return afterSchedule && (entries.has("CrewInformation") || entries.has("PublishedCrewInformation"))
     }
     @Synchronized fun saveHtml(c: Context, html: String) {
@@ -85,7 +85,7 @@ object EcrewScheduleData {
             .put("capturedAt", System.currentTimeMillis()).put("response", capture.value).toString().toByteArray()
         val atomic = AtomicFile(file); val out = atomic.startWrite()
         try { out.write(content); atomic.finishWrite(out) } catch (e: Exception) { atomic.failWrite(out); throw e }
-        CaptureLog.add(c, "SCHEDULE_DATA", "path=${EcrewSnapshot.path(capture.path)} status=${capture.status} size=${capture.size} keys=${capture.keys} firstArrayKeys=${capture.arrayKeys}")
+        CaptureLog.add(c, "SCHEDULE_DATA", "status=${capture.status} size=${capture.size}; endpoint and key names omitted")
     }
     @Synchronized fun archive(c: Context): File? {
         val files = directory(c).listFiles()?.filter { it.name in setOf("localStorage.json", "CrewSchedule.html") }.orEmpty()

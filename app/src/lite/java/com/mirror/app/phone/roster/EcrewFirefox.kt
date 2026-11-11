@@ -9,5 +9,5 @@ object EcrewFirefox {
     fun foregroundOpened(c: Context, anchor: android.view.View) {}
     fun foregroundClosed(anchor: android.view.View) {}
     fun canRefresh(c: Context) = false
-    fun clearLocal(c: Context, done: () -> Unit) = done()
+    fun clearLocal(c: Context, forgetLogin:Boolean=true, done: (Boolean) -> Unit) = done(true)
 }

@@ -12,7 +12,7 @@ internal class AirJoystick {
     var reason="Joystick neutral";private set
     var activityAt=-1L;private set
     var pending=false;private set
-    fun reset() { anchor=null;since=-1;samples=0;lastSeen=-1;latched=null;firedAt=-1;filtered=null;pending=false;suspendedAt=-1;resumeSamples=0;requireCenter=false }
+    fun reset() { anchor=null;since=-1;samples=0;lastSeen=-1;latched=null;firedAt=-1;filtered=null;pending=false;suspendedAt=-1;resumeSamples=0;requireCenter=false;shoulderMode=null;repeatedAt=-1;activityAt=-1;reason="Joystick neutral" }
     private var suspendedAt=-1L
     private var resumeSamples=0
     val hasAnchor get()=anchor!=null

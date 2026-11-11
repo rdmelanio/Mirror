@@ -335,7 +335,7 @@ test('top localStorage is read-only, snapshot follows linked/load/end, size limi
   p.context.location.href = 'https://ecrew.cebupacificair.com/eCrew/CrewSchedule'; p.report();
   assert(p.messages.some(m => m.kind === 'storageSnapshot' && m.reason === 'CrewSchedule load' && m.afterSchedule));
   p.command('storageSnapshot'); assert.equal(p.messages.at(-1).entries.CrewInformation, entries.CrewInformation);
-  entries.huge = 'x'.repeat(5 * 1024 * 1024); const count = p.messages.filter(m => m.kind === 'storageSnapshot').length;
+  entries.Memos = 'x'.repeat(5 * 1024 * 1024); const count = p.messages.filter(m => m.kind === 'storageSnapshot').length;
   p.command('storageSnapshot'); assert.equal(p.messages.filter(m => m.kind === 'storageSnapshot').length, count); assert.equal(p.messages.at(-1).kind, 'storageLimit'); assert.equal(writes, 0);
   assert(!/localStorage\s*\.\s*(setItem|removeItem|clear)\s*\(/.test(code));
 });
@@ -384,3 +384,12 @@ test('a flyout appearing after the sidebar is tapped within the one-second poll 
   p.flushTimers(); assert.equal(p.clicks.length, 2);
 });
 
+
+test('storage snapshots exclude session tokens and unrelated storage keys before reading values', () => {
+ const p=page();p.context.TextEncoder=TextEncoder;
+ const values={CrewInformation:'[]',sessionToken:'PRIVATE_TOKEN',password:'PRIVATE_PASSWORD'};
+ const reads=[];p.context.window.localStorage={length:3,key:i=>Object.keys(values)[i],getItem:k=>{reads.push(k);return values[k];}};
+ p.element('',{className:'fa-calendar-alt'});p.run();p.command('storageSnapshot');
+ assert.deepEqual(reads.filter(k=>k!=='CrewInformation'),[]);
+ assert(!JSON.stringify(p.messages.filter(m=>m.kind==='storageSnapshot')).includes('PRIVATE_TOKEN'));
+});

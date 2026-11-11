@@ -12,7 +12,7 @@ internal class AirOwnership {
     private var missing=false
     var minimumConfidence = .65f
     var progressMs = 0L; private set
-    data class Hand(val x: Float, val y: Float, val size: Float, val gesture: String, val confidence: Float, val indexValid:Boolean=gesture in setOf("POINT_UP","POINT_DOWN","POINT_LEFT","POINT_RIGHT","Pointing_Up"),val bodyId:Int?=null,val shoulder:AirPointing.Point?=null,val bodyCount:Int=0)
+    data class Hand(val x: Float, val y: Float, val size: Float, val gesture: String, val confidence: Float, val indexValid:Boolean=gesture in setOf("POINT_UP","POINT_DOWN","POINT_LEFT","POINT_RIGHT","Pointing_Up"),val bodyId:Int?=null,val shoulder:AirPointing.Point?=null,val bodyCount:Int=0,val geometricEvidence:Boolean=false)
     data class Selection(val hand: Hand?, val claimed: Boolean = false, val lost: Boolean = false, val ambiguous: Boolean = false, val paused: Boolean = false, val recovered: Boolean = false, val reason:String="")
     private data class Candidate(var hand: Hand, var since: Long, var anchorX: Float, var anchorY: Float, val evidence: MutableList<Pair<Long, Boolean>> = mutableListOf(), var lastGood: Long = since)
     private var candidates = mutableListOf<Candidate>()
@@ -87,7 +87,7 @@ internal class AirOwnership {
         progressMs=next.maxOfOrNull { (now-it.since).coerceAtMost(claimDurationMs) } ?: 0
         val winners = next.filter { now-it.since >= claimDurationMs && now-it.lastGood<=400 &&
             it.evidence.size>=claimSamples && it.evidence.count { e -> e.second } >= (claimSamples-1).coerceAtLeast(3) &&
-            it.evidence.count { e -> e.second }.toFloat()/it.evidence.size >= .65f }.sortedBy { it.since }
+            it.evidence.count { e -> e.second }.toFloat()/it.evidence.size >= if(it.hand.geometricEvidence) maxOf(.65f,minimumConfidence) else .65f }.sortedBy { it.since }
         if (winners.isNotEmpty() && (winners.size==1 || winners[0].since < winners[1].since)) {
             owner=winners[0].hand;claimed=true;candidates.clear()
             return Selection(owner,claimed=true)

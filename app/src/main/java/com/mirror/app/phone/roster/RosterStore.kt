@@ -61,22 +61,33 @@ object RosterStore {
     fun dir(c: Context) = File(c.noBackupFilesDir, "roster").apply { mkdirs() }
     @Synchronized fun load(c: Context): Roster? {
         if (!phone(c)) return null
+        RosterTransaction(dir(c)).recover()
         if (cache == null) cache = runCatching { RosterJson.decode(File(dir(c), "roster.json").readText()) }.getOrNull()
         return cache
     }
-    @Synchronized fun accept(c: Context, bytes: ByteArray, interactive: Boolean = false): Boolean {
-        if (!phone(c)) return false
+    @Synchronized fun accept(c:Context,bytes:ByteArray,interactive:Boolean=false,confirmedSwitchFrom:String?=null):Boolean {
+        if(!phone(c)) return false
+        val fresh=runCatching {
+            require(bytes.size in 4..RosterFetcher.LIMIT)
+            RosterPdf.parse(c,bytes)
+        }.getOrElse { runCatching { CaptureLog.add(c,"PARSE","PDF validation failed; last good roster retained") };return false }
+        return commitRoster(c,fresh,bytes,interactive,confirmedSwitchFrom)
+    }
+    @Synchronized fun acceptStructured(c:Context,source:ValidatedRoster,interactive:Boolean=false,confirmedSwitchFrom:String?=null):Boolean {
+        if(!phone(c)) return false
+        return commitRoster(c,source.roster,null,interactive,confirmedSwitchFrom,source.source)
+    }
+    private fun commitRoster(c:Context,fresh:Roster,bytes:ByteArray?,interactive:Boolean,confirmedSwitchFrom:String?,provenance:String="pdf"):Boolean {
+        var committed=false
         try {
-            require(bytes.size >= 4 && bytes.copyOfRange(0, 4).contentEquals("%PDF".toByteArray()))
-            val last = File(dir(c), "latest.pdf"); val prior = File(dir(c), "previous.pdf")
-            prior.delete(); if (last.exists()) last.renameTo(prior); last.writeBytes(bytes)
-            CaptureLog.add(c, "PARSE", "started")
-            val fresh = RosterPdf.parse(c, bytes); val old = load(c)
-            val overlap = old != null && old.crewId == fresh.crewId && fresh.period.start <= old.period.end.plusDays(1) && old.period.start <= fresh.period.end.plusDays(1)
-            val merged = if (overlap) fresh.copy(period = Period(minOf(old!!.period.start, fresh.period.start), maxOf(old.period.end, fresh.period.end)),
-                duties = (old.duties.filter { it.date !in fresh.period.start..fresh.period.end } + fresh.duties).sortedBy { it.reportInstant ?: it.date.atStartOfDay(AirportZones.zone("MNL")).toInstant() }, memos = old.memos.filterKeys { it !in fresh.period.start..fresh.period.end } + fresh.memos, legend = old.legend + fresh.legend) else fresh
-            val atomic = AtomicFile(File(dir(c), "roster.json")); val stream = atomic.startWrite()
-            try { stream.write(RosterJson.encode(merged).toByteArray()); atomic.finishWrite(stream) } catch (e: Exception) { atomic.failWrite(stream); throw e }
+            val old=load(c)
+            if (!CrewImportPolicy.allowed(old?.crewId, fresh.crewId, interactive, confirmedSwitchFrom)) {
+                CaptureLog.add(c, "IMPORT", "different crew rejected; use explicit account-switch import")
+                return false
+            }
+            val merged=RosterMerge.merge(old,fresh)
+            RosterTransaction(dir(c)).commit(bytes, JSONObject(RosterJson.encode(merged)).put("source",provenance).toString())
+            committed = true
             cache = merged; prefs(c).edit().putLong("lastSuccess", System.currentTimeMillis()).apply()
             if (interactive) prefs(c).edit().putLong("lastInteractive", System.currentTimeMillis()).apply()
             val changes = if (old != null && old.crewId == merged.crewId) RosterDiff.summaries(old, merged) else emptyList()
@@ -85,7 +96,10 @@ object RosterStore {
             RosterAlarms.reschedule(c); RosterWork.configure(c)
             android.os.Handler(android.os.Looper.getMainLooper()).post { com.mirror.app.phone.DepartureAlerts.configure(c) }
             CaptureLog.add(c, "PARSE", "success"); return true
-        } catch (_: Exception) { CaptureLog.add(c, "PARSE", "failed; retained last good roster"); return false }
+        } catch (_: Exception) {
+            runCatching { CaptureLog.add(c, "PARSE", if(committed) "roster saved; post-import refresh failed" else "failed; retained last good roster") }
+            return committed
+        }
     }
     fun stale(c: Context): Pair<String, Int>? {
         if (!phone(c)) return null
@@ -94,8 +108,10 @@ object RosterStore {
         val hours = age / 3_600_000
         return if (age > 6 * 3_600_000L) "ROSTER STALE ${hours}h" to if (age > 24 * 3_600_000L) 0xFFFF4444.toInt() else 0xFFFFB000.toInt() else null
     }
-    @Synchronized fun clear(c: Context) {
-        RosterWork.cancel(c); RosterAlarms.cancel(c); cache = null
-        prefs(c).edit().clear().apply(); dir(c).deleteRecursively()
+    @Synchronized fun clear(c: Context):Boolean {
+        cache = null
+        return LocalLogoutCleanup.all(
+            { RosterWork.cancel(c); true }, { RosterAlarms.cancel(c); true },
+            { prefs(c).edit().clear().commit() }, { dir(c).deleteRecursively() })
     }
 }

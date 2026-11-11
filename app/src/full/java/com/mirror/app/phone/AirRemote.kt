@@ -181,7 +181,7 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                 lastInference=completed
                 val names=result.hands
                 handDetected=result.hands.isNotEmpty()
-                detectedGesture=names.joinToString { "${it.name} ${ (it.score*100).toInt()}%" }.ifEmpty { "None" }
+                detectedGesture=names.joinToString { if(it.geometricEvidence) "${it.name} · geometry" else "${it.name} ${ (it.score*100).toInt()}%" }.ifEmpty { "None" }
                 val prefs=AirRemoteTv.prefs(context)
                 val calibrating=calibration
                 val mirrored=prefs.getBoolean("mirror",true)
@@ -192,7 +192,7 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                 val hands=fullPoints.mapIndexed { index, hand ->
                     val category=result.hands[index]
                     AirObservation.hand(hand,category.name,category.score,
-                        prefs.getBoolean("mirror",true),prefs.getBoolean("legacy",false),confidence).copy(bodyId=category.body,bodyCount=result.persons,shoulder=category.shoulder?.let { AirPointing.Point(if(mirrored) 1-it.x else it.x,it.y) })
+                        prefs.getBoolean("mirror",true),prefs.getBoolean("legacy",false),confidence,category.geometricEvidence).copy(bodyId=category.body,bodyCount=result.persons,shoulder=category.shoulder?.let { AirPointing.Point(if(mirrored) 1-it.x else it.x,it.y) })
                 }
                 detectedGesture += " · direction " + hands.joinToString { it.gesture }
                 session.update(now,hands,AirRemoteTv.connected,calibrating,intervalMs,confidence,prefs.getInt("sensitivity",50),prefs.getBoolean("legacy",false),prefs.getLong("point_hold",400),prefs.getLong("session_timeout",60_000),
@@ -217,9 +217,9 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
                 workload.observe(completed,!session.awaitingRelease && session.claimProgress>0,session.processing(completed),session.recovering(completed))
                 publishState(completed)
                 history.record(if(calibration) "Calibration" else if(session.sessionActive) "Active" else "Standby",session.trackingState,session.diagnosticPose,session.diagnosticScore,session.accepted,
-                    if(AirRemoteTv.connected) "Connected" else "Disconnected",observedFps,rate.latencyMs,thermalReading,AirDiagnostics.reason(session.status))
+                    if(AirRemoteTv.connected) "Connected" else "Disconnected",observedFps,rate.latencyMs,thermalReading,AirDiagnostics.reason(session.status),geometricEvidence=result.hands.any { it.geometricEvidence })
                 eco=workload.stage==AirStage.ECO || workload.thermal>=3
-                performance="$engineName · camera ${raw.uprightWidth}x${raw.uprightHeight} upright · ${result.diagnostic} · pose ${result.poseMs}ms hand ${result.handMs}ms · ${prefs.getString("navigation","joystick")} · ${handLock.state} · $delegate $handsCount hands $maxSide px${if(delegateFallback.isNotEmpty()) " · $delegateFallback" else ""} · ${workload.stage}${if(workload.thermal>=2) " · Thermal Limited" else ""} · $inputDescription · thermal $thermalReading · init ${modelInitMs}ms · recovery ${lastRecoveryMs}ms · copy ${copyMs}ms · skipped $skipped · stale $staleFrames"
+                performance="$engineName · camera ${raw.uprightWidth}x${raw.uprightHeight} upright · ${result.diagnostic} · pose ${result.poseMs}ms hand ${result.handMs}ms · ${prefs.getString("navigation","joystick")} · ${handLock.state} · $delegate · Compatibility max $handsCount / Pose max 2 · detected ${result.hands.size} · $maxSide px${if(delegateFallback.isNotEmpty()) " · $delegateFallback" else ""} · ${workload.stage}${if(workload.thermal>=2) " · Thermal Limited" else ""} · $inputDescription · thermal $thermalReading · init ${modelInitMs}ms · recovery ${lastRecoveryMs}ms · copy ${copyMs}ms · skipped $skipped · stale $staleFrames"
                 if(decisionEnd-summaryAt>=2000) {
                     summaryAt=decisionEnd
                     history.vision(engineName,raw.uprightWidth,raw.uprightHeight,result.persons,hands.size,result.poseMs,result.handMs,result.diagnostic)
@@ -323,7 +323,7 @@ internal class AirRemote(private val context: Context) : AutoCloseable {
             val fresh=SystemClock.elapsedRealtime()-lastInference<3000
             return "TV Remote: ${if(AirRemoteTv.connected) "Connected" else "Not connected — retry saved TV"}\nRecognition: ${if(fresh) inferenceState else recognition}\nInput: $inputStatus\nController: $trackingSummary\n$decisionSummary\n$feedbackStatus"
         }
-        fun copyDiagnostics()="Camera ${CameraService.cameraResolution} · delivery ${CameraService.cameraFps} fps · frame age ${(SystemClock.elapsedRealtime()-CameraService.lastCameraFrameAt).coerceAtLeast(0)}ms · ${CameraService.note.orEmpty()}\n$performance\n$performanceMetrics\nInput: $inputStatus\nController: $trackingSummary\n$decisionSummary\n$feedbackStatus\n\n"+history.text()
+        fun copyDiagnostics()="${CameraService.cpuWakeReport}\nCamera ${CameraService.cameraResolution} · delivery ${CameraService.cameraFps} fps · frame age ${(SystemClock.elapsedRealtime()-CameraService.lastCameraFrameAt).coerceAtLeast(0)}ms · ${CameraService.note.orEmpty()}\n$performance\n$performanceMetrics\nInput: $inputStatus\nController: $trackingSummary\n$decisionSummary\n$feedbackStatus\n\n"+history.text()
         fun diagnostics(): String {
             val fresh=SystemClock.elapsedRealtime()-lastInference<2000
             return "$performance\nCamera ${"%.1f".format(java.util.Locale.US,CameraService.cameraFps)} fps: ${if(CameraService.active) "service active" else "stopped"} · Inference: $inferenceState" +

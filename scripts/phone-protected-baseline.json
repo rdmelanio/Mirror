@@ -1,5 +1,5 @@
 {
-  "app/src/main/java/com/mirror/app/phone/CameraService.kt": "d2f375ef37236025c23e6248b8adcf282b1b206c",
+  "app/src/main/java/com/mirror/app/phone/CameraService.kt": "60c826cc64cb1e30895858366b037301125d8f36",
   "app/src/main/java/com/mirror/app/phone/ClockLightPolicy.kt": "2ec32ffb7f2a1f54b6c6624137da60813b3487a7",
   "app/src/main/java/com/mirror/app/phone/DepartureSoundService.kt": "7458907b34ce90c7d24cae5597999ab3dd1a0ee2",
   "app/src/main/java/com/mirror/app/phone/roster/RosterAlarmActivity.kt": "d608beb24586911cff7f29aa6b5d141d41375707",
@@ -14,7 +14,7 @@
   "app/src/main/java/com/mirror/app/tv/PairingScreen.kt": "6aeb5858d3bb0569015258131ff42f4d1611dd97",
   "app/src/main/java/com/mirror/app/tv/QuickMenu.kt": "8b553e6097876b66ad1f189964dbdb5ef00968a8",
   "app/src/main/java/com/mirror/app/tv/RingLightView.kt": "0d95e30c54ea30de25c2b6f4896980e57598385c",
-  "app/src/main/java/com/mirror/app/tv/SourceAuth.kt": "324abe1cba3e1592d83f60d6acc85bd1a3cacd5b",
-  "app/src/main/java/com/mirror/app/tv/TvActivity.kt": "64af7d3f5e04c49d5c1db8b39d9f3ac2686d943d",
+  "app/src/main/java/com/mirror/app/tv/SourceAuth.kt": "d7043fa8984a18958b2974f68be93189353d20ce",
+  "app/src/main/java/com/mirror/app/tv/TvActivity.kt": "7b3e3923c936b99803da5a54494f7df95e2d2456",
   "app/src/main/res/values/styles.xml": "b92b0b701b0c51448f4004c74652df367394d6b8"
 }

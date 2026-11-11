@@ -68,7 +68,8 @@ class ECrewActivity : ComponentActivity() {
         top.addView(action("Reload") { browser?.reload() }, LinearLayout.LayoutParams(-2, -2))
         if (useFirefox) {
             top.addView(action("Fetch roster now") { firefox?.start() }, LinearLayout.LayoutParams(-2, -2))
-            top.addView(action("Log out and forget saved login") { firefox?.logoutFromTap() }, LinearLayout.LayoutParams(-2, -2))
+            top.addView(action("Sign out; keep remembered login") { firefox?.logoutKeepingLoginFromTap() }, LinearLayout.LayoutParams(-2,-2))
+            top.addView(action("Sign out and forget saved login") { firefox?.logoutFromTap() }, LinearLayout.LayoutParams(-2, -2))
         } else {
             top.addView(action("Run probe") { web?.let { EcrewProbe.runFromTap(this, it, browser?.instanceId.orEmpty(), browserMode.name) } }, LinearLayout.LayoutParams(-2, -2))
             top.addView(action("Copy log") { copyRosterLog() }, LinearLayout.LayoutParams(-2, -2))
@@ -88,7 +89,7 @@ class ECrewActivity : ComponentActivity() {
         if (lifetime.create()) {
             if (useFirefox) {
                 firefox = EcrewFirefox.create(this, granted) { success ->
-                    Toast.makeText(this, if (success) "Roster updated" else "Fetch failed — try Print manually or import a PDF", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, if (success) "Roster updated" else "Schedule not committed — source data needs validation; the previous roster is retained", Toast.LENGTH_LONG).show()
                 }
                 browser = firefox
                 firefox?.view?.let { root.addView(it, LinearLayout.LayoutParams(-1, 0, 1f)) }
@@ -218,6 +219,8 @@ object RosterImport {
     fun read(a: Activity, uri: Uri, done: (RosterImportRouting.Result) -> Unit) {
         val executor = Executors.newSingleThreadExecutor()
         executor.execute {
+            var switchBytes: ByteArray? = null
+            var switchFrom: String? = null
             val result = runCatching {
                 val bytes = a.contentResolver.openInputStream(uri)?.use { it.readBytesLimited(RosterFetcher.LIMIT) }
                     ?: return@runCatching RosterImportRouting.Result.FAILED
@@ -227,10 +230,32 @@ object RosterImport {
                         require(doc.numberOfPages in 1..20)
                         com.tom_roush.pdfbox.text.PDFTextStripper().apply { startPage = 1; endPage = 1 }.getText(doc)
                     }
-                }, { pdf -> RosterStore.accept(a, pdf) })
+                }, { pdf ->
+                    val fresh = RosterPdf.parse(a, pdf)
+                    val old = RosterStore.load(a)
+                    if (old != null && old.crewId != fresh.crewId) {
+                        switchBytes = pdf; switchFrom = old.crewId; false
+                    } else RosterStore.accept(a, pdf, interactive = true)
+                })
             }.getOrDefault(RosterImportRouting.Result.FAILED)
             if (result != RosterImportRouting.Result.IMPORTED) CaptureLog.add(a, "IMPORT", if (result == RosterImportRouting.Result.NOT_ROSTER) "not an eCrew roster; private roster retained" else "failed; private roster retained")
             a.runOnUiThread {
+                if (switchBytes != null) {
+                    AlertDialog.Builder(a).setTitle("Switch roster account?")
+                        .setMessage("This PDF belongs to a different crew member. Replace your current roster and reschedule its alarms? Your other settings will be kept.")
+                        .setNegativeButton("Keep current roster") { _, _ -> done(RosterImportRouting.Result.FAILED) }
+                        .setOnCancelListener { done(RosterImportRouting.Result.FAILED) }
+                        .setPositiveButton("Switch account") { _, _ ->
+                            Thread {
+                                val ok = RosterStore.accept(a, switchBytes!!, interactive = true, confirmedSwitchFrom = switchFrom)
+                                a.runOnUiThread {
+                                    Toast.makeText(a, if(ok) "Roster account switched" else "Import failed; current roster retained", Toast.LENGTH_LONG).show()
+                                    done(if(ok) RosterImportRouting.Result.IMPORTED else RosterImportRouting.Result.FAILED)
+                                }
+                            }.start()
+                        }.show()
+                    return@runOnUiThread
+                }
                 Toast.makeText(a, when (result) {
                     RosterImportRouting.Result.IMPORTED -> "Roster imported"
                     RosterImportRouting.Result.NOT_ROSTER -> "Not an eCrew roster"
@@ -270,6 +295,18 @@ class RosterImportActivity : Activity() {
     }
 }
 class RosterLogActivity : Activity() {
+    private var pendingZip:File?=null
+    override fun onActivityResult(request:Int,result:Int,data:Intent?) {
+        super.onActivityResult(request,result,data)
+        if(request!=83 || result!=RESULT_OK) return
+        val source=pendingZip ?: return
+        val uri=data?.data ?: return
+        Thread {
+            val saved=runCatching { contentResolver.openOutputStream(uri)?.use { out -> source.inputStream().use { it.copyTo(out) } } ?: error("Cannot open destination") }.isSuccess
+            runOnUiThread { Toast.makeText(this,if(saved) "Diagnostic ZIP saved to the selected destination" else "Could not save ZIP; choose another destination",Toast.LENGTH_LONG).show() }
+        }.start()
+    }
+
     override fun onCreate(state: Bundle?) {
         PhoneTheme.install(this); super.onCreate(state); if (!RosterStore.phone(this)) { finish(); return }
         RosterPrivacy.apply(this)
@@ -286,8 +323,18 @@ class RosterLogActivity : Activity() {
                 }
             }.show()
         })
+        root.addView(action("Save diagnostic ZIP") {
+            AlertDialog.Builder(this).setMessage("This unencrypted ZIP contains private crew data. Save it only to a location you trust.")
+                .setNegativeButton("Cancel",null).setPositiveButton("Choose destination") { _,_->
+                    runCatching {
+                        pendingZip=EcrewScheduleData.archive(this)
+                        if(pendingZip==null) Toast.makeText(this,"No schedule capture is available",Toast.LENGTH_LONG).show()
+                        else startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/zip").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"mirror-schedule-data.zip"),83)
+                    }.onFailure { Toast.makeText(this,"Cannot create diagnostic ZIP or open a destination",Toast.LENGTH_LONG).show() }
+                }.show()
+        })
         if (com.mirror.app.BuildConfig.ROSTER_ENABLED) root.addView(action("Share captured schedule data") {
-            AlertDialog.Builder(this).setMessage("Captured schedule data contains private crew information, including duty details. Share it only with a recipient you trust.")
+            AlertDialog.Builder(this).setMessage("This unencrypted ZIP contains private crew information, including duty details. Share it only with a recipient you trust.")
                 .setNegativeButton("Cancel", null).setPositiveButton("Share") { _, _ ->
                     val file = EcrewScheduleData.archive(this)
                     if (file == null) Toast.makeText(this, "No schedule data captured yet", Toast.LENGTH_LONG).show()
@@ -297,16 +344,36 @@ class RosterLogActivity : Activity() {
                     }
                 }.show()
         })
+        root.addView(action("Delete raw schedule captures") {
+            AlertDialog.Builder(this).setMessage("Delete captured schedule HTML, API JSON, localStorage snapshots and the unencrypted ZIP? Offline roster, alarms and login will be kept.")
+                .setNegativeButton("Cancel", null).setPositiveButton("Delete captures") { _, _ ->
+                    val cleared=RawCaptureCleanup.clear(RosterStore.dir(this))
+                    Toast.makeText(this, if(cleared) "Raw captures deleted" else "Some captures could not be deleted; retry available", Toast.LENGTH_LONG).show()
+                }.show()
+        })
+        root.addView(action("Clear local eCrew session") {
+            AlertDialog.Builder(this).setMessage("Forget the saved eCrew login and local browser session? Offline roster and alarms will be kept.")
+                .setNegativeButton("Cancel", null).setPositiveButton("Clear session") { _, _ ->
+                    EcrewBrowsers.current?.pauseForLocalClear()
+                    RosterWork.cancel(this)
+                    EcrewFirefox.clearLocal(this) { firefoxCleared -> EcrewStorage.clearLocal(this) { webCleared ->
+                        val cleared=firefoxCleared && webCleared
+                        if(cleared) RosterStore.prefs(this).edit().putBoolean("linked",false).putBoolean("expired",false).apply()
+                        Toast.makeText(this, if(cleared) "Local eCrew sessions and saved login cleared" else "Cleanup failed; tap Clear local eCrew session to retry", Toast.LENGTH_LONG).show()
+                    } }
+
+                }.show()
+        })
         root.addView(action("Clear data") {
             AlertDialog.Builder(this).setMessage("Delete private roster PDFs, parsed data, capture log and eCrew session?").setNegativeButton("Cancel", null).setPositiveButton("Clear") { _, _ ->
                 EcrewBrowsers.current?.pauseForLocalClear()
                 val savedMode = EcrewBrowserModes.selected(this)
                 val savedEngine = EcrewEngine.selected(this)
-                RosterStore.clear(this)
+                val rosterCleared=RosterStore.clear(this)
                 EcrewBrowserModes.save(this, savedMode)
                 RosterStore.prefs(this).edit().putString("engine", savedEngine.name).apply()
-                File(cacheDir, "roster-logs").deleteRecursively()
-                EcrewFirefox.clearLocal(this) { EcrewStorage.clearLocal(this) { log.text = CaptureLog.read(this); Toast.makeText(this, "Local eCrew and roster data cleared", Toast.LENGTH_SHORT).show() } }
+                val exportsCleared=File(cacheDir, "roster-logs").deleteRecursively()
+                EcrewFirefox.clearLocal(this) { cleared -> EcrewStorage.clearLocal(this) { webCleared -> log.text = CaptureLog.read(this); Toast.makeText(this, if(cleared && webCleared && rosterCleared && exportsCleared) "Local eCrew and roster data cleared" else "Some local data could not be cleared; retry Clear data", Toast.LENGTH_LONG).show() } }
             }.show()
         }); root.addView(log); PhoneTheme.groupSettings(root); PhoneTheme.page(root); PhoneUi.style(root); setContentView(ScrollView(this).apply { addView(root) }); insetContent(root)
     }

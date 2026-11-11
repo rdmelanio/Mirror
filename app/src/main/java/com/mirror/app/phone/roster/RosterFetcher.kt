@@ -42,7 +42,7 @@ class RosterFetcher(private val c: Context, val web: WebView,
     private var manual = false
     private var autoStarted = false
     private var linkedInDocument = false
-    private var lastPdfHash = 0
+    private val acceptedPdf = AcceptedPdf()
     private var loggingOut = false
     override val instanceId = java.util.UUID.randomUUID().toString().take(8)
     override val mode = "NORMAL"
@@ -300,9 +300,9 @@ class RosterFetcher(private val c: Context, val web: WebView,
         }
     }
     private fun capture(bytes: ByteArray) {
-        if (!captureAllowed() || bytes.size < 4 || !bytes.copyOfRange(0,4).contentEquals("%PDF".toByteArray()) || bytes.contentHashCode() == lastPdfHash) return
-        lastPdfHash = bytes.contentHashCode(); diagnostics.add("CAPTURE_PDF", "PDF captured")
-        val success = RosterStore.accept(c, bytes, interactive = !background)
+        if (!captureAllowed() || bytes.size < 4 || !bytes.copyOfRange(0,4).contentEquals("%PDF".toByteArray()) || acceptedPdf.duplicate(bytes)) return
+        diagnostics.add("CAPTURE_PDF", "PDF captured")
+        val success = acceptedPdf.accept(bytes) { RosterStore.accept(c, bytes, interactive = !background) }
         handler.post {
             if (!allowed() || !active) return@post
             captured = success || captured
@@ -351,10 +351,17 @@ class RosterFetcher(private val c: Context, val web: WebView,
     private fun clearAfterLogout() {
         handler.removeCallbacks(logoutTimeout); clearingStorage = true
         diagnostics.add("LOGOUT", "Login reached after explicit tap; local cleanup only")
-        RosterStore.prefs(c).edit().putBoolean("linked", false).putBoolean("expired", false).apply()
-        com.mirror.app.phone.DepartureAlerts.configure(c)
-        EcrewStorage.clearLocal(c) {
-            clearingStorage = false; loggingOut = false; terminated = false
+        EcrewStorage.clearLocal(c) { cleared ->
+            clearingStorage = false; loggingOut = false
+            if(!cleared) {
+                RosterStore.prefs(c).edit().putBoolean("expired",true).apply()
+                diagnostics.add("LOGOUT", "local cleanup failed; retry from diagnostics")
+                Toast.makeText(c,"Local eCrew cleanup failed. Retry Clear local eCrew session in diagnostics.",Toast.LENGTH_LONG).show()
+                return@clearLocal
+            }
+            RosterStore.prefs(c).edit().putBoolean("linked", false).putBoolean("expired", false).apply()
+            com.mirror.app.phone.DepartureAlerts.configure(c)
+            terminated = false
             freshStorageCleared = true; autoStarted = false; linkedInDocument = false
             logoutOrder.complete()
             diagnostics.add("SESSION", "eCrew cookie count after logout: ${EcrewStorage.cookieCount()}")

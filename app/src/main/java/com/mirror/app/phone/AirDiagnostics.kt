@@ -4,11 +4,12 @@ package com.mirror.app.phone
 internal class AirDiagnostics(private val clock:()->Long={System.nanoTime()/1_000_000}) {
     private val rows=java.util.ArrayDeque<Pair<Long,String>>()
     private var prior="";private var at=-1000L
-    @Synchronized fun record(state:String,tracking:String,pose:String,score:Float,accepted:AirGestures.Command?,transport:String,fps:Double,ms:Double,thermal:String,detail:String="") {
+    @Synchronized fun record(state:String,tracking:String,pose:String,score:Float,accepted:AirGestures.Command?,transport:String,fps:Double,ms:Double,thermal:String,detail:String="",geometricEvidence:Boolean=false) {
         val labels=setOf("None","Open_Palm","Closed_Fist","Thumb_Up","Thumb_Down","Victory","Pointing_Up","POINT_UP","POINT_DOWN","POINT_LEFT","POINT_RIGHT","SHAKA","THREE_FINGERS")
         val safePose=if(pose in labels) pose else "unknown"
         fun safe(v:String)=if(v.startsWith("Joystick:") && v.matches(Regex("[A-Za-z0-9_ :%·/=-]{1,180}"))) v else v.takeIf { it.matches(Regex("[A-Za-z_ ]{1,48}")) } ?: "unknown"
-        val text="${safe(state)} | ${safe(tracking)} | $safePose ${(score.coerceIn(0f,1f)*100).toInt()}% | accepted=${accepted?.name ?: "none"} | ${safe(transport)} | fps=${fps.toInt()} latency=${ms.toInt()}ms thermal=${safe(thermal)} | ${safe(detail)}"
+        val evidence=if(geometricEvidence) "geometry validated" else "${(score.coerceIn(0f,1f)*100).toInt()}%"
+        val text="${safe(state)} | ${safe(tracking)} | $safePose $evidence | accepted=${accepted?.name ?: "none"} | ${safe(transport)} | fps=${fps.toInt()} latency=${ms.toInt()}ms thermal=${safe(thermal)} | ${safe(detail)}"
         val now=clock();trim(now)
         if(text==prior && now-at<2000 || now-at<250) return
         rows.add(now to text);prior=text;at=now;while(rows.size>180) rows.removeFirst()
@@ -18,7 +19,7 @@ internal class AirDiagnostics(private val clock:()->Long={System.nanoTime()/1_00
         val now=clock();trim(now);rows.add(now to "$kind | $detail");while(rows.size>180) rows.removeFirst()
     }
     @Synchronized fun command(stage:String,command:AirGestures.Command,ms:Long) {
-        if(stage !in setOf("ACCEPTED","QUEUED","TRANSMITTED","EXPIRED","DISCARDED","REJECTED")) return
+        if(stage !in setOf("ACCEPTED","QUEUED","TRANSMITTED","EXPIRED","DISCARDED","REJECTED","OBSERVATION_EXPIRED","CLOCK_GAP")) return
         val now=clock();trim(now);rows.add(now to "$stage | ${command.name} | ${ms.coerceIn(0,60000)}ms");while(rows.size>180) rows.removeFirst()
     }
     @Synchronized fun launch(app:AirApp,stage:String) {

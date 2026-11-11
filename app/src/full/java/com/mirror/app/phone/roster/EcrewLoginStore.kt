@@ -46,6 +46,10 @@ internal class EcrewLoginStore(private val context:Context):Autocomplete.Storage
     }
     companion object {
         fun trusted(origin:String?)=runCatching { val u=java.net.URI(origin ?: "");u.scheme=="https" && u.host=="ecrew.cebupacificair.com" && u.userInfo==null && u.port in listOf(-1,443) }.getOrDefault(false)
-        fun clear(c:Context) { android.util.AtomicFile(File(c.noBackupFilesDir,"ecrew-login.enc")).delete() }
+        fun clear(c:Context):Boolean = runCatching {
+            val file=File(c.noBackupFilesDir,"ecrew-login.enc")
+            android.util.AtomicFile(file).delete()
+            listOf(file,File(file.path+".bak"),File(file.path+".new")).none { it.exists() }
+        }.getOrDefault(false)
     }
 }

@@ -77,6 +77,7 @@ class TvActivity : ComponentActivity() {
     private var discovery: CameraDiscovery? = null
     @Volatile private var started = false
     @Volatile private var generation = 0
+    private val pairingGeneration = com.mirror.app.core.PairingGeneration()
     private var lastBack = 0L
     private var failedSince = 0L
     private var discoveringSince = 0L
@@ -247,21 +248,26 @@ class TvActivity : ComponentActivity() {
             if (started && generation == session) { delayBadge.text = value; delayBadge.visibility = if (value.isBlank()) View.GONE else View.VISIBLE }
         } }).also { it.configureDelay(if (settings.mode == 2) settings.delay else 0); it.start() }
     }
-    private fun clearPairingScreen() { pairingScreen?.let { root.removeView(it) }; pairingScreen = null }
+    private fun clearPairingScreen() { pairingGeneration.begin(); pairingScreen?.let { root.removeView(it) }; pairingScreen = null }
     private fun showPairing(camera: ViewerPairing.Camera) {
         if (!started || sleeping) return
         clearPairingScreen(); menu.close(); stopAutoDiscovery(); failedSince = 0L; revoked = false
-        val session = generation; val address = settings.url
+        val session = ++generation; val pairingAttempt=pairingGeneration.begin(); val address = settings.url
         val screen = PairingScreen(this, camera.name, { code ->
             Thread({
                 try {
-                    pairing.pair(address, camera, code, android.os.Build.MODEL)
-                    handler.post { if (started && generation == session && pairingScreen != null) { clearPairingScreen(); connect() } }
+                    val token = pairing.pair(address, camera, code, android.os.Build.MODEL)
+                    handler.post {
+                        if (started && !sleeping && generation == session && settings.url == address && pairingScreen != null) {
+                            if (pairingGeneration.commit(pairingAttempt) { pairing.commit(camera, token) }) { clearPairingScreen(); connect() }
+                            else pairingScreen?.error("Could not save pairing. Please try again.")
+                        }
+                    }
                 } catch (error: Exception) { handler.post {
                     if (started && generation == session) pairingScreen?.error(error.message ?: "Pairing failed")
                 } }
             }, "Mirror-pair-TV").start()
-        }, { clearPairingScreen(); menu.openConnection() })
+        }, { generation++; clearPairingScreen(); menu.openConnection() })
         pairingScreen = screen; root.addView(screen, FrameLayout.LayoutParams(-1, -1))
     }
     private fun unpaired() {

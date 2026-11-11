@@ -18,6 +18,7 @@ interface EcrewEngineBrowser : EcrewBrowser {
     fun start()
     fun back(): Boolean
     fun logoutFromTap()
+    fun logoutKeepingLoginFromTap() { logoutFromTap() }
     fun foregroundChanged(active: Boolean) {}
     fun probeFromTap()
 }

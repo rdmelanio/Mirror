@@ -16,7 +16,7 @@ object EcrewStorage {
         WebStorage.getInstance().deleteOrigin(RosterFetcher.ORIGIN)
         CaptureLog.add(c, "STORAGE", "eCrew WebStorage cleared before fresh login")
     }
-    fun clearLocal(c: Context, done: () -> Unit) {
+    fun clearLocal(c: Context, done: (Boolean) -> Unit) {
         val manager = CookieManager.getInstance()
         val names = cookieUrls.flatMap { manager.getCookie(it).orEmpty().split(';') }
             .map { it.substringBefore('=').trim() }.filter { it.isNotEmpty() }.distinct()
@@ -28,15 +28,30 @@ object EcrewStorage {
         } }
         val main = Handler(Looper.getMainLooper())
         var remaining = expired.size
+        var accepted = true
+        val finished = java.util.concurrent.atomic.AtomicBoolean()
+        fun finish(success:Boolean) {
+            if(!finished.compareAndSet(false,true)) return
+            main.removeCallbacksAndMessages(null)
+            runCatching { CaptureLog.add(c, "STORAGE", if(success) "local eCrew cookies and WebStorage cleared; no navigation" else "local WebView cleanup failed; retry available") }
+            done(success)
+        }
+        main.postDelayed({ finish(false) }, 5000)
         fun cookiesDone() {
-            manager.flush()
-            WebStorage.getInstance().deleteOrigin(RosterFetcher.ORIGIN)
-            CaptureLog.add(c, "STORAGE", "local eCrew cookies and WebStorage cleared; no navigation")
-            done()
+            try {
+                manager.flush()
+                val storage=WebStorage.getInstance()
+                storage.deleteOrigin(RosterFetcher.ORIGIN)
+                storage.getOrigins { origins -> main.post {
+                    finish(accepted && origins!=null && !origins.containsKey(RosterFetcher.ORIGIN) && cookieUrls.all { manager.getCookie(it).isNullOrBlank() })
+                } }
+            } catch (_:Exception) { finish(false) }
         }
         if (remaining == 0) cookiesDone()
-        else expired.forEach { cookie -> manager.setCookie(RosterFetcher.ORIGIN, cookie) {
-            main.post { remaining--; if (remaining == 0) cookiesDone() }
-        } }
+        else expired.forEach { cookie ->
+            try { manager.setCookie(RosterFetcher.ORIGIN, cookie) { success ->
+                main.post { accepted=accepted && success;remaining--;if(remaining==0) cookiesDone() }
+            } } catch (_:Exception) { accepted=false;remaining--;if(remaining==0) cookiesDone() }
+        }
     }
 }

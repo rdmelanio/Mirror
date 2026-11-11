@@ -4,7 +4,7 @@ on:
     branches: [main]
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 concurrency:
   group: mirror-release
   cancel-in-progress: false
@@ -12,12 +12,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-java@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
@@ -25,7 +25,7 @@ jobs:
         run: |
           sdkmanager --list | awk '/platforms;android-[0-9]+[[:space:]]/ {print $1}' | sort -Vu
           sdkmanager 'platforms;android-37.1' 'build-tools;36.0.0'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
       - name: Fetch checksum-verified official vision models
         run: python3 scripts/fetch-air-model.py
       - name: Bundle verified official B612 fonts
@@ -83,12 +83,38 @@ jobs:
             "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" > "$apk-info.txt"
           done
           python3 scripts/check-release-apks.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mirror-apks
           path: |
             mirror.apk
             mirror-phone.apk
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: build-tools;36.0.0
+          log-accepted-android-sdk-licenses: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: mirror-apks
+      - name: Verify downloaded candidate before publishing
+        run: |
+          python3 scripts/check-apk-flavors.py mirror.apk mirror-phone.apk
+          for apk in mirror.apk mirror-phone.apk; do
+            "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk" > "$apk-signature.txt"
+            "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" > "$apk-info.txt"
+          done
+          python3 scripts/check-release-apks.py
       - name: Refuse to overwrite an existing build tag
         run: |
           if git ls-remote --exit-code --tags origin "refs/tags/build-${{ github.run_number }}"; then
@@ -97,13 +123,28 @@ jobs:
           else
             test "$?" -eq 2
           fi
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Mirror 1.12.12 — Clock and login candidate — build ${{ github.run_number }}
+          name: Mirror candidate — build ${{ github.run_number }}
           target_commitish: ${{ github.sha }}
           make_latest: false
           prerelease: true
+          body: |
+            ## Mirror 1.12.13 (218) — diagnostic prerelease
+
+            **Automatic eCrew login-to-usable-roster conversion is still incomplete.** This candidate provides diagnostic capture and confirmed repairs; the live portal schema adapter and physical-device validation remain outstanding.
+
+            - Phone: mirror-phone.apk (arm64 full). TV/32-bit: mirror.apk (universal lite).
+            - Fix raw-capture false success, bounded PDF calendar spillover, and preservation of trusted duties on unsupplied dates.
+            - Add remembered-login consent, separate keep/forget sign-out actions, and Save diagnostic ZIP through Android's picker.
+            - Include pairing, gesture freshness, watchdog, transaction and browser-auth repairs documented in the audit ledger.
+            - Existing application ID and release signing certificate are preserved. No destructive upgrade migration is intended.
+
+            Local verification: 347 lite tests, 357 full tests and 37 extension tests passed; both lint tasks reported zero errors (warnings remain). This release also requires successful CI verification before publication.
+
+            See docs/audit/autoroster-2026-11-11.md for the closure matrix, limitations and device checklist. The private PDF and personal roster data are excluded from source and release assets.
+
           files: |
             mirror.apk
             mirror-phone.apk

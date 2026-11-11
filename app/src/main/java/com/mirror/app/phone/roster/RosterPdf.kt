@@ -42,6 +42,10 @@ object RosterPdf {
                 }.apply { startPage = page; endPage = page; sortByPosition = true }
                 texts += RosterText.clean(stripper.getText(doc)); pages += words
             }
+            parseLayout(pages, texts, { CaptureLog.add(context,"PARSE","unreadable duty") }, { CaptureLog.add(context,"PARSE","unknown airport timezone") })
+        }
+    }
+    internal fun parseLayout(pages:List<List<Word>>,texts:List<String>,unreadable:()->Unit={},unknownZone:()->Unit={}):Roster {
             val all = texts.joinToString("\n")
             require(all.contains("Personal Crew Schedule Report", true))
             val periodMatch = Regex("(\\d{2}/\\d{2}/\\d{4})\\s*-\\s*(\\d{2}/\\d{2}/\\d{4})").find(all) ?: error("Period missing")
@@ -59,9 +63,7 @@ object RosterPdf {
                 val headers = row.sortedBy { it.xMin }
                 val bins = RosterText.bin(words, headers, weekday, bottom)
                 headers.forEachIndexed { index, h ->
-                    var d = period.start
-                    while (d <= period.end && d.format(DateTimeFormatter.ofPattern("dd/MM")) != h.text) d = d.plusDays(1)
-                    require(d <= period.end)
+                    val d = RosterCalendarDates.resolve(period, h.text)
                     columns.getOrPut(d) { mutableListOf() }.addAll(bins[index])
                 }
             }
@@ -83,11 +85,9 @@ object RosterPdf {
                     memos[memoDate!!] = memos[memoDate!!].orEmpty() + "\n" + line.trim()
                 }
             }
-            val duties = RosterGrammar.parse(columns, unreadable = { day -> CaptureLog.add(context, "PARSE", "unreadable day ${day.format(DateTimeFormatter.ofPattern("dd/MM"))}") }) { CaptureLog.add(context, "PARSE", "unknown airport timezone; using Asia/Manila") }
+            val duties = RosterGrammar.parse(columns, unreadable = { unreadable() }, warn = { unknownZone() })
                 .map { it.copy(memo = memos[it.date]) }
             require(duties.isNotEmpty()) { "No duties" }
-            Roster(period, crew, Instant.now(), duties, memos, legend)
-        }
+            return Roster(period, crew, Instant.now(), duties, memos, legend)
     }
 }
-

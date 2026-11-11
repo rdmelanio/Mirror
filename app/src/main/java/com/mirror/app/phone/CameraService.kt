@@ -45,6 +45,7 @@ class CameraService : LifecycleService() {
     private var server: MjpegServer? = null
     private var registration: NsdManager.RegistrationListener? = null
     private var wake: PowerManager.WakeLock? = null
+    private val wakeAccounting=WakeAccounting()
     private var wifi: WifiManager.WifiLock? = null
     @Volatile private var destroyed = false
     private var starting = false
@@ -68,7 +69,7 @@ class CameraService : LifecycleService() {
                 nextAirCameraAttempt=android.os.SystemClock.elapsedRealtime()+15_000;startCamera()
             }
             val now=android.os.SystemClock.elapsedRealtime()
-            if(AirRemote.enabled(this@CameraService) && cameraRunning && lastCameraFrameAt>0 && now-lastCameraFrameAt>8000) {
+            if(AirRemote.enabled(this@CameraService) && cameraRunning && cameraWatchdog.stalled(now)) {
                 cameraFps=0.0
                 note="Camera frames unavailable · service active · screen ${if(getSystemService(PowerManager::class.java).isInteractive) "on" else "locked/off"}"
                 if(stalledSince==0L) stalledSince=now
@@ -93,11 +94,13 @@ class CameraService : LifecycleService() {
     private var cameraFrames=0L
     private var cameraMeasuredAt=0L
     private var stalledSince=0L
+    private val cameraWatchdog=CameraEpochWatchdog()
     private fun demand() {
         val viewers=server?.viewerNames()?.isNotEmpty()==true
         wifi?.let { if(AirWorkload.wifiPerformance(viewers) && !it.isHeld) it.acquire() else if(!viewers && it.isHeld) it.release() }
         val needCpu=cameraRunning || opening || AirRemote.enabled(this)
         wake?.let { if(needCpu && !it.isHeld) it.acquire() else if(!needCpu && it.isHeld) it.release() }
+        cpuWakeReport=wakeAccounting.update(wake?.isHeld==true,android.os.SystemClock.elapsedRealtime())
         val camera=activeCamera ?: return
         val selected=AirWorkload.fpsRange(fpsRanges.map { it.lower to it.upper },AirRemote.enabled(this) && !viewers && airRemote?.eco==true)
         val range=fpsRanges.firstOrNull { it.lower==selected?.first && it.upper==selected?.second } ?: return
@@ -163,6 +166,7 @@ class CameraService : LifecycleService() {
                 override fun onLost(network: android.net.Network) { main.post { reconcileWifi() } }
                 override fun onLinkPropertiesChanged(network: android.net.Network, properties: android.net.LinkProperties) { main.post { reconcileWifi() } }
             }.also { managerNetwork.registerNetworkCallback(NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build(), it) }
+            cpuWakeReport=wakeAccounting.update(wake?.isHeld==true,android.os.SystemClock.elapsedRealtime())
             reconcileWifi(); main.post(maintenance)
         } catch (failure: Exception) { fail(failure) }
         return START_NOT_STICKY
@@ -170,6 +174,7 @@ class CameraService : LifecycleService() {
     private fun startCamera() {
         if (destroyed || boundAddress == null || cameraRunning || opening) return
         opening = true
+        lastCameraFrameAt=0;stalledSince=0;cameraWatchdog.start(android.os.SystemClock.elapsedRealtime(),cameraEpoch)
         val epoch = cameraEpoch
         try {
             val future = ProcessCameraProvider.getInstance(this)
@@ -213,7 +218,7 @@ class CameraService : LifecycleService() {
                                 val measured=android.os.SystemClock.elapsedRealtime()
                                 if(cameraMeasuredAt==0L) cameraMeasuredAt=measured
                                 cameraFrames++
-                                lastCameraFrameAt=measured
+                                lastCameraFrameAt=measured;cameraWatchdog.frame(measured,epoch)
                                 cameraResolution="${image.width}x${image.height} rotation=${image.imageInfo.rotationDegrees}"
                                 if(measured-cameraMeasuredAt>=1000) { cameraFps=cameraFrames*1000.0/(measured-cameraMeasuredAt);cameraFrames=0;cameraMeasuredAt=measured }
                                 if(AirRemote.enabled(this@CameraService)) airRemote?.offer(image)
@@ -248,6 +253,7 @@ class CameraService : LifecycleService() {
         note = "Android refused to wake the camera in the background. Keep Mirror open briefly; the camera will stay running for this device."
     }
     private fun stopCamera() {
+        cameraWatchdog.stop();lastCameraFrameAt=0;stalledSince=0
         cameraEpoch++;activeCamera=null;appliedFps=null; opening = false; cameraRunning = false;cameraFps=0.0
         analysis?.clearAnalyzer(); provider?.unbindAll(); analysis = null; capture = null
         server?.controls = null; server?.clearFrames()
@@ -327,10 +333,12 @@ class CameraService : LifecycleService() {
         registration?.let { runCatching { getSystemService(NsdManager::class.java).unregisterService(it) } }
         analyzer.shutdownNow()
         wake?.let { if (it.isHeld) it.release() }; wifi?.let { if (it.isHeld) it.release() }
+        cpuWakeReport=wakeAccounting.update(false,android.os.SystemClock.elapsedRealtime())
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
     companion object {
+        @Volatile var cpuWakeReport="CPU wake lock released"
         @Volatile var cameraResolution="Unavailable"
         @Volatile var lastCameraFrameAt=0L
         @Volatile var cameraFps=0.0

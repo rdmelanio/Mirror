@@ -1,6 +1,8 @@
-> **1.12.11 (216) pose-guided candidate:** see [architecture, verification and hardware limits](docs/air-remote-216.md). OnePlus 6T performance and 12-foot reliability require device measurements.
+> **Remediation candidate (unpublished):** see [repair ledger](docs/audit/remediation-218.md) and [required device checks](docs/audit/device-validation-218.md). Source version is defined in `version.properties`; no hardware performance claim is implied.
 
-# Mirror 1.11.2
+# Mirror
+
+Stable downloads below use GitHub `releases/latest`. For newer candidates, open [all releases](https://github.com/rdmelanio/Mirror/releases) and select an explicitly marked prerelease; the highest build number may still require device validation.
 
 Mirror uses a phone camera and a Google TV mirror. Kotlin, Android Views, one
 `:app` module, Android 8.0+ (API 26). Camera, clock and TV behavior are shared by both builds.
@@ -440,11 +442,11 @@ uses Ubuntu and JDK 17, installs the SDK, builds `assembleLiteRelease` and
 `assembleFullRelease`, runs both flavors' unit tests, extension tests and Android lint.
 It verifies matching APK signing/version/application ID, lite's absence of native/Gecko code
 and full's arm64 engine, uploads the `mirror-apks` artifact, and publishes both
-`mirror.apk` and `mirror-phone.apk` in a latest GitHub Release tagged `build-<run_number>`.
-Both public latest URLs are downloaded and byte/version checked before Actions succeeds.
+`mirror.apk` and `mirror-phone.apk` in a candidate/prerelease tagged `build-<run_number>`.
+Both tag-specific candidate URLs are downloaded and byte/version checked before Actions succeeds. Candidates do not replace the stable release served by `releases/latest`.
 
 The project uses stable AGP 9.3.2, Kotlin 2.4.20 (AGP built-in Kotlin), and Gradle
-9.8.0. Compile SDK is 37.1 (required by GeckoView); target SDK remains 36. Version name `1.11.2` and code `202` are
+9.8.0. Compile SDK is 37.1 (required by GeckoView); target SDK remains 36. Version name and code are
 defined once in `version.properties`. Bump both for future changes.
 
 Both debug and release builds use `keystore/mirror.jks`. Its alias and passwords
@@ -480,7 +482,7 @@ separated for future maintenance.
 - Initial single-APK phone and Google TV app with a saved role chooser.
 - Phone camera foreground streaming, two-client MJPEG server, and LAN discovery.
 - Native TV mirror with retry, zoom/pan, ring light, beauty filters, and remote menu.
-- Shared signing key and automatic GitHub Actions APK artifacts and latest release.
+- Shared signing key and automatic GitHub Actions APK artifacts and candidate releases.
 
 
 

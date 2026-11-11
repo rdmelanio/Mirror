@@ -98,7 +98,9 @@
       const storage = window.localStorage, entries = Object.create(null);
       let size = 0;
       for (let i = 0; i < storage.length; i++) {
-        const key = storage.key(i), value = storage.getItem(key);
+        const key = storage.key(i);
+        if (!new Set(['CrewInformation','PublishedCrewInformation','BlockDutyTimes','PublishedBlockDutyTimes','PeriodStart','PeriodEnd','PeriodStartExtended','PeriodEndExtended','Memos','Indicators','IndicatorsDesc','LayoverCredits']).has(key)) continue;
+        const value = storage.getItem(key);
         if (key === null || value === null) continue;
         size += new TextEncoder().encode(key).length + new TextEncoder().encode(value).length;
         if (size > 5 * 1024 * 1024) { send({kind: 'storageLimit'}); return; }

@@ -4,6 +4,7 @@ import kotlin.math.*
 
 /** Geometry evidence, not model probability. Works in upright source-pixel aspect ratio. */
 internal object AirHandGeometry {
+    // 1 means the deterministic geometry predicates passed; it is NOT a calibrated probability.
     data class Pose(val name:String,val evidence:Float)
     fun sameObservation(a:List<AirPointing.Point>,b:List<AirPointing.Point>):Boolean =
         a.size==21 && b.size==21 && a.indices.all { hypot(a[it].x-b[it].x,a[it].y-b[it].y)<.008f }
@@ -22,7 +23,7 @@ internal object AirHandGeometry {
         val extended=fingers.map { straight(it.first,it.second,it.third) }
         val curled=fingers.map { folded(it.first,it.second,it.third) }
         val thumb=d(4,2)>d(3,2)*1.6f && d(4,5)>size*.8f
-        AirShortcutPose.classify(p)?.let { return Pose(it,.85f) }
+        AirShortcutPose.classify(p)?.let { return Pose(it,1f) }
         val pose=when {
             extended.all { it } -> "Open_Palm"
             extended[0] && extended[1] && curled[2] && curled[3] && d(8,12)>size*.25f -> "Victory"
@@ -33,7 +34,7 @@ internal object AirHandGeometry {
             curled.all { it } && !thumb -> "Closed_Fist"
             else -> AirPointing.classify(p,false) ?: if(AirPointing.indexPose(p)) "Pointing_Up" else "None"
         }
-        return Pose(pose,if(pose=="None") 0f else .85f)
+        return Pose(pose,if(pose=="None") 0f else 1f)
     }
 }
 

@@ -1,3 +1,22 @@
+## 1.12.13 / 218 — automatic-roster follow-up (unpublished)
+
+- Correct raw-capture false success; automatic navigation uses a separate read-only source-acquisition stage and no longer automatically invokes Print.
+- Add validated typed roster ingestion without a PDF and retain both PDF archives during direct JSON commits.
+- Resolve bounded spillover calendar dates including year rollover; verify the shared parser against private positioned extraction of the supplied five-page PDF.
+- Ask consent before saving login; distinguish sign-out keeping remembered credentials from explicit forgetting.
+- Add Save diagnostic ZIP via Android's document picker and exclude unrelated localStorage keys before reading their values.
+- Automatic portal-to-roster schema conversion is still BLOCKED pending authorized structured sample data; this candidate does not claim to populate Roster Link automatically yet. See docs/audit/autoroster-2026-11-11.md.
+
+## 1.12.13 (218) — audit remediation, unpublished
+
+- Consume camera-viewer pairing codes once; strengthen browser password verification with legacy migration and temporary throttling.
+- Reject stale camera observations, fully reset joystick session state, distinguish geometric evidence, and reduce idle remote scheduling.
+- Guard pairing persistence by lifecycle generation; give camera watchdogs fresh epoch baselines.
+- Stage and recover roster PDF/JSON transactions, reject automatic crew changes, require explicit manual account-switch confirmation, and deduplicate only accepted PDFs.
+- Report Firefox local cleanup failures truthfully, provide a session-only retry, and label raw ZIP exports unencrypted.
+- Pin the official Gradle distribution checksum and correct stable/candidate documentation.
+- Signing identity and stored settings/tokens are preserved. No release publication authorized. See docs/audit for remaining architectural, integration and physical-device gates; this is not an all-findings-closed release.
+
 ## 1.12.12 (217) — Clock and login candidate
 
 - Keep the main phone Clock preview awake as well as full Clock mode; reinforce the visible-view wake request.

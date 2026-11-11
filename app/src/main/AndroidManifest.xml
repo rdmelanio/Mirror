@@ -79,7 +79,8 @@
         <activity android:name=".phone.ClockActivity" android:exported="false"
             android:theme="@style/ClockTheme" android:excludeFromRecents="true" android:launchMode="singleTop"
             android:enableOnBackInvokedCallback="true" />
-        <activity android:name=".phone.ClockSettingsActivity" android:exported="true" />
+        <activity android:name=".phone.ClockSettingsActivity" android:exported="false" />
+        <activity android:name=".phone.DreamClockSettingsActivity" android:exported="true" />
         <service android:name=".phone.MirrorClockDream" android:label="Mirror Clock"
             android:exported="true" android:permission="android.permission.BIND_DREAM_SERVICE">
             <intent-filter><action android:name="android.service.dreams.DreamService" /></intent-filter>

@@ -71,7 +71,7 @@ internal class AirControlSession(private val onClaim:()->Unit={},private val sen
                     accepted?.let { if(!calibration) send(it) }
                 }
             }
-            else -> status=if(ownership.progressMs>0) AirRecognitionStatus.claiming(hands.joinToString { "${it.gesture} ${(it.confidence*100).toInt()}%" },ownership.progressMs) else "Standby"
+            else -> status=if(ownership.progressMs>0) AirRecognitionStatus.claiming(hands.joinToString { if(it.geometricEvidence) "${it.gesture} geometry" else "${it.gesture} ${(it.confidence*100).toInt()}%" },ownership.progressMs) else "Standby"
         }
     }
     private fun expire(now:Long):Boolean {

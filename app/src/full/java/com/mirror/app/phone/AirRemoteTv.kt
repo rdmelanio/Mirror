@@ -16,6 +16,8 @@ internal object AirRemoteTv {
     @Volatile var connected = false; private set
     private val worker = Executors.newSingleThreadScheduledExecutor()
     private val pairWorker = Executors.newSingleThreadExecutor()
+    private var pairingTask: java.util.concurrent.Future<*>? = null
+    @Volatile private var pairingSocket: SSLSocket? = null
     private val codes = ArrayBlockingQueue<String>(1)
     @Volatile var onSent: ((AirGestures.Command)->Unit)?=null
     @Volatile var onCommandEvent:((String,AirGestures.Command,Long)->Unit)?=null
@@ -25,7 +27,7 @@ internal object AirRemoteTv {
     fun discardPending() { keys.clear();lastCommand="Pending commands discarded: calibration / navigation changed" }
     @Volatile private var wanted = false
     @Volatile private var pairing = false
-    @Volatile private var generation = 0
+    private val pairingGeneration = com.mirror.app.core.PairingGeneration()
     @Volatile private var socket: SSLSocket? = null
     @Volatile private var nextConnect = 0L
     @Volatile private var retryRequested = false
@@ -60,12 +62,12 @@ internal object AirRemoteTv {
         } finally {
             synchronized(this) {
                 // Do not spin a fast scheduler when unpaired, TV is off, or reconnect is backing off.
-                if(wanted && epoch==loopEpoch) loop=worker.schedule({ runLoop(epoch) },if(connected) 10 else if(socket!=null) 20 else 500,TimeUnit.MILLISECONDS)
+                if(wanted && epoch==loopEpoch) loop=worker.schedule({ runLoop(epoch) },AirTransportSchedule.delay(connected,socket!=null,keys.pending()),TimeUnit.MILLISECONDS)
             }
         }
     }
     @Synchronized fun stop() {
-        generation++;loopEpoch++; wanted = false;discovery?.stop();candidates.clear(); loop?.cancel(false); loop = null; disconnect()
+        pairingGeneration.begin();loopEpoch++; pairing = false; pairingTask?.cancel(true); pairingTask=null; runCatching { pairingSocket?.close() }; pairingSocket=null; codes.clear(); wanted = false;discovery?.stop();candidates.clear(); loop?.cancel(false); loop = null; disconnect()
         if (!pairing) status = "Disconnected"
     }
     fun retry(context: Context, address: String) {
@@ -85,8 +87,15 @@ internal object AirRemoteTv {
         // Publish queued before offer: the worker may transmit immediately after offer succeeds.
         lastCommand = queued
         if (!connected || !commandsAllowed()) { onCommandEvent?.invoke("REJECTED",command,0);lastCommand = "$command · discarded: remote session not ready / calibration" }
-        else if (keys.offer(command,now(),observedAt)) return queued
-        else lastCommand = "$command · discarded: command queue busy"
+        else if (keys.offer(command,now(),observedAt)) {
+            // Wake a scheduled idle tick immediately. A running tick already drains this queue.
+            if ((loop?.getDelay(TimeUnit.MILLISECONDS) ?: 0)>0) {
+                loop?.cancel(false);val epoch=++loopEpoch
+                loop=worker.schedule({ runLoop(epoch) },0,TimeUnit.MILLISECONDS)
+            }
+            return queued
+        }
+        else lastCommand = "$command · discarded: stale observation / command queue busy"
         return lastCommand
     }
     private fun tls(context: Context, host: String, port: Int, pin: String?): SSLSocket {
@@ -108,12 +117,15 @@ internal object AirRemoteTv {
             val p = prefs(context); val pin = p.getString("pin", null) ?: run { status = "Pair TV first"; return }
             status = "Paired · Connecting to TV…"
             val host=candidates.poll() ?: p.getString("host", "").orEmpty()
-            val attempt = generation
-            s = tls(context, host, 6466, pin)
-            if (!wanted || pairing || attempt != generation) { s.close(); return }
-            p.edit().putString("host",host).apply()
-            discovery?.stop();candidates.clear()
-            socket = s; lastPacket = now(); session = AirSession(now(), com.mirror.app.BuildConfig.VERSION_NAME); status = "Negotiating remote…"
+            val attempt = pairingGeneration.current()
+            val fresh = tls(context, host, 6466, pin)
+            synchronized(this) {
+                if (!wanted || pairing || attempt != pairingGeneration.current()) { fresh.close(); return }
+                p.edit().putString("host",host).apply()
+                discovery?.stop();candidates.clear()
+                socket = fresh; lastPacket = now(); session = AirSession(now(), com.mirror.app.BuildConfig.VERSION_NAME); status = "Negotiating remote…"
+            }
+            s = fresh
         }
         session.checkDeadline(now())
         val input = s.inputStream
@@ -133,7 +145,7 @@ internal object AirRemoteTv {
         session.checkDeadline(now())
         val droppedBefore=keys.dropped
         val nextKey=keys.take(now())
-        if(keys.dropped>droppedBefore) lastCommand="Command discarded: queue expiry / capacity"
+        if(keys.dropped>droppedBefore) lastCommand="Command discarded: stale observation / queue expiry"
         nextKey?.let { key ->
             if (connected && commandsAllowed()) {
                 try {
@@ -145,13 +157,23 @@ internal object AirRemoteTv {
             } else { onCommandEvent?.invoke("DISCARDED",key.command,(now()-key.at).coerceAtLeast(0));lastCommand = "${key.command} · discarded: disconnected / calibration" }
         }
     }
-    fun pair(context: Context, address: String) {
+    private fun saveIdentity(context:Context,host:String,pin:String):Boolean {
+        val p=prefs(context);val oldHost=p.getString("host",null);val oldPin=p.getString("pin",null)
+        if(p.edit().putString("host",host).putString("pin",pin).commit()) return true
+        p.edit().also { e ->
+            if(oldHost==null) e.remove("host") else e.putString("host",oldHost)
+            if(oldPin==null) e.remove("pin") else e.putString("pin",oldPin)
+        }.commit()
+        return false
+    }
+    @Synchronized fun pair(context: Context, address: String) {
         if (pairing) return
         val host = TvTarget.host(address)
-        init(context);discovery?.stop();candidates.clear(); pairing = true; generation++; val attempt = generation; codes.clear(); disconnect(); status = "Requesting pairing code on TV…"
-        pairWorker.execute {
+        init(context);discovery?.stop();candidates.clear(); pairing = true; pairingGeneration.begin(); val attempt = pairingGeneration.current(); codes.clear(); disconnect(); status = "Requesting pairing code on TV…"
+        pairingTask = pairWorker.submit {
             try {
                 tls(context.applicationContext, host, 6467, null).use { s ->
+                    synchronized(this) { if(attempt != pairingGeneration.current()) return@use; pairingSocket=s }
                     fun exchange(field: Int, body: ByteArray, expected: Int) {
                         AirWire.write(s.outputStream, AirWire.pairing(field, body))
                         val reply = AirWire.fields(AirWire.read(s.inputStream))
@@ -161,7 +183,10 @@ internal object AirRemoteTv {
                     val encoding = AirWire.number(1, 3) + AirWire.number(2, 6)
                     exchange(20, AirWire.bytes(1, encoding) + AirWire.number(3, 1), 20)
                     exchange(30, AirWire.bytes(1, encoding) + AirWire.number(2, 1), 31)
-                    status = "Enter the six-character code displayed on TV"
+                    synchronized(this) {
+                        if(attempt != pairingGeneration.current()) return@use
+                        status = "Enter the six-character code displayed on TV"
+                    }
                     val code = codes.poll(60, TimeUnit.SECONDS) ?: error("Pairing code timed out")
                     val server = s.session.peerCertificates[0] as X509Certificate
                     val client = AirCredentials.load(context).certificate
@@ -171,12 +196,15 @@ internal object AirRemoteTv {
                     val secret = MessageDigest.getInstance("SHA-256").digest(publicBytes(client) + publicBytes(server) + suffix)
                     check((secret[0].toInt() and 255) == code.substring(0, 2).toInt(16)) { "Incorrect TV code; start pairing again" }
                     exchange(40, AirWire.bytes(1, secret), 41)
-                    prefs(context).edit().putString("host", host).putString("pin", AirTls.fingerprint(server)).apply()
-                    nextConnect = 0
-                    if (attempt == generation) { status = "Paired · connecting…"; connect(context.applicationContext) } else status = "Paired · disconnected"
+                    synchronized(this) {
+                        if (attempt != pairingGeneration.current()) return@use
+                        check(pairingGeneration.commit(attempt) { saveIdentity(context, host, AirTls.fingerprint(server)) }) { "Could not save pairing" }
+                        nextConnect = 0
+                        status = "Paired · connecting…"; connect(context.applicationContext)
+                    }
                 }
-            } catch (e: Exception) { status = "Pairing failed: ${e.message}. Check Android TV Remote Service on the TV." }
-            finally { pairing = false }
+            } catch (e: Exception) { synchronized(this) { if(attempt == pairingGeneration.current()) status = "Pairing failed: ${e.message}. Check Android TV Remote Service on the TV." } }
+            finally { synchronized(this) { if(attempt == pairingGeneration.current()) { pairing = false; pairingSocket=null } } }
         }
     }
     fun code(raw: String) { val code = raw.trim().uppercase(); require(code.matches(Regex("[0-9A-F]{6}"))) { "Enter six hexadecimal characters from TV" }; check(pairing) { "Start pairing first" }; codes.offer(code) }
