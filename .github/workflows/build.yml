@@ -131,17 +131,18 @@ jobs:
           make_latest: false
           prerelease: true
           body: |
-            ## Mirror 1.12.13 (218) — diagnostic prerelease
+            ## Mirror 1.12.14 (219) — diagnostic prerelease
 
-            **Automatic eCrew login-to-usable-roster conversion is still incomplete.** This candidate provides diagnostic capture and confirmed repairs; the live portal schema adapter and physical-device validation remain outstanding.
+            The eCrew calendar adapter is based on privately supplied portal captures. Physical-device login-to-roster acceptance remains unverified; incomplete or unsupported sources retain the last trusted roster.
 
             - Phone: mirror-phone.apk (arm64 full). TV/32-bit: mirror.apk (universal lite).
-            - Fix raw-capture false success, bounded PDF calendar spillover, and preservation of trusted duties on unsupplied dates.
+            - Import the observed eCrew calendar event schema directly, including multi-leg routes, standby intervals, station-local times and overnight offsets. No Print or PDF is required for the supported initial schedule.
+            - Reject incomplete coverage, unknown timezones, ambiguous DST times and contradictory data while retaining the trusted roster.
             - Add remembered-login consent, separate keep/forget sign-out actions, and Save diagnostic ZIP through Android's picker.
             - Include pairing, gesture freshness, watchdog, transaction and browser-auth repairs documented in the audit ledger.
             - Existing application ID and release signing certificate are preserved. No destructive upgrade migration is intended.
 
-            Local verification: 347 lite tests, 357 full tests and 37 extension tests passed; both lint tasks reported zero errors (warnings remain). This release also requires successful CI verification before publication.
+            Local verification: 353 lite tests, 363 full tests and 39 extension tests passed; both lint tasks reported zero errors (warnings remain). This release also requires successful CI verification before publication.
 
             See docs/audit/autoroster-2026-11-11.md for the closure matrix, limitations and device checklist. The private PDF and personal roster data are excluded from source and release assets.
 

@@ -1,3 +1,12 @@
+## 1.12.14 (219) — direct eCrew calendar adapter candidate
+
+- Parse the observed CrewSchedule inline event schema directly, with complete sector detail, actual/estimated/scheduled markers, explicit overnight offsets, standby intervals and station-local timezone validation.
+- Accept data only within the portal publication boundary with explicit event/span coverage; preserve existing roster and alarms on unsupported or contradictory input. Keep source provenance as current-calendar.
+- Feed validated calendar records into the existing transactional roster/Clock/alarm path; successful completion requires store acceptance.
+- Add a bounded read-only initial-script snapshot when network capture misses the schedule HTML. Do not execute scripts or invoke Print, confirmation or mutating portal controls. Explicit later refresh reloads the view for fresh data.
+- Reject ambiguous DST instants, prevent late raw capture from overwriting committed status, and retain diagnostic ZIP saving across activity recreation.
+- Verified against privately supplied captures and synthetic fixtures; physical phone login-to-Clock/alarm acceptance remains pending.
+
 ## 1.12.13 / 218 — automatic-roster follow-up (unpublished)
 
 - Correct raw-capture false success; automatic navigation uses a separate read-only source-acquisition stage and no longer automatically invokes Print.

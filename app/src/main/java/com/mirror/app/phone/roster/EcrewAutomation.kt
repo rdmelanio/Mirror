@@ -49,7 +49,7 @@ class EcrewAutomation(private val now: () -> Long, private val send: (String, In
         if (clock() - started >= 240_000 || clock() - since >= limit) { timedOut(step.name); stop(false, "timeout; manual Print or import available"); return }
         if (sentAt != Long.MIN_VALUE && clock() - sentAt < 1500) return
         val command = when (step) {
-            Step.STRUCTURED_CAPTURE -> "storageSnapshot"
+            Step.STRUCTURED_CAPTURE -> "calendarSnapshot"
             Step.OPEN_MY_SCHEDULE -> "openSchedule"
             Step.CHECK_PENDING_CHANGES -> "checkPending"
             Step.CLICK_PRINT -> "print"
@@ -82,6 +82,9 @@ class EcrewAutomation(private val now: () -> Long, private val send: (String, In
             }
             else -> Unit
         }
+    }
+    fun structuredCommitted() {
+        if(active && structured) { captured=true;stop(true,"success") }
     }
     fun pdf(): Boolean { if (!active || step != Step.CAPTURE_PDF) return false; awaitingParse = true; move(Step.EXIT); return true }
     fun parsed(success: Boolean, fetchNextPeriod: Boolean) {

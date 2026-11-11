@@ -393,3 +393,16 @@ test('storage snapshots exclude session tokens and unrelated storage keys before
  assert.deepEqual(reads.filter(k=>k!=='CrewInformation'),[]);
  assert(!JSON.stringify(p.messages.filter(m=>m.kind==='storageSnapshot')).includes('PRIVATE_TOKEN'));
 });
+
+test('calendar capture reads own schedule script once without executing it or clicking', () => {
+ const p=page('/eCrew/CrewSchedule');p.context.TextEncoder=TextEncoder;
+ const body="var Events=[];localStorage['PublishEnd']='2026-11-30'; throw new Error('MUST_NOT_EXECUTE')";
+ p.element('',{tagName:'SCRIPT',textContent:body});p.run();p.command('calendarSnapshot');p.command('calendarSnapshot');
+ const captures=p.messages.filter(m=>m.kind==='calendarHtml');assert.equal(captures.length,1);assert.equal(captures[0].body,body);assert.equal(p.clicks.length,0);
+ const q=page('/eCrew/Dashboard');q.context.TextEncoder=TextEncoder;q.element('',{tagName:'SCRIPT',textContent:body});q.run();q.command('calendarSnapshot');assert(!q.messages.some(m=>m.kind==='calendarHtml'));
+});
+test('paused and oversized calendar snapshots cannot cross the bridge', () => {
+ const p=page('/eCrew/CrewSchedule');p.context.TextEncoder=TextEncoder;
+ const e=p.element('',{tagName:'SCRIPT',textContent:"var Events=[];localStorage['PublishEnd']='2026-11-30';"});p.run();p.command('pause');p.command('calendarSnapshot');assert(!p.messages.some(m=>m.kind==='calendarHtml'));
+ p.command('resume');e.textContent+='x'.repeat(1024*1024);p.command('calendarSnapshot');assert(!p.messages.some(m=>m.kind==='calendarHtml'));
+});

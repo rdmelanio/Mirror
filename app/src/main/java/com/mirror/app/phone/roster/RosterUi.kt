@@ -89,7 +89,15 @@ class ECrewActivity : ComponentActivity() {
         if (lifetime.create()) {
             if (useFirefox) {
                 firefox = EcrewFirefox.create(this, granted) { success ->
-                    Toast.makeText(this, if (success) "Roster updated" else "Schedule not committed — source data needs validation; the previous roster is retained", Toast.LENGTH_LONG).show()
+                    val status=RosterStore.prefs(this).getString("fetchStatus","")
+                    val message=when {
+                        success -> "Roster updated"
+                        status=="CREW_CONFIRMATION_REQUIRED" -> "Different crew account detected; confirm an account switch before importing"
+                        status=="LOCAL_STATION_REQUIRED" -> "Choose Local Station times in eCrew and retry"
+                        status=="UNKNOWN_STATION_ZONE" -> "An airport timezone needs support; existing roster retained"
+                        else -> "Schedule not committed; existing roster retained. See Capture log for the validation category"
+                    }
+                    Toast.makeText(this,message,Toast.LENGTH_LONG).show()
                 }
                 browser = firefox
                 firefox?.view?.let { root.addView(it, LinearLayout.LayoutParams(-1, 0, 1f)) }
@@ -299,7 +307,7 @@ class RosterLogActivity : Activity() {
     override fun onActivityResult(request:Int,result:Int,data:Intent?) {
         super.onActivityResult(request,result,data)
         if(request!=83 || result!=RESULT_OK) return
-        val source=pendingZip ?: return
+        val source=pendingZip ?: File(RosterStore.dir(this),"captured-schedule-data.zip").takeIf {it.isFile} ?: return
         val uri=data?.data ?: return
         Thread {
             val saved=runCatching { contentResolver.openOutputStream(uri)?.use { out -> source.inputStream().use { it.copyTo(out) } } ?: error("Cannot open destination") }.isSuccess

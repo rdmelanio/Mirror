@@ -146,6 +146,11 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
     private var probePending = false
     private val acceptedPdf = AcceptedPdf()
     private var viewerJsonSeen = false
+    private var calendarCommitted=false
+    private var pendingStructuredReload=false
+    private var calendarInFlight=false
+    private var pendingCalendarHtml:String?=null
+    @Volatile private var structuredEpoch=0
     private var scheduleDataCaptured = false
     private var fetchCompletion: (() -> Unit)? = null
     private val exportWindow = EcrewExportWindow(SystemClock::elapsedRealtime) { log("EXPORT_WINDOW", it) }
@@ -288,6 +293,7 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
             override fun onPageStop(s: GeckoSession, success: Boolean) {
                 log("NAVIGATION", if (success) "finish" else "failed", url)
                 if (RosterFetcher.login(url)) loginShown(true)
+                if(success && pendingStructuredReload && page()) { pendingStructuredReload=false;begin() }
             }
         }
         session.contentDelegate = object : GeckoSession.ContentDelegate {
@@ -368,7 +374,9 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
             "scheduleHtml" -> {
                 val html = j.optString("body")
                 if (path.equals("/eCrew/CrewSchedule", true) || path.equals("/eCrew/CrewSchedule/", true)) {
+                    pendingCalendarHtml=html
                     pool.execute { if (allowed()) EcrewScheduleData.saveHtml(c, html) }
+                    ingestCalendar()
                     main.postDelayed({ if (page()) snapshotStorage() }, 500)
                 }
             }
@@ -414,6 +422,13 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
         }
         val frame = frames.frames[source] ?: return
         when (j.optString("kind")) {
+            "calendarHtml" -> {
+                val path=j.optString("path")
+                if(j.optInt("request",-1)==machine.request && (frame.top || frame.path.equals(path,true)) && Regex("/eCrew/CrewSchedule/?",RegexOption.IGNORE_CASE).matches(path)) {
+                    pendingCalendarHtml=j.optString("body")
+                    ingestCalendar()
+                }
+            }
             "storageSnapshot" -> if (frame.top) {
                 val entries = j.optJSONObject("entries") ?: return
                 val afterSchedule = j.optBoolean("afterSchedule")
@@ -421,7 +436,7 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
                     if (allowed()) {
                         val saved = EcrewScheduleData.saveStorage(c, entries, afterSchedule)
                         main.post {
-                            if (saved && allowed()) { scheduleDataCaptured = true; RosterStore.prefs(c).edit().putLong("lastSourceCapture",System.currentTimeMillis()).putString("fetchStatus","SOURCE_CAPTURED_NEEDS_SCHEMA_VALIDATION").apply(); machine.scheduleDataSaved(); log("FETCH_DATA", "data captured after CrewSchedule load") }
+                            if (saved && allowed()) { scheduleDataCaptured = true; RosterStore.prefs(c).edit().putLong("lastSourceCapture",System.currentTimeMillis()).apply(); machine.scheduleDataSaved(); log("FETCH_DATA", "data captured after CrewSchedule load") }
                             if (j.optString("reason") == "fetch end") finishFetch()
                         }
                     }
@@ -436,7 +451,7 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
             "terminated" -> {
                 frame.terminated = true
                 if (terminated || !frames.terminated) return
-                exportWindow.clear(); terminated = true; main.removeCallbacks(autoFetch); log("SESSION", "SESSION_TERMINATED by eCrew")
+                structuredEpoch++;pendingCalendarHtml=null;exportWindow.clear(); terminated = true; main.removeCallbacks(autoFetch); log("SESSION", "SESSION_TERMINATED by eCrew")
                 RosterStore.prefs(c).edit().putBoolean("expired", true).apply(); RosterWork.cancel(c)
                 RosterNotices.post(c, 602, "eCrew session ended — tap to log in", "Open Roster Link")
                 machine.stop(reason = "eCrew terminated session")
@@ -509,10 +524,40 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
         if (!background) RosterStore.prefs(c).edit().putBoolean("loopPaused", false).apply()
         if (!machine.active) { pendingPdf = null; acceptedPdf.reset(); resetChunks() }
         wantStart = true
+        if(ready && calendarCommitted) {
+            calendarCommitted=false;pendingCalendarHtml=null;structuredEpoch++;pendingStructuredReload=true
+            val epoch=structuredEpoch
+            session.reload()
+            main.postDelayed({ if(allowed() && epoch==structuredEpoch && pendingStructuredReload) { pendingStructuredReload=false;log("STRUCTURED_IMPORT","refresh navigation timed out");completed(false) } },15000)
+            return
+        }
         if (ready) begin()
     }
-    private fun begin() { if (allowed() && !machine.active) { fetchCompletion = null; scheduleDataCaptured = false; fetchPending = false; RosterStore.prefs(c).edit().putLong("lastAttempt",System.currentTimeMillis()).apply(); machine.startStructured(); if (background) open() } }
-    override fun reload() { if (allowed() && ready && !loggingOut) { machine.stop(reason = "explicit reload"); session.reload() } }
+    private fun begin() { if (allowed() && !machine.active) { fetchCompletion = null; scheduleDataCaptured = false; fetchPending = false; RosterStore.prefs(c).edit().putLong("lastAttempt",System.currentTimeMillis()).putString("fetchStatus","SCHEDULE_DETECTED").apply(); structuredEpoch++;machine.startStructured(); ingestCalendar(); if (background) open() } }
+    private fun ingestCalendar() {
+        if(calendarInFlight || !page() || !machine.active || machine.step !in setOf(EcrewAutomation.Step.OPEN_MY_SCHEDULE,EcrewAutomation.Step.STRUCTURED_CAPTURE)) return
+        val html=pendingCalendarHtml ?: return
+        pendingCalendarHtml=null
+        calendarInFlight=true
+        val epoch=structuredEpoch
+        pool.execute {
+            val parsed=runCatching { EcrewCalendarParser.parseHtml(html) }
+            val differentCrew=parsed.getOrNull()?.let { source -> RosterStore.load(c)?.crewId?.let { it!=source.roster.crewId } } == true
+            val category=if(differentCrew) "CREW_CONFIRMATION_REQUIRED" else parsed.exceptionOrNull()?.message?.takeIf { it.matches(Regex("[A-Z_]{1,64}")) } ?: "SOURCE_VALIDATION_FAILED"
+            val accepted=parsed.getOrNull()?.let { source ->
+                allowed() && epoch==structuredEpoch && machine.active && machine.step in setOf(EcrewAutomation.Step.OPEN_MY_SCHEDULE,EcrewAutomation.Step.STRUCTURED_CAPTURE) && RosterStore.acceptStructured(c,source,interactive=!background)
+            } ?: false
+            main.post {
+                calendarInFlight=false
+                if(!page() || epoch!=structuredEpoch) { ingestCalendar();return@post }
+                if(accepted) { pendingCalendarHtml=null;calendarCommitted=true }
+                RosterStore.prefs(c).edit().putString("fetchStatus",if(accepted) "ROSTER_COMMITTED" else category).apply()
+                log("STRUCTURED_IMPORT",if(accepted) "ROSTER_COMMITTED" else category)
+                if(accepted) machine.structuredCommitted()
+            }
+        }
+    }
+    override fun reload() { if (allowed() && ready && !loggingOut) { structuredEpoch++;pendingCalendarHtml=null;machine.stop(reason = "explicit reload"); session.reload() } }
     override fun back(): Boolean { if (!allowed() || !canBack || !ready) return false; session.goBack(); return true }
     override fun probeFromTap() {
         if (!EcrewProbePolicy.allowed(true, url) || !page()) { Toast.makeText(c, "Run probe on an eCrew Dashboard page", Toast.LENGTH_LONG).show(); return }
@@ -527,6 +572,7 @@ private class GeckoRosterBrowser(private val c: Context, private val runtime: Ge
         if (!page() || frames.top() == null || background) return
         main.removeCallbacks(autoFetch); autoFetchPending = false; autoStarted = true
         machine.stop(reason = "explicit logout tap; waiting for Login")
+        structuredEpoch++;pendingCalendarHtml=null
         loggingOut = true; RosterWork.cancel(c); logoutOrder.begin(SystemClock.elapsedRealtime())
         frames.top()?.postMessage(JSONObject().put("command", "logout").put("request", machine.request))
         main.postDelayed(logoutTimeout, 10_000)

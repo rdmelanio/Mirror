@@ -28,3 +28,8 @@ for line in workflow.splitlines():
         assert re.search(r'@[0-9a-f]{40} #',line), 'Mutable action reference: '+line
 assert 'Verify downloaded candidate before publishing' in publish
 print('Read-only verification, dependent publication and immutable action references verified')
+
+props=dict(line.split('=',1) for line in (root/'version.properties').read_text().splitlines() if '=' in line)
+heading=re.search(r'## Mirror ([0-9.]+) \(([0-9]+)\)',workflow)
+assert heading and heading.group(1)==props['mirrorVersionName'] and heading.group(2)==props['mirrorVersionCode'], 'Release body version drift'
+print('Release body matches version.properties')

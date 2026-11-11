@@ -22,7 +22,7 @@ class StructuredRosterTest {
   var time=0L;val results=mutableListOf<Boolean>();val commands=mutableListOf<String>()
   val a=EcrewAutomation({time},{c,_->commands.add(c)},{},{s,_->results.add(s)})
   a.startStructured();a.tick();a.response(a.request,"schedule");a.scheduleDataSaved();a.tick()
-  assertFalse(commands.contains("print"));assertTrue(commands.contains("storageSnapshot"))
+  assertFalse(commands.contains("print"));assertTrue(commands.contains("calendarSnapshot"))
   time=60001;a.tick();assertEquals(listOf(false),results)
  }
 }

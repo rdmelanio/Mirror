@@ -204,8 +204,21 @@
     if (item) { flyoutClicked = click('My Schedule', item); return; }
     if (tries < 9) setTimeout(() => quickFlyout(id, tries + 1), 100);
   };
+  const deliveredCalendars = new WeakSet();
+  const calendarSnapshot = id => {
+    if (suspended) return;
+    for (const root of allDocs()) {
+      if (!root.doc || !/^\/ecrew\/crewschedule\/?$/i.test(root.path) || deliveredCalendars.has(root.doc)) continue;
+      const script = Array.from(root.doc.querySelectorAll('script')).map(e => e.textContent || '')
+        .find(t => /\bvar\s+Events\s*=\s*\[/.test(t) && /localStorage\[['"]PublishEnd['"]\]/.test(t));
+      if (!script || new TextEncoder().encode(script).length > 1024 * 1024) continue;
+      deliveredCalendars.add(root.doc);
+      send({kind:'calendarHtml', request:id, path:root.path, body:script});
+    }
+  };
   port.onMessage.addListener(message => {
     if (!safe() || stopped || !message || typeof message.command !== 'string') return;
+    if (message.command === 'calendarSnapshot') { calendarSnapshot(message.request); return; }
     if (message.command === 'snapshot') { send(snapshot()); return; }
     if (message.command === 'storageSnapshot') { storageSnapshot('fetch end'); return; }
     if (message.command === 'pause') { suspended = true; return; }
